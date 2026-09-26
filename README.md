@@ -35,7 +35,8 @@ npm start            # Express serves the API + static app on :4000
 The root `vercel.json` builds the Vite client and routes `/api/*` requests to the
 Express API function. Import this repository in Vercel with the project root set
 to the repository root; the configured build command and output directory are
-`npm run build` and `client/dist`.
+`npm run build` and `client/dist`. The server workspace's build script validates
+its JavaScript syntax for deployments that run workspace build scripts.
 
 To enable the live NASA NEO feed in production, add `NASA_API_KEY` as an
 environment variable in the Vercel project settings and redeploy. The app works
