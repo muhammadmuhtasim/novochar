@@ -42,9 +42,9 @@ export function starField(seed = 7, count = 900) {
 // Returns { ra, dec } in degrees, or null when nothing valid is found.
 export function parseCoordInput(raw) {
   if (!raw || typeof raw !== 'string') return null;
-  const toks = (raw.match(/([-−]?\d+(?:\.\d+)?)\s*[hHdDmMsS°]?/g) || [])
+  const toks = (raw.match(/([-−]?\d+(?:\.\d+)?)\s*[hHdDmMsS°'′"″]?/g) || [])
     .map((t) => {
-      const m = t.match(/([-−]?\d+(?:\.\d+)?)\s*([hHdDmMsS°]?)/);
+      const m = t.match(/([-−]?\d+(?:\.\d+)?)\s*([hHdDmMsS°'′"″]?)/);
       if (!m) return null;
       return { v: Number(m[1].replace(/−/g, '-')), u: (m[2] || '').toLowerCase() };
     })
@@ -59,10 +59,10 @@ export function parseCoordInput(raw) {
     return { ra: norm(toks[0].v), dec: clamp(toks[1].v) };
   }
 
-  // Sexagesimal. Split into RA and Dec parts — at the "d" marker if present,
+  // Sexagesimal. Split into RA and Dec parts — at the "d"/"°" marker if present,
   // otherwise by assuming plain groups are RA h m s then Dec d m s.
   let raToks; let decToks;
-  const dIdx = toks.findIndex((t) => t.u === 'd');
+  const dIdx = toks.findIndex((t) => t.u === 'd' || t.u === '°');
   if (dIdx !== -1) {
     raToks = toks.slice(0, dIdx);
     decToks = toks.slice(dIdx);

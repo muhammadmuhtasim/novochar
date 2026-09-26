@@ -38,11 +38,13 @@ export default function BlinkComparator({ objects, presetId = null }) {
   useEffect(() => {
     playRef.current = playing;
     if (!playing || !frames.length) return;
-    const timer = setInterval(() => setIdx((idx + 1) % frames.length), 240);
+    // Functional update so the 240 ms cadence stays steady across frames instead
+    // of being reset (and drifting) on every tick because `idx` changed.
+    const timer = setInterval(() => setIdx((i) => (i + 1) % frames.length), 240);
     return () => clearInterval(timer);
-  }, [playing, frames.length, idx]);
+  }, [playing, frames.length]);
 
-  const step = (d) => setIdx((idx + d + frames.length) % frames.length);
+  const step = (d) => { if (!frames.length) return; setIdx((idx + d + frames.length) % frames.length); };
   const select = (e) => { setPlaying(false); setSel(e.target.value); };
 
   return (
