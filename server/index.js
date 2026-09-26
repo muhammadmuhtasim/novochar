@@ -65,7 +65,7 @@ app.get('/api/objects/:id/blink', (req, res) => {
 
 app.get('/api/nasa/neo', async (req, res) => {
   try {
-    const data = await fetchNEO(NASA_API_KEY || req.query.api_key);
+    const data = await fetchNEO(NASA_API_KEY);
     res.json(data);
   } catch (err) {
     res.status(502).json({ error: err.message });
