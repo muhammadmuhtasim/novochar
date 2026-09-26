@@ -114,6 +114,22 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
   font-size: 11px;
   color: var(--muted);
 }
+.nav-repo {
+  color: var(--neon);
+  border: 1px solid var(--neon-soft);
+  border-radius: 3px;
+  padding: 6px 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-repo:hover, .nav-repo:focus-visible {
+  color: var(--text);
+  background: rgba(255,106,0,0.12);
+  outline: none;
+}
 .pulse-dot {
   width: 8px;
   height: 8px;
@@ -583,4 +599,11 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
   .panel.wide { grid-column: span 1; }
   .hero-title { font-size: 30px; }
   .search { width: 100%; }
+}
+@media (max-width: 480px) {
+  .nav { gap: 10px; padding: 10px 12px; }
+  .nav-brand { gap: 8px; min-width: 0; }
+  .brand-sub { font-size: 9px; }
+  .nav-status { display: none; }
+  .nav-repo { padding: 5px 7px; font-size: 10px; white-space: nowrap; }
 }

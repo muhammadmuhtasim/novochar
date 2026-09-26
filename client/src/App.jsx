@@ -94,6 +94,15 @@ function Navbar({ tab, setTab, stats }) {
           {stats ? `${stats.completedPasses}/${stats.passes} passes` : 'LINK…'}
         </span>
       </div>
+      <a
+        className="nav-repo"
+        href="https://github.com/muhammadmuhtasim/novochar"
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Novochar GitHub repository (opens in a new tab)"
+      >
+        GITHUB ↗
+      </a>
     </header>
   );
 }
