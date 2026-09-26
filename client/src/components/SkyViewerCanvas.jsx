@@ -155,6 +155,15 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
 
     canvasRef.current.action = (cmd) => {
       if (cmd === 'reset') { state.current = { cx: 0.5, cy: 0.5, zoom: 1, drag: null }; draw(); }
+      if (cmd && cmd.mode === 'focus') {
+        const { ra, dec, zoom } = cmd;
+        const { nx, ny } = raDecToNormalized(ra, dec, field);
+        state.current.cx = Math.min(1, Math.max(0, nx));
+        state.current.cy = Math.min(1, Math.max(0, ny));
+        state.current.zoom = Math.min(60, Math.max(1, zoom || 3));
+        state.current.drag = null;
+        draw();
+      }
     };
 
     canvas.addEventListener('mousedown', onDown);

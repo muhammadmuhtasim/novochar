@@ -29,14 +29,24 @@ app.get('/api/health', (req, res) => {
 app.get('/api/survey', (req, res) => res.json({ survey, passes }));
 
 app.get('/api/objects', (req, res) => {
-  const { type, q } = req.query;
+  const { type, q, band } = req.query;
   let list = objects;
   if (type && type !== 'ALL') list = list.filter((o) => o.type === type);
+  if (band && band !== 'ALL') {
+    const b = Number(band);
+    list = list.filter((o) => o.bandIndex === b);
+  }
   if (q) {
     const term = q.toLowerCase();
     list = list.filter((o) => o.id.toLowerCase().includes(term) || o.name.toLowerCase().includes(term));
   }
   res.json({ count: list.length, objects: list });
+});
+
+app.get('/api/presets', (req, res) => {
+  const all = generateSurvey().presets;
+  const list = Object.values(all);
+  res.json({ count: list.length, presets: all, list });
 });
 
 app.get('/api/objects/:id', (req, res) => {

@@ -14,11 +14,13 @@ export const api = {
   objects: (params = {}) => {
     const qs = new URLSearchParams();
     if (params.type && params.type !== 'ALL') qs.set('type', params.type);
+    if (params.band && params.band !== 'ALL') qs.set('band', params.band);
     if (params.q) qs.set('q', params.q);
     return getJSON(`/objects${qs.toString() ? `?${qs}` : ''}`);
   },
   object: (id) => getJSON(`/objects/${id}`),
   blink: (id, count = 18) => getJSON(`/objects/${id}/blink?count=${count}`),
+  presets: () => getJSON('/presets'),
   neo: (key) => getJSON(`/nasa/neo${key ? `?api_key=${encodeURIComponent(key)}` : ''}`),
 };
 

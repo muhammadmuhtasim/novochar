@@ -3,8 +3,8 @@ import { api } from '../lib/api.js';
 import BlinkDraw from './BlinkDraw.jsx';
 import Readout from './Readout.jsx';
 
-export default function BlinkComparator({ objects }) {
-  const [sel, setSel] = useState(objects.length ? objects[0].id : null);
+export default function BlinkComparator({ objects, presetId = null }) {
+  const [sel, setSel] = useState(presetId || (objects.length ? objects[0].id : null));
   const [frames, setFrames] = useState([]);
   const [meta, setMeta] = useState(null);
   const [idx, setIdx] = useState(0);
@@ -26,6 +26,14 @@ export default function BlinkComparator({ objects }) {
   useEffect(() => {
     if (!sel && objects.length) setSel(objects[0].id);
   }, [objects, sel]);
+
+  // Honour a deep-linked presetId (arrives after the catalogue loads).
+  const prevPreset = useRef(null);
+  useEffect(() => {
+    if (!presetId || presetId === prevPreset.current) return;
+    prevPreset.current = presetId;
+    if (objects.some((o) => o.id === presetId)) setSel(presetId);
+  }, [presetId, objects]);
 
   useEffect(() => {
     playRef.current = playing;

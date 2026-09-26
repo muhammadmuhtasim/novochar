@@ -20,8 +20,17 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [health, setHealth] = useState(null);
   const [objects, setObjects] = useState([]);
+  const [target, setTarget] = useState(null); // { tab, id } deep-link to a candidate
 
   const setTab = (t) => {
+    setTabRaw(t);
+    setTarget(null); // plain nav clears any deep-link target
+    try { location.hash = t; } catch (_) {}
+  };
+
+  // Navigate to a tab and pre-select a target candidate (e.g. from a preset).
+  const goToTarget = (t, id) => {
+    setTarget(id ? { tab: t, id } : null);
     setTabRaw(t);
     try { location.hash = t; } catch (_) {}
   };
@@ -41,18 +50,21 @@ export default function App() {
       .catch(() => {});
     window.addEventListener('hashchange', () => {
       const t = location.hash.replace('#', '');
-      if (TABS.some((x) => x.id === t)) setTabRaw(t);
+      if (TABS.some((x) => x.id === t)) { setTabRaw(t); setTarget(null); }
     });
   }, []);
+
+  const skyPreset = tab === 'sky' && target ? target.id : null;
+  const blinkPreset = tab === 'blink' && target ? target.id : null;
 
   return (
     <div className="shell">
       <div className="bg fx" />
       <Navbar tab={tab} setTab={setTab} stats={stats} />
       <main className="view">
-        {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
-        {tab === 'sky' && <SkyViewer objects={objects} />}
-        {tab === 'blink' && <BlinkComparator objects={objects} />}
+        {tab === 'home' && <Home stats={stats} health={health} objects={objects} onNavigate={setTab} onTarget={goToTarget} />}
+        {tab === 'sky' && <SkyViewer objects={objects} presetId={skyPreset} onTarget={goToTarget} />}
+        {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} />}
         {tab === 'catalogue' && <Catalogue objects={objects} />}
         {tab === 'sources' && <DataSources />}
       </main>

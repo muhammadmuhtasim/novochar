@@ -19,6 +19,18 @@ const TYPES = {
   HPM: 'High Proper-Motion Star',
 };
 
+// SPHEREx observes the sky in six near-infrared spectral bands spanning
+// 0.75-5.0 µm (96 wavelength channels grouped into these passes). Each tracked
+// candidate is assigned a dominant detection band.
+export const SPHEREX_BANDS = [
+  { index: 1, label: 'Band 1 · 0.75–1.11 µm' },
+  { index: 2, label: 'Band 2 · 1.11–1.64 µm' },
+  { index: 3, label: 'Band 3 · 1.64–2.42 µm' },
+  { index: 4, label: 'Band 4 · 2.42–3.82 µm' },
+  { index: 5, label: 'Band 5 · 3.82–4.42 µm' },
+  { index: 6, label: 'Band 6 · 4.42–5.00 µm' },
+];
+
 const PASS_NAMES = [
   'SPX-ORBIT-01',
   'SPX-ORBIT-02',
@@ -51,6 +63,7 @@ export function generateSurvey() {
       epochISO: new Date(dateEpoch).toISOString(),
       epochJD: 2461000 + i * 8.5,
       band: ['0.75-2.4 µm', '0.75-5 µm', '1.1-3.0 µm'][i % 3],
+      bandIndex: 1 + (i % 6),
       ra: FIELD.raCenter + (rand() - 0.5) * FIELD.raHalf,
       dec: FIELD.decCenter + (rand() - 0.5) * FIELD.decHalf,
       fov: 0.43 + rand() * 0.2,
@@ -83,11 +96,19 @@ export function generateSurvey() {
     const name = names[i % names.length];
     const discoveryPass = passes[Math.floor(rand() * passes.length)];
 
+    // Dominant detection band. Cooler/browner sources (HPM dwarfs, distant TNOs)
+    // tend to peak redder, so we bias later bands for them.
+    const bandBias = type === 'TNO' ? 1 : type === 'HPM' ? 1.5 : 0;
+    const bandIndex = 1 + Math.floor(Math.min(5, Math.max(0, rand() * 4 + bandBias)));
+    const band = SPHEREX_BANDS[bandIndex - 1];
+
     objects.push({
       id,
       name,
       type,
       typeLabel: TYPES[type],
+      bandIndex,
+      band: band.label,
       ra,
       dec,
       mag: Math.round(baseMag * 10) / 10,
@@ -115,7 +136,51 @@ export function generateSurvey() {
     });
   }
 
-  return { survey: { field: FIELD, mission: 'SPHEREx' }, passes, objects };
+  return { survey: { field: FIELD, mission: 'SPHEREx' }, passes, objects, presets: buildPresets(objects) };
+}
+
+// Curated quick-launch targets so judges/jurors can immediately test the blink
+// workflow without look-ups. Each presets maps to a real generated catalogue
+// object of the matching class.
+export function buildPresets(objects) {
+  const pick = (type, sortKey = 'motion', dir = -1) => {
+    const pool = objects.filter((o) => o.type === type);
+    if (!pool.length) return null;
+    return [...pool].sort((a, b) => (a[sortKey] - b[sortKey]) * dir)[0];
+  };
+
+  const asteroid = pick('AST'); // fastest mover = clear parallax/asteroid track
+  const dwarf = pick('HPM'); // high proper-motion, constant-flux brown-dwarf candidate
+  const tno = pick('TNO'); // distant trans-Neptunian ~ Planet X candidate zone
+
+  const summarize = (o) => (o ? { id: o.id, name: o.name, type: o.type, typeLabel: o.typeLabel, ra: o.ra, dec: o.dec, mag: o.mag, motion: o.motion, motionUnits: o.motionUnits, band: o.band, bandIndex: o.bandIndex, status: o.status } : null);
+
+  return {
+    sample: {
+      key: 'sample-asteroid',
+      code: 'AST-TRACK',
+      label: 'Sample Asteroid Track',
+      blurb: 'Fast main-belt candidate — watch its centroid march between survey passes.',
+      type: 'AST',
+      target: summarize(asteroid),
+    },
+    dwarf: {
+      key: 'known-brown-dwarf',
+      code: 'BD-CAND',
+      label: 'Known Brown Dwarf',
+      blurb: 'High proper-motion, constant-flux dwarf sweeping the field redward.',
+      type: 'HPM',
+      target: summarize(dwarf),
+    },
+    tx9: {
+      key: 'planet-x-zone',
+      code: 'P9-ZONE',
+      label: 'Planet X Candidate Zone',
+      blurb: 'Distant TNO belt where a perturber ("Planet X") may reveal itself as a slow mover.',
+      type: 'TNO',
+      target: summarize(tno),
+    },
+  };
 }
 
 // Build a time-series of "blink frames" for one object across the survey passes.
@@ -138,6 +203,8 @@ export function buildFrames(object, passes, count = 18) {
       passCode: p.code,
       epochISO: p.epochISO,
       epochJD: p.epochJD,
+      bandIndex: p.bandIndex !== undefined ? p.bandIndex : 1 + (i % 6),
+      band: (p.bandIndex !== undefined ? SPHEREX_BANDS[p.bandIndex - 1] : SPHEREX_BANDS[i % 6]).label,
       ra: object.ra + dRA * 0.9 + noise * 0.35,
       dec: object.dec + dDec * 0.9 + noise * 0.35,
       measuredMag: object.mag + (rand() - 0.5) * 0.4,

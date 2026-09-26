@@ -47,9 +47,9 @@ without it using the simulated survey data.
 
 | View             | What it does |
 |------------------|--------------|
-| **MISSION**      | Home / mission HUD: SPHEREx survey-pass progress, counts, field coords, class cards |
-| **SKY VIEWER**   | Interactive pan/zoom star map with candidate markers; click to inspect astrometry |
-| **BLINK COMPARATOR** | Time-series blink across survey passes to spot movers; motion trails + readout |
+| **MISSION**      | Home / mission HUD with an **interactive live sky preview** + curated presets; survey-pass progress, counts, field coords, class cards |
+| **SKY VIEWER**   | Interactive pan/zoom star map with candidate markers; **6-band SPHEREx filter**, **RA/Dec or name coordinate search**, and one-click **sample-target presets** |
+| **BLINK COMPARATOR** | Time-series blink across survey passes to spot movers; motion trails + readout (per-pass spectral band shown) |
 | **CATALOGUE**    | Filterable / sortable table of tracked objects with detail drawer |
 | **DATA SOURCES** | NASA data-source cards + optional live NEO feed |
 
@@ -80,9 +80,10 @@ NASA_API_KEY=your_key_here npm run dev
 GET /api/health
 GET /api/survey
 GET /api/stats
-GET /api/objects?type=TNO&q=...
+GET /api/objects?type=TNO&band=3&q=...
 GET /api/objects/:id
 GET /api/objects/:id/blink?count=18
+GET /api/presets          (curated quick-launch targets for the blink workflow)
 GET /api/nasa/neo
 ```
 
