@@ -1,0 +1,20 @@
+{
+  "name": "novochar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Novochar (নভোচার) — interactive sky viewer and time-series blink comparator for candidate TNOs, asteroids and high proper-motion stars across SPHEREx survey passes.",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
