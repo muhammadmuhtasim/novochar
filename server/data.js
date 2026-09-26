@@ -232,7 +232,23 @@ export async function fetchNEO(key) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`NASA API returned ${res.status}`);
   const json = await res.json();
-  return { source: 'nasa', near_earth_objects: json.near_earth_objects || json };
+  const neos = json.near_earth_objects || json;
+  return {
+    source: 'nasa',
+    near_earth_objects: neos.map((neo) => ({
+      neo_reference_id: neo.neo_reference_id,
+      name: neo.name,
+      absolute_magnitude_h: neo.absolute_magnitude_h,
+      estimated_diameter_max:
+        neo.estimated_diameter?.kilometers?.estimated_diameter_max ?? neo.estimated_diameter_max,
+      is_potentially_hazardous_asteroid: neo.is_potentially_hazardous_asteroid,
+      close_approach: Array.isArray(neo.close_approach_data)
+        ? neo.close_approach_data.map((approach) => ({
+            distance_lunar: approach.miss_distance?.lunar,
+          }))
+        : neo.close_approach,
+    })),
+  };
 }
 
 function generateSampleNEO() {
