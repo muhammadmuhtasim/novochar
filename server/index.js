@@ -3,6 +3,16 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { generateSurvey, buildFrames, fetchNEO } from './data.js';
+import { buildSpectrum } from './spectra.js';
+import { buildHeatmap } from './heatmap.js';
+import {
+  tapQuery,
+  querySIA2,
+  querySSA,
+  resolveObject,
+  IVOA_REGISTRY,
+  IVOA_LABEL,
+} from './ivoa/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4000;
@@ -82,6 +92,77 @@ app.get('/api/stats', (req, res) => {
     progresses: passes.map((p) => p.completion),
     fastMovers: objects.filter((o) => o.motion > 40).length,
   });
+});
+
+// --- Layer 4: Data Representation ------------------------------------------
+// SED / spectra for a tracked candidate (deterministic, overlayable photometry).
+app.get('/api/spectra/:id', (req, res) => {
+  const obj = objects.find((o) => o.id === req.params.id);
+  if (!obj) return res.status(404).json({ error: 'object not found' });
+  res.json({ sed: buildSpectrum(obj) });
+});
+
+// HEALPix density footprint of the tracked field.
+app.get('/api/field/heatmap', (req, res) => {
+  const nside = Math.min(1024, Math.max(1, parseInt(req.query.nside || '64', 10)));
+  res.json(buildHeatmap(objects, nside));
+});
+
+// --- Layer 1: IVOA Ingestion (registry + live/fallback queries) ------------
+app.get('/api/ivoa', (_req, res) =>
+  res.json({
+    protocol: 'IVOA (TAP / SIA2 / SSA / Sesame)',
+    registry: IVOA_REGISTRY,
+    labels: IVOA_LABEL,
+    note: 'Layer 1 ingestion — Node clients, no Python runtime.',
+  })
+);
+
+app.get('/api/ivoa/resolve', async (req, res) => {
+  const { name, service = 'simbad' } = req.query;
+  if (!name) return res.status(400).json({ error: 'query param `name` is required' });
+  try {
+    res.json(await resolveObject(name, { service }));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/ivoa/tap', async (req, res) => {
+  const { endpoint = 'vizier', query, limit } = req.query;
+  if (!query) return res.status(400).json({ error: 'query param `query` (ADQL) is required' });
+  try {
+    const out = await tapQuery({
+      endpoint,
+      query,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+    res.json({ count: out.rows.length, rows: out.rows.slice(0, 500), endpoint: out.endpoint, query: out.query });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/ivoa/sia2', async (req, res) => {
+  const { endpoint = 'irsa', pos, size } = req.query;
+  if (!pos) return res.status(400).json({ error: 'query param `pos` ("ra dec") is required' });
+  try {
+    const out = await querySIA2({ endpoint, pos, size: size ? parseFloat(size) : undefined });
+    res.json({ count: out.rows.length, rows: out.rows.slice(0, 200), first: out.first });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/ivoa/ssa', async (req, res) => {
+  const { endpoint = 'mast', pos, size } = req.query;
+  if (!pos) return res.status(400).json({ error: 'query param `pos` ("ra dec") is required' });
+  try {
+    const out = await querySSA({ endpoint, pos, size: size ? parseFloat(size) : undefined });
+    res.json({ count: out.rows.length, rows: out.rows.slice(0, 200) });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 // In production, serve the built React app alongside the API.

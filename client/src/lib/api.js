@@ -22,6 +22,10 @@ export const api = {
   blink: (id, count = 18) => getJSON(`/objects/${id}/blink?count=${count}`),
   presets: () => getJSON('/presets'),
   neo: (key) => getJSON(`/nasa/neo${key ? `?api_key=${encodeURIComponent(key)}` : ''}`),
+  spectra: (id) => getJSON(`/spectra/${id}`),
+  fieldHeatmap: (nside = 64) => getJSON(`/field/heatmap?nside=${nside}`),
+  ivoa: () => getJSON('/ivoa'),
+  ivoaResolve: (name, service = 'simbad') => getJSON(`/ivoa/resolve?name=${encodeURIComponent(name)}${service ? `&service=${service}` : ''}`),
 };
 
 export function fmtRA(ra) {

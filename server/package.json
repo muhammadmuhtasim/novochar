@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "node index.js",
     "build": "node --check index.js && node --check data.js",
-    "start": "NODE_ENV=production node index.js"
+    "start": "NODE_ENV=production node index.js",
+    "test": "node --test astro/healpix.test.js astro/coords.test.js astro/crossmatch.test.js astro/index.test.js ivoa/votable.test.js ivoa/ivoa.test.js spectra.test.js api.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

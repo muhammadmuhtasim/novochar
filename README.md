@@ -68,6 +68,39 @@ server/data.js   ->  generateSurvey()   (passes + object catalogue)
                  ->  fetchNEO(key)      (optional live NASA NEO API)
 ```
 
+### Processing & matching layer (`server/astro/`)
+
+Reusable, dependency-free astronomy utilities implementing the plan's
+**Processing/Matching layer** — coordinate conversion and HEALPix spatial
+cross-matching for sources arriving from heterogeneous archives (IRSA / MAST /
+HEASARC / VizieR / SIMBAD …) in RA/Dec:
+
+```
+server/astro/
+  coords.js     RA/Dec <-> Galactic (astropy-exact matrix) + great-circle separation
+  healpix.js    HEALPix ring & nest: ang2pix / pix2ang / ring<->nest (Healpy-exact)
+  crossmatch.js HEALPix-indexed cross-match, cone search, k-nearest neighbours
+  index.js      public API (convertCoordinates, separationArcsec, …)
+```
+
+Validated against Healpy / astropy reference values (ring/polar anchors, nest
+pixel-centre oracles, `pix2ang(16,1440)`, `ring2nest(16,1504)=1130`) and an
+exhaustive `ang2pix(pix2ang(p)) == p` round-trip on every pixel for
+nside ≤ 32. Run the suite (Node built-in test runner, no extra deps):
+
+```bash
+npm test -w server
+```
+
+Example:
+
+```js
+import { convertCoordinates, crossmatch } from './astro/index.js';
+
+const row = convertCoordinates(266.405, -28.936, 64); // -> {galactic:{l,b}, healpix:{pixel,center}}
+const pairs = crossmatch(detections, referenceCatalogue, { radiusArcsec: 3 });
+```
+
 To use the live NEO endpoint set a free NASA API key:
 
 ```bash

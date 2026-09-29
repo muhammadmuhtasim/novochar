@@ -6,12 +6,14 @@ import SkyViewer from './components/SkyViewer.jsx';
 import BlinkComparator from './components/BlinkComparator.jsx';
 import Catalogue from './components/Catalogue.jsx';
 import DataSources from './components/DataSources.jsx';
+import SpectraView from './components/SpectraView.jsx';
 
 const TABS = [
   { id: 'home', label: 'MISSION', icon: '◉' },
   { id: 'sky', label: 'SKY VIEWER', icon: '⌖' },
   { id: 'blink', label: 'BLINK COMPARATOR', icon: '⧗' },
   { id: 'catalogue', label: 'CATALOGUE', icon: '≋' },
+  { id: 'spectra', label: 'SPECTRA', icon: '∿' },
   { id: 'sources', label: 'DATA SOURCES', icon: '☍' },
 ];
 
@@ -66,6 +68,7 @@ export default function App() {
         {tab === 'sky' && <SkyViewer objects={objects} presetId={skyPreset} onTarget={goToTarget} />}
         {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} />}
         {tab === 'catalogue' && <Catalogue objects={objects} />}
+        {tab === 'spectra' && <SpectraView objects={objects} presetId={target && target.tab === 'spectra' ? target.id : null} />}
         {tab === 'sources' && <DataSources />}
       </main>
       <Ticker />
