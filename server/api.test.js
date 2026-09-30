@@ -52,6 +52,15 @@ test('GET /api/field/heatmap clamps nside', async () => {
   assert.ok(hm.nside <= 1024);
 });
 
+test('GET /api/objects/:id/blink returns frames for the selected object', async () => {
+  const res = await fetch(`${base}/api/objects/NC-001/blink?count=6`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.object.id, 'NC-001');
+  assert.equal(data.frames.length, 6);
+  assert.ok(data.frames[0].epochISO);
+});
+
 test('GET /api/ivoa exposes the registry', async () => {
   const res = await fetch(`${base}/api/ivoa`);
   const j = await res.json();
