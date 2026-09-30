@@ -240,6 +240,18 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
 .pill.candidate { color: var(--neon2); background: rgba(255,134,24,0.14); }
 .pill.confirmed { color: #38d17a; background: rgba(56,209,122,0.14); border: 1px solid rgba(56,209,122,0.4); }
 .flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.gaia-controls { align-items: end; flex-wrap: wrap; }
+.gaia-controls .tb-group { display: grid; gap: 5px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.gaia-controls .search { min-width: 160px; }
+.gaia-controls .gaia-number { min-width: 92px; width: 100px; }
+.gaia-caption { margin: 9px 0; }
+.gaia-plot-wrap { margin: 12px 0; border: 1px solid var(--line); background: #07090b; }
+.gaia-motion-plot { display: block; width: 100%; height: auto; max-height: 360px; }
+.gaia-motion-plot > rect { fill: #07090b; }
+.gaia-plot-label { fill: var(--muted); font: 10px var(--mono); }
+.gaia-vector line { stroke: #8de1c0; stroke-width: 1.4; }
+.gaia-vector path { fill: #8de1c0; }
+.gaia-vector circle { fill: var(--amber); stroke: #fff1d2; stroke-width: 0.7; }
 .chip-type { font-family: var(--mono); font-weight: 700; }
 
 /* ---- home grid ---- */

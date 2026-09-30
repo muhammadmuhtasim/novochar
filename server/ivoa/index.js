@@ -11,6 +11,7 @@ export * from './ssa.js';
 export * from './resolver.js';
 export * from './registry.js';
 export * from './probe.js';
+export * from './gaia.js';
 
 import { ARCHIVES, ARCHIVE_KEYS, PROTOCOL_LABEL } from './registry.js';
 

@@ -70,14 +70,12 @@ test('no TABLEDATA means no rows', () => {
 });
 
 test('queryStatus extracts the VOTable QUERY_STATUS', () => {
-  const { queryStatus } = await import('./votable.js');
   assert.equal(queryStatus('<VOTABLE><RESOURCE><INFO name="QUERY_STATUS" value="OK"/></RESOURCE></VOTABLE>'), 'OK');
   assert.equal(queryStatus('<VOTABLE><RESOURCE><INFO name="QUERY_STATUS" value="ERROR">bad</INFO></RESOURCE></VOTABLE>'), 'ERROR');
   assert.equal(queryStatus('<VOTABLE/>'), null);
 });
 
 test('decodeBinaryRows decodes BINARY2 (big-endian) fixed rows', () => {
-  const { decodeBinaryRows } = await import('./votable.js');
   const fields = [
     { name: 'id', datatype: 'long', arraysize: null },
     { name: 'ra', datatype: 'double', arraysize: null },
@@ -93,6 +91,25 @@ test('decodeBinaryRows decodes BINARY2 (big-endian) fixed rows', () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ra, 90.5);
   assert.equal(rows[0].dec, -20.25);
+});
+
+test('BINARY2 consumes row null flags and decodes 64-bit Gaia identifiers', () => {
+  const fields = [
+    { name: 'source_id', datatype: 'long', arraysize: null },
+    { name: 'ra', datatype: 'double', arraysize: null },
+    { name: 'pmra', datatype: 'double', arraysize: null },
+    { name: 'ref_epoch', datatype: 'double', arraysize: null },
+  ];
+  const buffer = new ArrayBuffer(33);
+  const bytes = new Uint8Array(buffer);
+  bytes[0] = 1 << (7 - 2);
+  const view = new DataView(buffer);
+  view.setBigInt64(1, 1234567890123456789n, false);
+  view.setFloat64(9, 84.25, false);
+  view.setFloat64(17, 0, false);
+  view.setFloat64(25, 2016, false);
+  const rows = decodeBinaryRows(Buffer.from(bytes).toString('base64'), fields, 'be', true);
+  assert.deepEqual(rows, [{ source_id: '1234567890123456789', ra: 84.25, pmra: null, ref_epoch: 2016 }]);
 });
 
 test('nested RESOURCE does not truncate the inner TABLE', () => {

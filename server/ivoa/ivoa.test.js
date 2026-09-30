@@ -14,6 +14,7 @@ import { firstTableRows } from './votable.js';
 const VOTABLE = `<?xml version="1.0"?>
 <VOTABLE version="1.4">
 <RESOURCE name="cats">
+<INFO name="QUERY_STATUS" value="OK"/>
 <TABLE>
 <FIELD name="objID" datatype="long"/>
 <FIELD name="ra" datatype="double" unit="deg"/>
@@ -136,4 +137,14 @@ test('probeArchive returns truthful probe results for a stubbed archive', async 
   assert.equal(out.protocols.tap.status, 'OK');
   assert.equal(out.protocols.tap.rows, 2);
   assert.equal(out.ok, true);
+});
+
+test('probeArchive does not count an empty TAP result as live data', async () => {
+  const { probeArchive } = await import('./probe.js');
+  const empty = '<VOTABLE><RESOURCE><INFO name="QUERY_STATUS" value="OK"/><TABLE><FIELD name="id" datatype="int"/><DATA><TABLEDATA></TABLEDATA></DATA></TABLE></RESOURCE></VOTABLE>';
+  const out = await probeArchive('vizier', { fetchImpl: stubFetch({ body: empty }) });
+  assert.equal(out.protocols.tap.status, 'OK');
+  assert.equal(out.protocols.tap.rows, 0);
+  assert.equal(out.protocols.tap.ok, false);
+  assert.equal(out.ok, false);
 });

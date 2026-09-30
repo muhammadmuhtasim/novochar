@@ -183,7 +183,7 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('click', onClick);
       window.removeEventListener('resize', resize);
-      delete canvasRef.current.action;
+      if (canvasRef.current) delete canvasRef.current.action;
     };
   }, [objects, field, selRef, onSelect, canvasRef, wrapRef]);
 

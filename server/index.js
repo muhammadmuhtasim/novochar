@@ -17,6 +17,7 @@ import {
   IVOA_LABEL,
   ARCHIVES,
   PROTOCOL_LABEL,
+  queryGaiaMotion,
 } from './ivoa/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -158,6 +159,19 @@ app.get('/api/ivoa/resolve', async (req, res) => {
     res.json(await resolveObject(name, { service }));
   } catch (err) {
     res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/ivoa/gaia/motion', async (req, res) => {
+  const { ra, dec, radius, epoch } = req.query;
+  if (ra == null || dec == null) {
+    return res.status(400).json({ error: 'query params `ra` and `dec` are required' });
+  }
+  try {
+    res.json(await queryGaiaMotion({ ra, dec, radius, targetEpoch: epoch }));
+  } catch (err) {
+    const status = err instanceof TypeError || err instanceof RangeError ? 400 : 502;
+    res.status(status).json({ error: err.message });
   }
 });
 

@@ -67,6 +67,17 @@ test('GET /api/ivoa/resolve requires a name param', async () => {
   assert.equal(res.status, 400);
 });
 
+test('GET /api/ivoa/gaia/motion validates required coordinates', async () => {
+  const res = await fetch(`${base}/api/ivoa/gaia/motion`);
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /ra.*dec/);
+});
+
+test('GET /api/ivoa/gaia/motion rejects invalid cone radius before network access', async () => {
+  const res = await fetch(`${base}/api/ivoa/gaia/motion?ra=10&dec=20&radius=5`);
+  assert.equal(res.status, 400);
+});
+
 test('GET /api/ivoa/... live queries fail gracefully under error', async () => {
   // A bad TAP endpoint URL triggers a network/parse error which the route turns
   // into a 502 rather than an unhandled crash.

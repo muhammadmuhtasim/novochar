@@ -102,9 +102,9 @@ function extractResourceBodies(xml) {
 }
 
 // --- BINARY (little-endian) + BINARY2 (big-endian) decoding ----------------
-const BINARY_SIZE = { boolean: 1, unsignedByte: 1, short: 2, int: 4, long: 4, longlong: 8, float: 4, double: 8 };
+const BINARY_SIZE = { boolean: 1, unsignedbyte: 1, short: 2, int: 4, long: 8, longlong: 8, float: 4, double: 8 };
 
-export function decodeBinaryRows(b64, fields, endian = 'le') {
+export function decodeBinaryRows(b64, fields, endian = 'le', binary2 = false) {
   if (!b64 || typeof atob === 'undefined') return [];
   const raw = Uint8Array.from(atob(b64.replace(/\s+/g, '')), (c) => c.charCodeAt(0));
   const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -123,9 +123,11 @@ export function decodeBinaryRows(b64, fields, endian = 'le') {
 
   const rows = [];
   let pos = 0;
-  while (pos + 1 < raw.length) {
+  const nullBytes = binary2 ? Math.ceil(fields.length / 8) : 0;
+  while (pos + nullBytes < raw.length) {
+    const nullFlags = binary2 ? raw.subarray(pos, pos + nullBytes) : null;
     const row = {};
-    let p = pos;
+    let p = pos + nullBytes;
     let ok = true;
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
@@ -133,9 +135,14 @@ export function decodeBinaryRows(b64, fields, endian = 'le') {
       const next = advance(f, p);
       if (next > raw.length) { ok = false; break; }
       try {
-        if (dt === 'double') row[(f.name) || `col${i}`] = dv.getFloat64(p, !be);
+        if (binary2 && (nullFlags[i >> 3] & (1 << (7 - (i & 7))))) row[(f.name) || `col${i}`] = null;
+        else if (dt === 'double') row[(f.name) || `col${i}`] = dv.getFloat64(p, !be);
         else if (dt === 'float') row[(f.name) || `col${i}`] = dv.getFloat32(p, !be);
-        else if (dt === 'long' || dt === 'int') row[(f.name) || `col${i}`] = dv.getInt32(p, !be);
+        else if (dt === 'long') {
+          const value = dv.getBigInt64 ? dv.getBigInt64(p, !be) : BigInt(dv.getInt32(p, !be)) * 4294967296n + BigInt(dv.getUint32(p + 4, !be));
+          row[(f.name) || `col${i}`] = value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
+        }
+        else if (dt === 'int') row[(f.name) || `col${i}`] = dv.getInt32(p, !be);
         else if (dt === 'short') row[(f.name) || `col${i}`] = dv.getInt16(p, !be);
         else if (dt === 'longlong') row[(f.name) || `col${i}`] = Number(dv.getBigInt64 ? dv.getBigInt64(p, !be) : (dv.getUint32(p, !be) + 4294967296 * dv.getUint32(p + 4, !be)));
         else if (dt === 'boolean') row[(f.name) || `col${i}`] = raw[p] !== 0;
@@ -173,7 +180,7 @@ export function parseVOTable(xml) {
     } else {
       const bin2 = /<BINARY2>[\s\S]*?<STREAM[^>]*encoding\s*=\s*(?:"base64"|'base64')[^>]*>([\s\S]*?)<\/STREAM\s*>/i.exec(body);
       const bin = /<BINARY>[\s\S]*?<STREAM[^>]*encoding\s*=\s*(?:"base64"|'base64')[^>]*>([\s\S]*?)<\/STREAM\s*>/i.exec(body);
-      if (bin2) { encoding = 'BINARY2'; rows = decodeBinaryRows(bin2[1], fields, 'be'); }
+      if (bin2) { encoding = 'BINARY2'; rows = decodeBinaryRows(bin2[1], fields, 'be', true); }
       else if (bin) { encoding = 'BINARY'; rows = decodeBinaryRows(bin[1], fields, 'le'); }
       else if (/<FITS/i.test(body)) { encoding = 'FITS'; }
       else { encoding = 'TABLEDATA'; rows = extractRows(body, fields); }

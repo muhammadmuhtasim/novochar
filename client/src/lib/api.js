@@ -26,6 +26,8 @@ export const api = {
   fieldHeatmap: (nside = 64) => getJSON(`/field/heatmap?nside=${nside}`),
   ivoa: () => getJSON('/ivoa'),
   ivoaProbe: () => getJSON('/ivoa/probe'),
+  ivoaGaiaMotion: (ra, dec, radius = 0.1, epoch = 2025) =>
+    getJSON(`/ivoa/gaia/motion?${new URLSearchParams({ ra, dec, radius, epoch })}`),
   ivoaTap: (archive, query, limit) =>
     getJSON(`/ivoa/tap?archive=${encodeURIComponent(archive)}&query=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`),
   ivoaTapTables: (archive) => getJSON(`/ivoa/tap/tables?archive=${encodeURIComponent(archive)}`),

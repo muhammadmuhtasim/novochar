@@ -94,6 +94,12 @@ export default function IvoaLab() {
   const [ssaArchive, setSsaArchive] = useState('eso');
   const [ssaRes, setSsaRes] = useState(null);
   const [ssaErr, setSsaErr] = useState('');
+  const [gaiaCenter, setGaiaCenter] = useState('266.405 -28.936');
+  const [gaiaRadius, setGaiaRadius] = useState('0.1');
+  const [gaiaEpoch, setGaiaEpoch] = useState('2025');
+  const [gaiaRes, setGaiaRes] = useState(null);
+  const [gaiaErr, setGaiaErr] = useState('');
+  const [gaiaBusy, setGaiaBusy] = useState(false);
 
   useEffect(() => {
     api.ivoa().then(setRegistry).catch(() => {});
@@ -132,6 +138,19 @@ export default function IvoaLab() {
   const onSsa = async () => {
     setSsaErr(''); setSsaRes(null);
     try { setSsaRes(await api.ivoaSsa(ssaArchive, pos)); } catch (e) { setSsaErr(e.message); }
+  };
+  const onGaiaMotion = async () => {
+    const coordinates = gaiaCenter.trim().split(/[\s,]+/).map(Number);
+    if (coordinates.length !== 2 || coordinates.some((value) => !Number.isFinite(value))) {
+      setGaiaErr('Enter center coordinates as RA and Dec in degrees.');
+      setGaiaRes(null);
+      return;
+    }
+    setGaiaBusy(true); setGaiaErr(''); setGaiaRes(null);
+    try {
+      setGaiaRes(await api.ivoaGaiaMotion(coordinates[0], coordinates[1], Number(gaiaRadius), Number(gaiaEpoch)));
+    } catch (e) { setGaiaErr(e.message || 'Gaia query failed'); }
+    finally { setGaiaBusy(false); }
   };
 
   const archives = (registry && registry.archives) || {};
@@ -224,6 +243,73 @@ export default function IvoaLab() {
         {ssaRes && <ResultTable rows={ssaRes.rows} fields={ssaRes.fields} maxCols={6} />}
         {ssaErr && <p className="muted err">{ssaErr}</p>}
       </section>
+
+      <section className="panel wide gaia-motion-panel">
+        <div className="panel-head"><h2>GAIA DR3 · PROPER MOTION</h2><span className="tag">LIVE ASTROMETRY</span></div>
+        <div className="toolbar gaia-controls">
+          <label className="tb-group">CENTER (RA DEC °)
+            <input className="search" value={gaiaCenter} onChange={(e) => setGaiaCenter(e.target.value)} aria-label="Gaia cone center right ascension and declination" />
+          </label>
+          <label className="tb-group">RADIUS (°)
+            <input className="search gaia-number" type="number" min="0.001" max="1" step="0.01" value={gaiaRadius} onChange={(e) => setGaiaRadius(e.target.value)} />
+          </label>
+          <label className="tb-group">PROJECT TO EPOCH
+            <input className="search gaia-number" type="number" min="1900" max="2200" step="1" value={gaiaEpoch} onChange={(e) => setGaiaEpoch(e.target.value)} />
+          </label>
+          <button className="btn" onClick={onGaiaMotion} disabled={gaiaBusy}>{gaiaBusy ? 'QUERYING…' : 'QUERY GAIA DR3'}</button>
+        </div>
+        <p className="muted gaia-caption">Cone-searches Gaia DR3 at its reference astrometry, then propagates each source to the selected Julian year using pmRA = μα cos δ and pmDec. Arrows show direction; their lengths are normalized for visibility.</p>
+        {gaiaErr && <p className="muted err">{gaiaErr}</p>}
+        {gaiaRes && (
+          <>
+            <StatusLine ok={gaiaRes.status === 'OK' && gaiaRes.count > 0} status={gaiaRes.status} count={gaiaRes.count} />
+            {gaiaRes.count > 0 && <GaiaMotionPlot rows={gaiaRes.rows} />}
+            <ResultTable rows={gaiaRes.rows} maxCols={14} maxRows={30} />
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function GaiaMotionPlot({ rows }) {
+  const plotted = rows.filter((row) => Number.isFinite(row.ra) && Number.isFinite(row.dec));
+  if (!plotted.length) return null;
+  const width = 760;
+  const height = 280;
+  const pad = 24;
+  const raMin = Math.min(...plotted.map((row) => row.ra));
+  const raMax = Math.max(...plotted.map((row) => row.ra));
+  const decMin = Math.min(...plotted.map((row) => row.dec));
+  const decMax = Math.max(...plotted.map((row) => row.dec));
+  const x = (ra) => pad + (raMax === raMin ? 0.5 : (ra - raMin) / (raMax - raMin)) * (width - pad * 2);
+  const y = (dec) => height - pad - (decMax === decMin ? 0.5 : (dec - decMin) / (decMax - decMin)) * (height - pad * 2);
+  const maxMotion = Math.max(1, ...plotted.map((row) => Math.hypot(Number(row.pmra) || 0, Number(row.pmdec) || 0)));
+
+  return (
+    <div className="gaia-plot-wrap">
+      <svg className="gaia-motion-plot" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Gaia DR3 source positions and proper motion directions">
+        <rect x="0" y="0" width={width} height={height} />
+        <text x={pad} y={15} className="gaia-plot-label">REFERENCE-POSITION FIELD · ICRS</text>
+        {plotted.map((row) => {
+          const px = x(row.ra);
+          const py = y(row.dec);
+          const eastMotion = Number(row.pmra) || 0;
+          const northMotion = Number(row.pmdec) || 0;
+          const length = 27 * Math.sqrt(Math.hypot(eastMotion, northMotion) / maxMotion);
+          const angle = Math.atan2(-northMotion, eastMotion);
+          const dx = Math.cos(angle) * length;
+          const dy = Math.sin(angle) * length;
+          return (
+            <g key={row.source_id} className="gaia-vector">
+              <line x1={px} y1={py} x2={px + dx} y2={py + dy} />
+              <path d={`M ${px + dx} ${py + dy} l ${-dx * 0.35 - dy * 0.2} ${-dy * 0.35 + dx * 0.2} l ${dy * 0.4} ${-dx * 0.4} z`} />
+              <circle cx={px} cy={py} r="2.5"><title>{row.source_id}: {row.displacementMas.toFixed(1)} mas to epoch {row.targetEpoch}</title></circle>
+            </g>
+          );
+        })}
+      </svg>
+      <p className="muted gaia-caption">{plotted.length} sources · coordinates plotted at Gaia reference epoch · endpoint propagation values are returned in the table</p>
     </div>
   );
 }

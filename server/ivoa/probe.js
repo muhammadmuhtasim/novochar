@@ -16,8 +16,10 @@ const PROBE_TIMEOUT = 20000;
 async function tryProbe(label, fn) {
   try {
     const r = await fn();
-    const ok = r.status ? r.status === 'OK' : r.rows.length > 0;
-    return { ok, status: r.status || 'n/a', rows: r.rows ? r.rows.length : 0, error: null };
+    const rows = Array.isArray(r.rows) ? r.rows.length : (r.found ? 1 : 0);
+    const status = r.status || (r.found ? 'OK' : 'n/a');
+    const ok = r.found === true || (rows > 0 && (!r.status || r.status === 'OK'));
+    return { ok, status, rows, error: null };
   } catch (err) {
     return { ok: false, status: 'ERROR', rows: 0, error: String(err.message || err).slice(0, 220) };
   }
