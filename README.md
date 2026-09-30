@@ -51,6 +51,7 @@ without it using the simulated survey data.
 | **SKY VIEWER**   | Interactive pan/zoom star map with candidate markers; **6-band SPHEREx filter**, **RA/Dec or name coordinate search**, and one-click **sample-target presets** |
 | **BLINK COMPARATOR** | Time-series blink across survey passes to spot movers; motion trails + readout (per-pass spectral band shown) |
 | **CATALOGUE**    | Filterable / sortable table of tracked objects with detail drawer |
+| **SPECTRA**      | SED & spectra view: multi-band UV→NIR photometric points + continuum curve (asinh/log), synthetic PSF **image cutout**, and a HEALPix **density heatmap**; plus an IVOA name-resolver demo |
 | **DATA SOURCES** | NASA data-source cards + optional live NEO feed |
 
 ### Layout / theming
@@ -101,6 +102,28 @@ const row = convertCoordinates(266.405, -28.936, 64); // -> {galactic:{l,b}, hea
 const pairs = crossmatch(detections, referenceCatalogue, { radiusArcsec: 3 });
 ```
 
+### Ingestion & access layer (`server/ivoa/`)
+
+Node IVOA clients implementing the plan's **Ingestion/Access layer** — the
+JS-vs-Python decision (see `docs/ARCHITECTURE.md §5`) keeps the whole pipeline
+in Node with no Python runtime:
+
+```txt
+server/ivoa/
+  votable.js    IVOA VOTable (TABLEDATA) parser -> typed JSON rows (no deps)
+  tap.js        Table Access Protocol client (ADQL -> VOTable)
+  sia2.js       Simple Image Access 2 client (cutout footprints)
+  ssa.js        Simple Spectral Access client (spectra footprints)
+  resolver.js   Name resolution: SIMBAD JSON + CDS Sesame XML (jradeg/jdedeg)
+  index.js      barrel + endpoint registry (VizieR, SIMBAD, GAIA, IRSA, HEASARC, MAST)
+```
+
+Exposed via `GET /api/ivoa/*` (see API endpoints) and unit-tested with an
+injectable `fetch` (no live network needed in tests).
+
+The architecture doc (`docs/ARCHITECTURE.md`) maps all four roadmap layers to
+these files; `server/store/` is the (not-yet-built) Layer-3 scaffold.
+
 To use the live NEO endpoint set a free NASA API key:
 
 ```bash
@@ -118,6 +141,17 @@ GET /api/objects/:id
 GET /api/objects/:id/blink?count=18
 GET /api/presets          (curated quick-launch targets for the blink workflow)
 GET /api/nasa/neo
+
+# Layer 4 — Data Representation
+GET /api/spectra/:id          (SED: photometry + continuum, deterministic)
+GET /api/field/heatmap?nside=64   (HEALPix density footprint of the field)
+
+# Layer 1 — IVOA Ingestion (Node clients, no Python)
+GET /api/ivoa                (protocol registry)
+GET /api/ivoa/resolve?name=Crab&service=auto   (SIMBAD JSON -> CDS Sesame XML)
+GET /api/ivoa/tap?endpoint=vizier&query=...&limit=...   (ADQL -> VOTable)
+GET /api/ivoa/sia2?endpoint=irsa&pos=83.63,22.01&size=0.1
+GET /api/ivoa/ssa?endpoint=mast&pos=83.63,22.01&size=0.1
 ```
 
 ## Notes / placeholders

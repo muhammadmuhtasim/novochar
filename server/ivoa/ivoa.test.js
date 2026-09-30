@@ -125,9 +125,25 @@ test('resolver: SIMBAD not-found returns a graceful miss', async () => {
     text: async () => '{}',
     json: async () => ({ errorcode: 'id-not-found' }),
   });
-  const r = await resolveObject('not-a-real-object-xyz', { fetchImpl });
+  const r = await resolveObject('not-a-real-object-xyz', { service: 'simbad', fetchImpl });
   assert.equal(r.found, false);
+  assert.equal(r.service, 'simbad');
   assert.equal(r.reason, 'id-not-found');
+});
+
+test('resolver: default auto falls back to Sesame when SIMBAD misses', async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).includes('sim-id')) {
+      return { ok: true, status: 200, text: async () => '{}', json: async () => ({ errorcode: 'id-not-found' }) };
+    }
+    // Sesame XML with a coordinate
+    const xml = '<Sesame><Resolver resolver="VizieR"><jradeg>10.68471</jradeg><jdedeg>41.26875</jdedeg></Resolver></Sesame>';
+    return { ok: true, status: 200, text: async () => xml, json: async () => ({}) };
+  };
+  const r = await resolveObject('3C 273', { service: 'auto', fetchImpl });
+  assert.equal(r.found, true);
+  assert.equal(r.service, 'sesame');
+  assert.equal(r.ra, 10.68471);
 });
 
 test('resolver: Sesame XML gives coordinates from jradeg/jdedeg', async () => {

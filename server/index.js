@@ -119,7 +119,7 @@ app.get('/api/ivoa', (_req, res) =>
 );
 
 app.get('/api/ivoa/resolve', async (req, res) => {
-  const { name, service = 'simbad' } = req.query;
+  const { name, service = 'auto' } = req.query;
   if (!name) return res.status(400).json({ error: 'query param `name` is required' });
   try {
     res.json(await resolveObject(name, { service }));
