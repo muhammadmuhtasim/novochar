@@ -55,9 +55,11 @@ test('GET /api/field/heatmap clamps nside', async () => {
 test('GET /api/ivoa exposes the registry', async () => {
   const res = await fetch(`${base}/api/ivoa`);
   const j = await res.json();
-  assert.equal(j.protocol, 'IVOA (TAP / SIA2 / SSA / Sesame)');
-  assert.ok(Array.isArray(j.registry.tap));
-  assert.ok(j.registry.tap.includes('vizier'));
+  assert.ok(j.protocol.includes('IVOA'));
+  assert.ok(Array.isArray(j.registries.tap));
+  assert.ok(j.registries.tap.includes('vizier'));
+  assert.ok(j.archives && j.archives.eso);
+  assert.equal(j.archives.eso.status, 'verified');
 });
 
 test('GET /api/ivoa/resolve requires a name param', async () => {

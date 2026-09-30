@@ -11,6 +11,8 @@ import {
   parseTagAttributes,
   extractFields,
   extractRows,
+  decodeBinaryRows,
+  queryStatus,
 } from './votable.js';
 
 const SAMPLE = `<?xml version="1.0"?>
@@ -42,7 +44,7 @@ test('extractFields reads field metadata in order', () => {
   const fields = extractFields(body);
   assert.equal(fields.length, 2);
   assert.equal(fields[0].name, 'ID');
-  assert.deepEqual(fields[1], { name: 'RA', datatype: 'double', unit: 'deg', ucd: null, arraysize: null });
+  assert.deepEqual(fields[1], { name: 'RA', datatype: 'double', unit: 'deg', ucd: null, arraysize: null, nullValue: null });
 });
 
 test('parseVOTable returns typed rows with typed (null) empties', () => {
@@ -65,4 +67,41 @@ test('no TABLEDATA means no rows', () => {
   const xml = '<VOTABLE><RESOURCE><TABLE><FIELD name="A" datatype="int"/></TABLE></RESOURCE></VOTABLE>';
   assert.deepEqual(extractRows('<TABLE><FIELD name="A" datatype="int"/></TABLE>', [{ name: 'A', datatype: 'int' }]), []);
   assert.equal(parseVOTable(xml)[0].rows.length, 0);
+});
+
+test('queryStatus extracts the VOTable QUERY_STATUS', () => {
+  const { queryStatus } = await import('./votable.js');
+  assert.equal(queryStatus('<VOTABLE><RESOURCE><INFO name="QUERY_STATUS" value="OK"/></RESOURCE></VOTABLE>'), 'OK');
+  assert.equal(queryStatus('<VOTABLE><RESOURCE><INFO name="QUERY_STATUS" value="ERROR">bad</INFO></RESOURCE></VOTABLE>'), 'ERROR');
+  assert.equal(queryStatus('<VOTABLE/>'), null);
+});
+
+test('decodeBinaryRows decodes BINARY2 (big-endian) fixed rows', () => {
+  const { decodeBinaryRows } = await import('./votable.js');
+  const fields = [
+    { name: 'id', datatype: 'long', arraysize: null },
+    { name: 'ra', datatype: 'double', arraysize: null },
+    { name: 'dec', datatype: 'double', arraysize: null },
+  ];
+  const dv = new DataView(new ArrayBuffer(24));
+  dv.setBigInt64 ? dv.setBigInt64(0, 9007199254740993n, false) : dv.setUint32(0, 1, false);
+  dv.setFloat64(8, 90.5, false);
+  dv.setFloat64(16, -20.25, false);
+  const raw = new Uint8Array(dv.buffer);
+  const b64 = Buffer.from(raw).toString('base64');
+  const rows = decodeBinaryRows(b64, fields, 'be');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].ra, 90.5);
+  assert.equal(rows[0].dec, -20.25);
+});
+
+test('nested RESOURCE does not truncate the inner TABLE', () => {
+  const xml = '<VOTABLE><RESOURCE type="results"><RESOURCE><COOSYS ID="c"/></RESOURCE>' +
+    '<TABLE><FIELD name="x" datatype="int"/><DATA><TABLEDATA><TR><TD>7</TD></TR></TABLEDATA></DATA></TABLE>' +
+    '</RESOURCE></VOTABLE>';
+  const r = parseVOTable(xml);
+  assert.ok(r.length >= 1);
+  const table = r.find((x) => x.rows.length > 0);
+  assert.ok(table, 'table resource parsed');
+  assert.equal(table.rows[0].x, 7);
 });

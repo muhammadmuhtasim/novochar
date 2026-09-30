@@ -1,42 +1,36 @@
-// IVOA SSA (Simple Spectral Access 1.x) client.
+// IVOA SSA (Simple Spectral Access) client.
 //
 // Returns VOTable rows describing spectra overlapping a sky position, each
-// pointing at a retrievable spectrum (access_ssa URL).
+// pointing at a retrievable spectrum (SSA_DAP/access_url).
 
-import { parseVOTable } from './votable.js';
+import { parseVOTable, queryStatus } from './votable.js';
+import { ARCHIVES } from './registry.js';
 import { resolveEndpoint } from './tap.js';
 
-/** Default SSA services per archive (Layer-1 targets). */
 export const SSA_ENDPOINTS = {
-  mast: 'https://archive.stsci.edu/ssap/search2.asp',
+  mast: 'https://archive.stsci.edu/ssap/search2.php',
   irsa: 'https://irsa.ipac.caltech.edu/SSA',
+  eso: 'https://archive.eso.org/ssa',
 };
 
-/**
- * Query an SSA service for spectra within `pos` of angular `size`.
- *
- * @param {object} opts
- * @param {string} opts.endpoint absolute URL or registry key
- * @param {string} opts.pos "RA Dec" in degrees
- * @param {number} [opts.size=0.05] field size in degrees
- * @param {function} [opts.fetchImpl]
- * @returns {Promise<{resources, rows}>}
- */
-export async function querySSA({ endpoint, pos, size = 0.05, fetchImpl = globalThis.fetch } = {}) {
+export async function querySSA({ endpoint, pos, size = 0.05, timeout = 30000, fetchImpl = globalThis.fetch } = {}) {
   if (!endpoint || !pos) throw new TypeError('querySSA requires `endpoint` and `pos`');
-  const url = new URL(resolveEndpoint(endpoint, SSA_ENDPOINTS));
+  let base = endpoint;
+  if (ARCHIVES[endpoint] && ARCHIVES[endpoint].protocols && ARCHIVES[endpoint].protocols.ssa) {
+    base = ARCHIVES[endpoint].protocols.ssa.endpoint;
+  }
+  const url = new URL(resolveEndpoint(base, SSA_ENDPOINTS));
   url.searchParams.set('REQUEST', 'queryData');
   url.searchParams.set('POS', pos);
   url.searchParams.set('SIZE', String(size));
 
   const res = await fetchImpl(url.toString(), {
     headers: { Accept: 'application/x-votable+xml, text/xml, application/xml' },
+    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(timeout) : undefined),
   });
   if (!res.ok) throw new Error(`SSA HTTP ${res.status}`);
   const xml = await res.text();
   const resources = parseVOTable(xml);
-  return {
-    resources,
-    rows: resources.flatMap((r) => r.rows),
-  };
+  const rows = resources.flatMap((r) => r.rows);
+  return { resources, rows, status: queryStatus(xml) };
 }

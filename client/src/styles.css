@@ -666,3 +666,29 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
   .spectra-grid { grid-template-columns: 1fr; }
   .spectra-grid .panel.wide { grid-column: span 1; }
 }
+
+/* LIVE ARCHIVES (IvoaLab) */
+.adql {
+  width: 100%;
+  font-family: var(--mono, ui-monospace, monospace);
+  background: rgba(5, 9, 14, 0.6);
+  color: #cfd8e6;
+  border: 1px solid rgba(255, 106, 0, 0.25);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.tables-scroll {
+  max-height: 140px;
+  overflow: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+pill.confirmed {
+  background: #0f7;
+  color: #031;
+}
+pill.candidate {
+  background: #c80;
+  color: #200;
+}

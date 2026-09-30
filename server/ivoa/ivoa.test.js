@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { tapQuery, TAP_ENDPOINTS, resolveEndpoint } from './tap.js';
 import { querySIA2 } from './sia2.js';
 import { querySSA } from './ssa.js';
-import { resolveObject, coordinatesFromRow, coordinatesFromSesameXML } from './resolver.js';
+import { resolveObject, coordinatesFromRow, coordinatesFromSesameXML, coordinatesFromSesameAscii } from './resolver.js';
 import { firstTableRows } from './votable.js';
 
 const VOTABLE = `<?xml version="1.0"?>
@@ -97,74 +97,29 @@ test('querySSA returns spectrum rows', async () => {
   assert.equal(out.rows[0].objID, 123);
 });
 
-test('resolver: SIMBAD JSON gives typed coordinates + aliases', async () => {
-  const fetchImpl = async () => ({
-    ok: true,
-    status: 200,
-    text: async () => '{}',
-    json: async () => ({
-      id: ['M 1', 'NGC 1952', '3C 144'],
-      ra: '83.633083',
-      dec: '22.014500',
-      types: ['Rad'],
-      errorcode: 'No',
-    }),
-  });
+test('resolver: Sesame ASCII gives coordinates from %J line', () => {
+  const body = '#=Sc=Simbad\n%J 83.63240000 +22.01740000 = 05 34 31.8 +22 01 03\n';
+  assert.deepEqual(coordinatesFromSesameAscii(body), { ra: 83.6324, dec: 22.0174 });
+  assert.equal(coordinatesFromSesameAscii('nothing here'), null);
+});
+
+test('resolver: resolveObject resolves a name via Sesame', async () => {
+  const fetchImpl = async () => ({ ok: true, status: 200, text: async () => '#=Sc=Simbad\n%J 83.63240000 +22.01740000\n' });
   const r = await resolveObject('M1', { fetchImpl });
   assert.equal(r.found, true);
-  assert.equal(r.ra, 83.633083);
-  assert.equal(r.dec, 22.0145);
-  assert.equal(r.types[0], 'Rad');
-  assert.ok(r.aliases.includes('NGC 1952'));
-});
-
-test('resolver: SIMBAD not-found returns a graceful miss', async () => {
-  const fetchImpl = async () => ({
-    ok: true,
-    status: 200,
-    text: async () => '{}',
-    json: async () => ({ errorcode: 'id-not-found' }),
-  });
-  const r = await resolveObject('not-a-real-object-xyz', { service: 'simbad', fetchImpl });
-  assert.equal(r.found, false);
-  assert.equal(r.service, 'simbad');
-  assert.equal(r.reason, 'id-not-found');
-});
-
-test('resolver: default auto falls back to Sesame when SIMBAD misses', async () => {
-  const fetchImpl = async (url) => {
-    if (String(url).includes('sim-id')) {
-      return { ok: true, status: 200, text: async () => '{}', json: async () => ({ errorcode: 'id-not-found' }) };
-    }
-    // Sesame XML with a coordinate
-    const xml = '<Sesame><Resolver resolver="VizieR"><jradeg>10.68471</jradeg><jdedeg>41.26875</jdedeg></Resolver></Sesame>';
-    return { ok: true, status: 200, text: async () => xml, json: async () => ({}) };
-  };
-  const r = await resolveObject('3C 273', { service: 'auto', fetchImpl });
-  assert.equal(r.found, true);
   assert.equal(r.service, 'sesame');
-  assert.equal(r.ra, 10.68471);
+  assert.equal(r.ra, 83.6324);
+  assert.equal(r.dec, 22.0174);
 });
 
-test('resolver: Sesame XML gives coordinates from jradeg/jdedeg', async () => {
-  const sesameXml = `<?xml version="1.0"?>
-<Sesame><TargetResolver status="OK"/>
-<Resolver resolver="SIMBAD" status="OK" nral="3">
-<name>M 1</name>
-<jpos>05 34 31.9 +22 00 52</jpos>
-<jradeg>83.633083</jradeg><jdedeg>22.0145</jdedeg>
-<types>Rad</types><otype>Neb</otype>
-</Resolver>
-</Sesame>`;
-  const fetchImpl = async () => ({ ok: true, status: 200, text: async () => sesameXml, json: async () => ({}) });
-  const r = await resolveObject('M1', { service: 'sesame', fetchImpl });
-  assert.equal(r.found, true);
-  assert.equal(r.ra, 83.633083);
-  assert.equal(r.dec, 22.0145);
-  assert.deepEqual(coordinatesFromSesameXML(sesameXml), { ra: 83.633083, dec: 22.0145 });
+test('resolver: resolveObject graceful miss when Sesame has no coords', async () => {
+  const fetchImpl = async () => ({ ok: true, status: 200, text: async () => '#! *** Nothing found ***' });
+  const r = await resolveObject('not-a-real-object-xyz', { service: 'sesame', fetchImpl });
+  assert.equal(r.found, false);
 });
 
-test('coordinatesFromSesameXML returns null when unusable', () => {
+test('resolver: Sesame XML gives coordinates from jradeg/jdedeg', () => {
+  assert.deepEqual(coordinatesFromSesameXML('<jradeg>83.633083</jradeg><jdedeg>22.0145</jdedeg>'), { ra: 83.633083, dec: 22.0145 });
   assert.equal(coordinatesFromSesameXML('<Sesame></Sesame>'), null);
   assert.equal(coordinatesFromSesameXML(''), null);
 });
@@ -172,4 +127,13 @@ test('coordinatesFromSesameXML returns null when unusable', () => {
 test('coordinatesFromRow extracts RA/Dec robustly', () => {
   assert.deepEqual(coordinatesFromRow({ RA: 12.3, DEC: -45.6 }), { ra: 12.3, dec: -45.6 });
   assert.equal(coordinatesFromRow({ foo: 1, bar: 2 }), null);
+});
+test('probeArchive returns truthful probe results for a stubbed archive', async () => {
+  const { probeArchive } = await import('./probe.js');
+  const out = await probeArchive('vizier', { fetchImpl: stubFetch({}) });
+  assert.equal(out.key, 'vizier');
+  assert.equal(out.protocols.tap.ok, true);
+  assert.equal(out.protocols.tap.status, 'OK');
+  assert.equal(out.protocols.tap.rows, 2);
+  assert.equal(out.ok, true);
 });

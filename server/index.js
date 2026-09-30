@@ -7,11 +7,16 @@ import { buildSpectrum } from './spectra.js';
 import { buildHeatmap } from './heatmap.js';
 import {
   tapQuery,
-  querySIA2,
+  tapTables,
+  querySIA,
   querySSA,
   resolveObject,
+  probeAll,
+  probeArchive,
   IVOA_REGISTRY,
   IVOA_LABEL,
+  ARCHIVES,
+  PROTOCOL_LABEL,
 } from './ivoa/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -108,15 +113,43 @@ app.get('/api/field/heatmap', (req, res) => {
   res.json(buildHeatmap(objects, nside));
 });
 
-// --- Layer 1: IVOA Ingestion (registry + live/fallback queries) ------------
+// --- Layer 1: IVOA Ingestion (real clients, live endpoints + probe) --------
 app.get('/api/ivoa', (_req, res) =>
   res.json({
-    protocol: 'IVOA (TAP / SIA2 / SSA / Sesame)',
-    registry: IVOA_REGISTRY,
-    labels: IVOA_LABEL,
-    note: 'Layer 1 ingestion — Node clients, no Python runtime.',
+    protocol: 'IVOA (TAP / SIA / SSA / Sesame) — real clients, no Python runtime',
+    note: 'Archive status reflects live probes; GET /api/ivoa/probe for current truth.',
+    registries: IVOA_REGISTRY,
+    protocols: PROTOCOL_LABEL,
+    archives: Object.fromEntries(
+      Object.entries(ARCHIVES).map(([k, a]) => [
+        k,
+        {
+          name: a.name,
+          org: a.org,
+          category: a.category,
+          domain: a.domain,
+          status: a.status,
+          note: a.note,
+          protocols: Object.keys(a.protocols || {}),
+        },
+      ])
+    ),
   })
 );
+
+app.get('/api/ivoa/probe', async (req, res) => {
+  try {
+    res.json(await probeAll());
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/ivoa/probe/:key', async (req, res) => {
+  const out = await probeArchive(req.params.key);
+  if (!ARCHIVES[req.params.key]) return res.status(404).json(out);
+  res.json(out);
+});
 
 app.get('/api/ivoa/resolve', async (req, res) => {
   const { name, service = 'auto' } = req.query;
@@ -129,37 +162,66 @@ app.get('/api/ivoa/resolve', async (req, res) => {
 });
 
 app.get('/api/ivoa/tap', async (req, res) => {
-  const { endpoint = 'vizier', query, limit } = req.query;
+  const { archive = 'vizier', endpoint, query, limit } = req.query;
   if (!query) return res.status(400).json({ error: 'query param `query` (ADQL) is required' });
   try {
     const out = await tapQuery({
+      archive: endpoint ? undefined : archive,
       endpoint,
       query,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
-    res.json({ count: out.rows.length, rows: out.rows.slice(0, 500), endpoint: out.endpoint, query: out.query });
+    res.json({
+      count: out.rows.length,
+      rows: out.rows.slice(0, 500),
+      fields: (out.resources && out.resources[0] && out.resources[0].fields) || [],
+      status: out.status,
+      endpoint: out.endpoint,
+      query: out.query,
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/ivoa/tap/tables', async (req, res) => {
+  const { archive = 'vizier', endpoint } = req.query;
+  try {
+    const rows = await tapTables({ archive: endpoint ? undefined : archive, endpoint });
+    res.json({ count: rows.length, rows: rows.slice(0, 500), archive: archive, endpoint: endpoint || archive });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
 });
 
 app.get('/api/ivoa/sia2', async (req, res) => {
-  const { endpoint = 'irsa', pos, size } = req.query;
+  const { archive = 'noirlab', endpoint, pos, size } = req.query;
   if (!pos) return res.status(400).json({ error: 'query param `pos` ("ra dec") is required' });
   try {
-    const out = await querySIA2({ endpoint, pos, size: size ? parseFloat(size) : undefined });
-    res.json({ count: out.rows.length, rows: out.rows.slice(0, 200), first: out.first });
+    const out = await querySIA({ endpoint: endpoint || archive, pos, size: size ? parseFloat(size) : undefined });
+    res.json({
+      count: out.rows.length,
+      rows: out.rows.slice(0, 200),
+      fields: (out.resources && out.resources[0] && out.resources[0].fields) || [],
+      status: out.status,
+      first: out.first,
+    });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
 });
 
 app.get('/api/ivoa/ssa', async (req, res) => {
-  const { endpoint = 'mast', pos, size } = req.query;
+  const { archive = 'mast', endpoint, pos, size } = req.query;
   if (!pos) return res.status(400).json({ error: 'query param `pos` ("ra dec") is required' });
   try {
-    const out = await querySSA({ endpoint, pos, size: size ? parseFloat(size) : undefined });
-    res.json({ count: out.rows.length, rows: out.rows.slice(0, 200) });
+    const out = await querySSA({ endpoint: endpoint || archive, pos, size: size ? parseFloat(size) : undefined });
+    res.json({
+      count: out.rows.length,
+      rows: out.rows.slice(0, 200),
+      fields: (out.resources && out.resources[0] && out.resources[0].fields) || [],
+      status: out.status,
+    });
   } catch (err) {
     res.status(502).json({ error: err.message });
   }

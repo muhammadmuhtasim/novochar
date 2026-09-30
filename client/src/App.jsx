@@ -7,6 +7,7 @@ import BlinkComparator from './components/BlinkComparator.jsx';
 import Catalogue from './components/Catalogue.jsx';
 import DataSources from './components/DataSources.jsx';
 import SpectraView from './components/SpectraView.jsx';
+import IvoaLab from './components/IvoaLab.jsx';
 
 const TABS = [
   { id: 'home', label: 'MISSION', icon: '◉' },
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'blink', label: 'BLINK COMPARATOR', icon: '⧗' },
   { id: 'catalogue', label: 'CATALOGUE', icon: '≋' },
   { id: 'spectra', label: 'SPECTRA', icon: '∿' },
+  { id: 'archives', label: 'LIVE ARCHIVES', icon: '⇆' },
   { id: 'sources', label: 'DATA SOURCES', icon: '☍' },
 ];
 
@@ -69,6 +71,7 @@ export default function App() {
         {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} />}
         {tab === 'catalogue' && <Catalogue objects={objects} />}
         {tab === 'spectra' && <SpectraView objects={objects} presetId={target && target.tab === 'spectra' ? target.id : null} />}
+        {tab === 'archives' && <IvoaLab />}
         {tab === 'sources' && <DataSources />}
       </main>
       <Ticker />

@@ -1,75 +1,76 @@
-// Object name-resolution client (SIMBAD / CDS Sesame).
+// Object name-resolution client.
 //
-// A name like "Crab", "NGC 1952", "3C 273" or "TYC2 2234-01132-1" is turned
-// into a sky position (RA/Dec) and identifier aliases. Primary resolver is
-// the SIMBAD `sim-id` JSON service; CDS Sesame XML (`-o=xml`) is a fallback.
+// Primary: CDS Sesame (verified live) - resolves an identifier like "M1",
+// "NGC 1952" or "3C 273" to equatorial coordinates by parsing the %J line of
+// Sesame's response. Fallback: SIMBAD TAP (best-effort).
 
-export const SIMBAD_ID_BASE = 'https://simbad.u-strasbg.fr/simbad/sim-id';
-export const SESAME_BASE = 'https://cds.unistra.fr/cgi-bin/nph-sesame';
+export const SESAME_BASE = 'https://cdsweb.u-strasbg.fr/cgi-bin/nph-sesame';
+export const SIMBAD_ID_BASE = 'https://simbad.u-strasbg.fr/simbad/sim-tap';
 
 /**
  * Resolve a target name to equatorial coordinates.
- *
- * @param {string} name  target identifier(s)
- * @param {object} [opts]
- * @param {'auto'|'simbad'|'sesame'} [opts.service='auto']
- *   `auto` tries SIMBAD's JSON service first, then CDS Sesame's XML service.
- * @param {function} [opts.fetchImpl=globalThis.fetch] injectable for tests
- * @returns {Promise<{name, service, found, ra?, dec?, types?, aliases?}>}
+ * @param {string} name
+ * @param {object} opts { service: 'auto'|'sesame'|'simbad', fetchImpl, timeout }
+ * @returns {Promise<{name, service, found, ra?, dec?, aliases?, reason?}>}
  */
-export async function resolveObject(name, { service = 'auto', fetchImpl = globalThis.fetch } = {}) {
+export async function resolveObject(name, { service = 'auto', fetchImpl = globalThis.fetch, timeout = 30000 } = {}) {
   const trimmed = String(name == null ? '' : name).trim();
   if (!trimmed) throw new TypeError('resolveObject requires a target name');
-  if (service === 'simbad') return simbadResolve(trimmed, fetchImpl);
-  if (service === 'sesame') return sesameResolve(trimmed, fetchImpl);
-  // auto: try SIMBAD's JSON, otherwise fall back to CDS Sesame's XML
+  if (service === 'simbad') return simbadTapResolve(trimmed, fetchImpl);
+
   try {
-    const r = await simbadResolve(trimmed, fetchImpl);
+    const r = await sesameResolve(trimmed, fetchImpl);
     if (r.found) return r;
+    if (service === 'sesame') return r;
   } catch (_) {
-    /* fall through */
+    if (service === 'sesame') throw _;
   }
-  return sesameResolve(trimmed, fetchImpl);
+  // Best-effort SIMBAD TAP fallback (SIMBAD serves BINARY VOTable).
+  try {
+    return await simbadTapResolve(trimmed, fetchImpl);
+  } catch (_) {
+    return { name: trimmed, service: 'sesame', found: false, reason: 'unresolved' };
+  }
 }
 
-async function simbadResolve(name, fetchImpl) {
-  const url = `${SIMBAD_ID_BASE}?output.format=JSON&Ident=${encodeURIComponent(name)}`;
-  const res = await fetchImpl(url);
-  if (!res.ok) throw new Error(`SIMBAD ${url} -> HTTP ${res.status}`);
-  const json = await res.json().catch(() => null);
-  if (!json || json.errorcode === 'id-not-found' || json.ra == null || json.dec == null) {
-    return { name, service: 'simbad', found: false, reason: (json && json.errorcode) || 'not_resolved' };
-  }
-  return {
-    name,
-    service: 'simbad',
-    found: true,
-    ra: Number(json.ra),
-    dec: Number(json.dec),
-    types: Array.isArray(json.types) ? json.types : [],
-    aliases: Array.isArray(json.id) ? json.id.map(String) : [name],
-  };
+/** Parse the `%J <ra> <dec>` coordinate line from a Sesame response. */
+export function coordinatesFromSesameAscii(body) {
+  const line = /%J\s+([+-]?\d+(?:\.\d+)?)\s+([+-]?\d+(?:\.\d+)?)/i.exec(body);
+  if (!line) return null;
+  const ra = Number(line[1]);
+  const dec = Number(line[2]);
+  if (!Number.isFinite(ra) || !Number.isFinite(dec)) return null;
+  return { ra, dec };
 }
 
 async function sesameResolve(name, fetchImpl) {
-  const xmlUrl = `${SESAME_BASE}/-o=xml&${encodeURIComponent(name)}`;
-  const res = await fetchImpl(xmlUrl);
-  if (!res.ok) throw new Error(`Sesame ${xmlUrl} -> HTTP ${res.status}`);
-  const xml = await res.text();
-  const fromXml = coordinatesFromSesameXML(xml);
-  if (fromXml) {
-    return { name, service: 'sesame', found: true, ra: fromXml.ra, dec: fromXml.dec, aliases: [name] };
+  // Sesame: options + target as a query string. The target is a bareword.
+  const url = `${SESAME_BASE}?${encodeURIComponent(name)}`;
+  const res = await fetchImpl(url);
+  if (!res.ok) throw new Error(`Sesame HTTP ${res.status}`);
+  const body = await res.text();
+  const coords = coordinatesFromSesameAscii(body);
+  if (coords) {
+    return { name, service: 'sesame', found: true, ra: coords.ra, dec: coords.dec, aliases: [name] };
   }
-  // some mirrors are VOTable-based; try that shape too
-  const vot = extractFromVOTableHint(xml);
-  if (vot) return { name, service: 'sesame', found: true, ...vot, aliases: [name] };
   return { name, service: 'sesame', found: false, reason: 'no_coords' };
 }
 
-/**
- * Extract {ra, dec} from a Sesame `-o=xml` response (decimal degrees).
- * @param {string} xml
- */
+async function simbadTapResolve(name, fetchImpl) {
+  const safe = name.replace(/'/g, "''");
+  const query = `SELECT b.main_id, b.ra, b.dec FROM ident i JOIN basic b ON b.oid = i.oidref WHERE i.id = '${safe}'`;
+  const { tapQuery } = await import('./tap.js');
+  const out = await tapQuery({ endpoint: SIMBAD_ID_BASE, query, timeout: 20000, fetchImpl });
+  const row = out.rows[0];
+  if (!row) return { name, service: 'simbad', found: false, reason: 'not_resolved' };
+  return {
+    name, service: 'simbad', found: true,
+    ra: Number(row.ra), dec: Number(row.dec),
+    aliases: row.main_id ? [name, row.main_id] : [name],
+  };
+}
+
+/** Extract {ra, dec} from a Sesame `-o=xml` response (kept for tests/compat). */
 export function coordinatesFromSesameXML(xml) {
   const ra = /<jradeg>([^<]+)<\/jradeg>/i.exec(xml);
   const dec = /<jdedeg>([^<]+)<\/jdedeg>/i.exec(xml);
@@ -80,21 +81,7 @@ export function coordinatesFromSesameXML(xml) {
   return { ra: r, dec: d };
 }
 
-
-function extractFromVOTableHint(xml) {
-  const td = /<TR\b[^>]*>(?:[\s\S]*?)<\/TR\s*>/i.exec(xml);
-  if (!td) return null;
-  // generic: first numeric pair resembling ra/dec among row cells
-  const cells = [...td[0].matchAll(/<TD[^>]*>([\s\S]*?)<\/TD\s*>/gi)].map((m) => m[1].trim());
-  const nums = cells.map(Number).filter(Number.isFinite);
-  if (nums.length >= 2) return { ra: nums[0], dec: nums[1] };
-  return null;
-}
-
-/**
- * Test helper: resolve coordinates from a previously-parsed Sesame-style row
- * (kept separate so the VOTable parsing can be unit-tested in isolation).
- */
+/** Test helper: resolve coordinates from an already-parsed table row. */
 export function coordinatesFromRow(row) {
   const raKey = Object.keys(row).find(
     (k) => /^ra$/i.test(k) || (/ra/i.test(k) && !/q|mg|par/i.test(k))

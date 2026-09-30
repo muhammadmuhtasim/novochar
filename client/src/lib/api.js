@@ -25,7 +25,15 @@ export const api = {
   spectra: (id) => getJSON(`/spectra/${id}`),
   fieldHeatmap: (nside = 64) => getJSON(`/field/heatmap?nside=${nside}`),
   ivoa: () => getJSON('/ivoa'),
-  ivoaResolve: (name, service = 'simbad') => getJSON(`/ivoa/resolve?name=${encodeURIComponent(name)}${service ? `&service=${service}` : ''}`),
+  ivoaProbe: () => getJSON('/ivoa/probe'),
+  ivoaTap: (archive, query, limit) =>
+    getJSON(`/ivoa/tap?archive=${encodeURIComponent(archive)}&query=${encodeURIComponent(query)}${limit ? `&limit=${limit}` : ''}`),
+  ivoaTapTables: (archive) => getJSON(`/ivoa/tap/tables?archive=${encodeURIComponent(archive)}`),
+  ivoaSia2: (archive, pos, size) =>
+    getJSON(`/ivoa/sia2?archive=${encodeURIComponent(archive)}&pos=${encodeURIComponent(pos)}${size ? `&size=${size}` : ''}`),
+  ivoaSsa: (archive, pos, size) =>
+    getJSON(`/ivoa/ssa?archive=${encodeURIComponent(archive)}&pos=${encodeURIComponent(pos)}${size ? `&size=${size}` : ''}`),
+  ivoaResolve: (name, service = 'sesame') => getJSON(`/ivoa/resolve?name=${encodeURIComponent(name)}${service ? `&service=${service}` : ''}`),
 };
 
 export function fmtRA(ra) {
