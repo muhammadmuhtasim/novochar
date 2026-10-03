@@ -35,12 +35,12 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
       const w = W();
       const h = H();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#050507';
+      ctx.fillStyle = '#050302';
       ctx.fillRect(0, 0, w, h);
       const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2);
-      grad.addColorStop(0, '#14141c');
-      grad.addColorStop(0.7, '#08080c');
-      grad.addColorStop(1, '#030305');
+      grad.addColorStop(0, '#211006');
+      grad.addColorStop(0.7, '#0d0805');
+      grad.addColorStop(1, '#030201');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
 
@@ -55,7 +55,7 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
         ctx.fill();
       }
 
-      ctx.strokeStyle = 'rgba(122,90,32,0.35)';
+      ctx.strokeStyle = 'rgba(255,128,24,0.18)';
       ctx.lineWidth = 1;
       const stepDeg = Math.max(1, 2 * Math.round(1 / state.current.zoom));
       for (let i = -8; i <= 8; i++) {
@@ -78,13 +78,13 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
         const p = toScreen(nx, ny);
         if (p.x < -24 || p.x > w + 24 || p.y < -24 || p.y > h + 24) continue;
         const sel = selRef.current === o.id;
-        const size = (5 + Math.min(14, o.motion / 18)) * (0.6 + state.current.zoom * 0.35);
+        const size = (3.5 + Math.min(10, o.motion / 28)) * (0.72 + state.current.zoom * 0.24);
         ctx.save();
         ctx.shadowColor = o.color;
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 12;
         ctx.fillStyle = o.color;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, size * (sel ? 2.2 : 1.7), 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, size * (sel ? 1.9 : 1.45), 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         ctx.beginPath();
@@ -97,16 +97,23 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
       }
     };
 
-    const toClient = (e) => {
+    const toCanvas = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return {
+        mx: (e.clientX - r.left) * (W() / r.width),
+        my: (e.clientY - r.top) * (H() / r.height),
+      };
+    };
+    const toOverlay = (e) => {
       const r = wrap.getBoundingClientRect();
-      return { mx: e.clientX - r.left, my: e.clientY - r.top };
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
     const hitTest = (mx, my) => {
       for (let i = objects.length - 1; i >= 0; i--) {
         const o = objects[i];
         const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
         const p = toScreen(nx, ny);
-        const size = 5 + Math.min(14, o.motion / 18);
+        const size = (3.5 + Math.min(10, o.motion / 28)) * (0.72 + state.current.zoom * 0.24);
         if (mx > p.x - size - 4 && mx < p.x + size + 4 && my > p.y - size - 4 && my < p.y + size + 4) return o;
       }
       return null;
@@ -116,7 +123,7 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
       state.current.drag = { x: e.clientX, y: e.clientY, cx: state.current.cx, cy: state.current.cy };
     };
     const onMove = (e) => {
-      const { mx, my } = toClient(e);
+      const { mx, my } = toCanvas(e);
       if (state.current.drag) {
         const dx = (e.clientX - state.current.drag.x) / W();
         const dy = (e.clientY - state.current.drag.y) / H();
@@ -126,7 +133,8 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
         draw();
       }
       const obj = hitTest(mx, my);
-      setHover(obj ? { name: obj.name, type: obj.typeLabel, x: mx, y: my } : null);
+      const overlay = toOverlay(e);
+      setHover(obj ? { name: obj.name, type: obj.typeLabel, x: overlay.x, y: overlay.y } : null);
       const { nx, ny } = toWorld(mx, my);
       const { ra, dec } = normalizedToRaDec(nx, ny, field);
       setReadout(`${fmtRA(ra)}  ${fmtDec(dec)}  zoom ×${state.current.zoom.toFixed(1)}`);
@@ -140,7 +148,7 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
       draw();
     };
     const onClick = (e) => {
-      const { mx, my } = toClient(e);
+      const { mx, my } = toCanvas(e);
       const obj = hitTest(mx, my);
       if (obj) onSelect(obj);
     };
@@ -172,8 +180,9 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
     canvas.addEventListener('mouseleave', onLeave);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('click', onClick);
-    window.addEventListener('resize', resize);
     resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(wrap);
 
     return () => {
       canvas.removeEventListener('mousedown', onDown);
@@ -182,7 +191,7 @@ export default function SkyViewerCanvas({ canvasRef, wrapRef, objects, field, se
       canvas.removeEventListener('mouseleave', onLeave);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('click', onClick);
-      window.removeEventListener('resize', resize);
+      resizeObserver.disconnect();
       if (canvasRef.current) delete canvasRef.current.action;
     };
   }, [objects, field, selRef, onSelect, canvasRef, wrapRef]);

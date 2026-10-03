@@ -11,24 +11,23 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
     const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-
     const draw = () => {
       const w = Math.max(2, wrap.clientWidth);
       const h = Math.max(2, wrap.clientHeight);
+      const dpr = window.devicePixelRatio || 1;
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.fillStyle = '#050507';
+      ctx.fillStyle = '#050302';
       ctx.fillRect(0, 0, w, h);
       const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2);
-      grad.addColorStop(0, '#101016');
-      grad.addColorStop(1, '#030305');
+      grad.addColorStop(0, '#211006');
+      grad.addColorStop(1, '#030201');
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
 
       // static reference faint stars (fixed grid so motion stands out)
-      ctx.fillStyle = 'rgba(180,180,205,0.5)';
+      ctx.fillStyle = 'rgba(255,190,120,0.52)';
       const refs = 60;
       for (let i = 0; i < refs; i++) {
         const x = ((i * 37) % 97) / 97 * w;
@@ -39,8 +38,8 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
       }
 
       if (!frames.length) {
-        ctx.fillStyle = 'rgba(255,106,0,0.5)';
-        ctx.font = '14px system-ui';
+        ctx.fillStyle = 'rgba(255,166,66,0.82)';
+        ctx.font = '14px monospace';
         ctx.fillText('NO FRAMES — SELECT A TARGET', w / 2 - 90, h / 2);
         return;
       }
@@ -59,7 +58,7 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
 
       // reference crosshair at first-epoch position
       ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.strokeStyle = 'rgba(255,196,112,0.62)';
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.arc(sx(ra0), sy(dec0), 16, 0, Math.PI * 2);
@@ -67,8 +66,8 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
       ctx.restore();
 
       // trail
-      ctx.strokeStyle = '#ff8a4a';
-      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = '#ff8618';
+      ctx.lineWidth = 2;
       ctx.beginPath();
       frames.forEach((f, i) => {
         const px = sx(f.ra - ra0), py = sy(f.dec - dec0);
@@ -81,7 +80,7 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
         const px = sx(f.ra - ra0), py = sy(f.dec - dec0);
         ctx.beginPath();
         ctx.arc(px, py, i === idx ? 5 : 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = i === idx ? '#ff6a00' : (f.flagged ? '#ffb454' : '#b5793a');
+        ctx.fillStyle = i === idx ? '#ffd166' : (f.flagged ? '#fff0b0' : '#c26a26');
         ctx.fill();
         if (i === idx) {
           ctx.save();
@@ -106,11 +105,12 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
 
     canvas.addEventListener('mousemove', onMove);
     canvas.addEventListener('mouseleave', onLeave);
-    window.addEventListener('resize', resize);
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(wrap);
     return () => {
       canvas.removeEventListener('mousemove', onMove);
       canvas.removeEventListener('mouseleave', onLeave);
-      window.removeEventListener('resize', resize);
+      resizeObserver.disconnect();
     };
   }, [frames, idx, canvasRef, wrapRef]);
 

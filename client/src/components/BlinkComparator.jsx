@@ -112,32 +112,34 @@ export default function BlinkComparator({ objects, presetId = null, onTarget = (
 function FrameTable({ frames, idx }) {
   if (!frames.length) return null;
   return (
-    <table className="frame-table">
-      <thead>
-        <tr>
-          <th>Pass</th>
-          <th>Epoch (JD)</th>
-          <th>RA</th>
-          <th>DEC</th>
-          <th>Mag</th>
-          <th>SNR</th>
-          <th>Q</th>
-        </tr>
-      </thead>
-      <tbody>
-        {frames.map((f, i) => (
-          <tr key={f.pass} className={i === idx ? 'selected' : ''}>
-            <td className="mono">{f.passCode}</td>
-            <td className="mono">{f.epochJD}</td>
-            <td className="mono">{fmtShortRA(f.ra)}</td>
-            <td className="mono">{fmtShortDec(f.dec)}</td>
-            <td>{f.measuredMag}</td>
-            <td>{f.snr}</td>
-            <td>{f.quality}{f.flagged ? ' ⚠' : ''}</td>
+    <div className="frame-table-wrap">
+      <table className="frame-table">
+        <thead>
+          <tr>
+            <th>Pass</th>
+            <th>Epoch (JD)</th>
+            <th>RA</th>
+            <th>DEC</th>
+            <th>Mag</th>
+            <th>SNR</th>
+            <th>Q</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {frames.map((f, i) => (
+            <tr key={f.pass} className={i === idx ? 'selected' : ''}>
+              <td className="mono">{f.passCode}</td>
+              <td className="mono">{f.epochJD}</td>
+              <td className="mono">{fmtShortRA(f.ra)}</td>
+              <td className="mono">{fmtShortDec(f.dec)}</td>
+              <td>{f.measuredMag}</td>
+              <td>{f.snr}</td>
+              <td>{f.quality}{f.flagged ? ' ⚠' : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
