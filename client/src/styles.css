@@ -244,6 +244,12 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
 .gaia-controls .tb-group { display: grid; gap: 5px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .gaia-controls .search { min-width: 160px; }
 .gaia-controls .gaia-number { min-width: 92px; width: 100px; }
+.ingest-controls { align-items: end; flex-wrap: wrap; }
+.ingest-controls .tb-group { display: grid; gap: 5px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.ingest-controls .search { min-width: 130px; }
+.ingest-controls .ingest-number { min-width: 92px; width: 110px; }
+.ingest-input { width: min(100%, 440px); margin: 4px 0 10px; }
+.archive-payload { max-height: 320px; overflow: auto; padding: 10px; background: #07090b; border: 1px solid var(--line); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.5 var(--mono); }
 .gaia-caption { margin: 9px 0; }
 .gaia-plot-wrap { margin: 12px 0; border: 1px solid var(--line); background: #07090b; }
 .gaia-motion-plot { display: block; width: 100%; height: auto; max-height: 360px; }

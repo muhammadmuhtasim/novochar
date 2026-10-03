@@ -84,6 +84,7 @@ export async function tapQuery({
   query,
   limit,
   style = 'auto',
+  format = 'votable',
   timeout = 30000,
   fetchImpl = globalThis.fetch,
 } = {}) {
@@ -100,7 +101,7 @@ export async function tapQuery({
     adql = `SELECT TOP ${limit} ${adql.replace(/^select\s+/i, '')}`;
   }
 
-  const url = useStyle === 'irsa' ? irsaUrl(base, adql) : ivoadUrl(base, adql);
+  const url = useStyle === 'irsa' ? irsaUrl(base, adql) : ivoadUrl(base, adql, { FORMAT: format });
   const xml = await fetchText(url, fetchImpl, timeout);
   const resources = parseVOTable(xml);
   const rows = resources.flatMap((r) => r.rows);

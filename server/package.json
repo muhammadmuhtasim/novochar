@@ -8,7 +8,7 @@
     "dev": "node index.js",
     "build": "node --check index.js && node --check data.js",
     "start": "NODE_ENV=production node index.js",
-    "test": "node --test astro/healpix.test.js astro/coords.test.js astro/crossmatch.test.js astro/index.test.js ivoa/votable.test.js ivoa/ivoa.test.js ivoa/gaia.test.js spectra.test.js api.test.js",
+    "test": "node --test astro/healpix.test.js astro/coords.test.js astro/crossmatch.test.js astro/index.test.js ivoa/votable.test.js ivoa/ivoa.test.js ivoa/gaia.test.js ivoa/source-adapters.test.js spectra.test.js api.test.js",
     "test:live": "NOVOCHAR_LIVE=1 node --test ivoa/ivoa.live.test.js"
   },
   "dependencies": {

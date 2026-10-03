@@ -7,6 +7,19 @@ async function getJSON(path) {
   return res.json();
 }
 
+async function postJSON(path, body) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const result = await res.json().catch(() => ({}));
+    throw new Error(result.error || `API ${path} -> ${res.status}`);
+  }
+  return res.json();
+}
+
 export const api = {
   health: () => getJSON('/health'),
   survey: () => getJSON('/survey'),
@@ -25,6 +38,12 @@ export const api = {
   spectra: (id) => getJSON(`/spectra/${id}`),
   fieldHeatmap: (nside = 64) => getJSON(`/field/heatmap?nside=${nside}`),
   ivoa: () => getJSON('/ivoa'),
+  archives: () => getJSON('/archives'),
+  archiveQuery: (archive, operation, params = {}) =>
+    postJSON(`/archives/${encodeURIComponent(archive)}/query`, { operation, params }),
+  lambdaFile: (path) => `${BASE}/archives/lambda/file?${new URLSearchParams({ path })}`,
+    dartsFile: (path) => `${BASE}/archives/darts/file?${new URLSearchParams({ path })}`,
+    mastFile: (uri) => `${BASE}/archives/mast/file?${new URLSearchParams({ uri })}`,
   ivoaProbe: () => getJSON('/ivoa/probe'),
   ivoaGaiaMotion: (ra, dec, radius = 0.1, epoch = 2025) =>
     getJSON(`/ivoa/gaia/motion?${new URLSearchParams({ ra, dec, radius, epoch })}`),

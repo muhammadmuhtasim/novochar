@@ -152,7 +152,30 @@ GET /api/ivoa/resolve?name=Crab&service=auto   (SIMBAD JSON -> CDS Sesame XML)
 GET /api/ivoa/tap?endpoint=vizier&query=...&limit=...   (ADQL -> VOTable)
 GET /api/ivoa/sia2?endpoint=irsa&pos=83.63,22.01&size=0.1
 GET /api/ivoa/ssa?endpoint=mast&pos=83.63,22.01&size=0.1
+
+# Archive source ingestion (JSON; requests run server-side)
+GET  /api/archives
+POST /api/archives/:archive/query
+GET  /api/archives/mast/file?uri=mast%3A...
+GET  /api/archives/lambda/file?path=relative%2Fproduct.fits
+GET  /api/archives/darts/file?path=relative%2Fproduct.fits
 ```
+
+POST requests use `{ "operation": "...", "params": { ... } }`. TAP archives
+accept `operation: "tap"` with an ADQL `query`; MAST supports `cone`, `name`,
+and `products` (cone pagination is controlled with `page` / `pagesize`); NED
+supports `name`; ESA/DARTS support registry `discover` and IVOID-backed `tap`
+where a matching, allowlisted endpoint is found; LAMBDA and DARTS support a
+public index/file path. Tabular responses use `{archive, service, status,
+count, fields, rows}` where available. MAST product URIs and relative LAMBDA /
+DARTS paths are redirected only to their provider's fixed host.
+
+These are bounded query/product access routes, not bulk mirrors of the source
+archives. Availability is provider- and network-dependent. At last live check,
+VizieR, Gaia, NOIRLab TAP, ESO TAP, MAST REST/products, NED name lookup, and ESA
+PSA TAP discovery/query returned real data. IRSA timed out, HEASARC could not
+be reached, LAMBDA was unreachable, and DARTS registry search found no TAP match;
+the app reports these as configured/unverified rather than claiming success.
 
 ## Notes / placeholders
 

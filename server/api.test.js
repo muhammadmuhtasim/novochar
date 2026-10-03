@@ -71,6 +71,39 @@ test('GET /api/ivoa exposes the registry', async () => {
   assert.equal(j.archives.eso.status, 'verified');
 });
 
+test('GET /api/archives lists implemented archive operations', async () => {
+  const res = await fetch(`${base}/api/archives`);
+  assert.equal(res.status, 200);
+  const { archives } = await res.json();
+  assert.ok(archives.mast.protocols.includes('rest'));
+  assert.ok(archives.ned.protocols.includes('rest'));
+  assert.equal(archives.lambda.state, 'file-route-present-live-unverified');
+});
+
+test('POST /api/archives validates archive operations before outbound requests', async () => {
+  const res = await fetch(`${base}/api/archives/mast/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation: 'cone', params: { ra: 999, dec: 0 } }),
+  });
+  assert.equal(res.status, 400);
+});
+
+test('GET /api/archives/lambda/file rejects traversal paths', async () => {
+  const res = await fetch(`${base}/api/archives/lambda/file?path=..%2Fsecret`);
+  assert.equal(res.status, 400);
+});
+
+test('GET /api/archives/mast/file rejects non-MAST URLs', async () => {
+  const res = await fetch(`${base}/api/archives/mast/file?uri=https%3A%2F%2Fattacker.example%2Ffile`);
+  assert.equal(res.status, 400);
+});
+
+test('GET /api/archives/darts/file rejects traversal paths', async () => {
+  const res = await fetch(`${base}/api/archives/darts/file?path=..%2Fprivate`);
+  assert.equal(res.status, 400);
+});
+
 test('GET /api/ivoa/resolve requires a name param', async () => {
   const res = await fetch(`${base}/api/ivoa/resolve`);
   assert.equal(res.status, 400);

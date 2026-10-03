@@ -1,16 +1,26 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { fmtRA, fmtDec } from '../lib/api.js';
 
 const FILTERS = ['ALL', 'TNO', 'AST', 'HPM'];
 const STATUS = ['ALL', 'candidate', 'confirmed'];
 
-export default function Catalogue({ objects }) {
+export default function Catalogue({ objects, presetId = null, onTarget = () => {} }) {
   const [type, setType] = useState('ALL');
   const [status, setStatus] = useState('ALL');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('id');
   const [dir, setDir] = useState(1);
   const [detail, setDetail] = useState(null);
+
+  // Deep-link support: open a specific object's detail drawer when navigated
+  // here from another view (e.g. Sky Viewer -> "+ catalog").
+  const prevPreset = useRef(null);
+  useEffect(() => {
+    if (!presetId || presetId === prevPreset.current) return;
+    prevPreset.current = presetId;
+    const o = objects.find((x) => x.id === presetId);
+    if (o) setDetail(o);
+  }, [presetId, objects]);
 
   let list = objects;
   if (type !== 'ALL') list = list.filter((o) => o.type === type);
@@ -103,6 +113,11 @@ export default function Catalogue({ objects }) {
             <button className="btn sm" onClick={() => setDetail(null)}>✕</button>
           </div>
           <DetailCard o={detail} />
+          <div className="side-actions">
+            <button className="btn sm" onClick={() => onTarget('sky', detail.id)}>SKY VIEWER ⌖</button>
+            <button className="btn sm" onClick={() => onTarget('blink', detail.id)}>BLINK ⧗</button>
+            <button className="btn primary sm" onClick={() => onTarget('spectra', detail.id)}>SPECTRA ∿</button>
+          </div>
         </aside>
       )}
     </section>

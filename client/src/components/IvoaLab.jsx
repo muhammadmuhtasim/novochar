@@ -12,6 +12,14 @@ import { api } from '../lib/api.js';
 const TAP_ARCHIVES = ['vizier', 'simbad', 'gaia', 'eso', 'noirlab', 'irsa', 'heasarc'];
 const SIA_ARCHIVES = ['noirlab', 'irsa', 'mast'];
 const SSA_ARCHIVES = ['eso', 'mast', 'irsa'];
+const INGEST_OPERATIONS = {
+  vizier: ['tap'], simbad: ['tap'], gaia: ['tap'], noirlab: ['tap'], eso: ['tap'], irsa: ['tap'], heasarc: ['tap'],
+  mast: ['cone', 'name', 'products'],
+  ned: ['name'],
+  lambda: ['index', 'file'],
+  darts: ['index', 'file', 'discover', 'tap'],
+  esdc: ['discover', 'tap'],
+};
 
 const PRESET_ADQL = {
   vizier: 'SELECT TOP 10 * FROM "I/345/gaia2"',
@@ -27,7 +35,7 @@ function cell(v) {
   if (v == null) return '';
   if (typeof v === 'boolean') return v ? 'true' : 'false';
   if (typeof v === 'number') return Number.isFinite(v) ? (Math.abs(v) > 1e6 || (v !== 0 && Math.abs(v) < 1e-4) ? v.toExponential(3) : String(Number(v.toFixed(4)))) : '—';
-  const s = String(v);
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
   return s.length > 60 ? s.slice(0, 60) + '…' : s;
 }
 
@@ -48,7 +56,7 @@ function ResultTable({ rows, fields, maxCols = 7, maxRows = 50 }) {
         <thead><tr>{keys.map((k) => <th key={k}>{k}</th>)}<th>·</th></tr></thead>
         <tbody>
           {body.map((r, i) => (
-            <tr key={i}>{keys.map((k) => <td key={k} className="mono">{cell(r[k])}</td>)}<td /> </tr>
+            <tr key={i}>{keys.map((k) => <td key={k} className="mono">{cell(r[k])}</td>)}<td /></tr>
           ))}
         </tbody>
       </table>
@@ -100,9 +108,21 @@ export default function IvoaLab() {
   const [gaiaRes, setGaiaRes] = useState(null);
   const [gaiaErr, setGaiaErr] = useState('');
   const [gaiaBusy, setGaiaBusy] = useState(false);
+  const [ingestArchive, setIngestArchive] = useState('mast');
+  const [ingestOperation, setIngestOperation] = useState('cone');
+  const [ingestParams, setIngestParams] = useState({ ra: '83.63', dec: '22.01', radius: '0.05', page: '1', pagesize: '500', name: 'M31', obsid: '', term: 'DARTS', ivoid: 'ivo://esavo/psa/epntap', path: '', query: 'SELECT TOP 10 * FROM "I/345/gaia2"' });
+  const [ingestResult, setIngestResult] = useState(null);
+  const [ingestError, setIngestError] = useState('');
+  const [ingestBusy, setIngestBusy] = useState(false);
 
   useEffect(() => {
-    api.ivoa().then(setRegistry).catch(() => {});
+    Promise.all([api.ivoa(), api.archives()]).then(([metadata, sourceAdapters]) => {
+      const archives = Object.fromEntries(Object.entries(metadata.archives || {}).map(([key, archive]) => [
+        key,
+        { ...archive, ...(sourceAdapters.archives[key] || {}), status: sourceAdapters.archives[key]?.state || archive.status },
+      ]));
+      setRegistry({ ...metadata, archives });
+    }).catch(() => {});
   }, []);
 
   const runProbe = async () => {
@@ -152,6 +172,28 @@ export default function IvoaLab() {
     } catch (e) { setGaiaErr(e.message || 'Gaia query failed'); }
     finally { setGaiaBusy(false); }
   };
+  const onIngest = async () => {
+    let params = {};
+    if (ingestOperation === 'tap') params = ['darts', 'esdc'].includes(ingestArchive) ? { ivoid: ingestParams.ivoid, query: ingestParams.query } : { query: ingestParams.query };
+    if (ingestOperation === 'cone') params = { ra: Number(ingestParams.ra), dec: Number(ingestParams.dec), radius: Number(ingestParams.radius), page: Number(ingestParams.page), pagesize: Number(ingestParams.pagesize) };
+    if (ingestOperation === 'name') params = { name: ingestParams.name };
+    if (ingestOperation === 'products') params = { obsid: ingestParams.obsid };
+    if (ingestOperation === 'discover') params = { term: ingestParams.term };
+    if (ingestOperation === 'file') params = { path: ingestParams.path };
+    setIngestBusy(true); setIngestError(''); setIngestResult(null);
+    try { setIngestResult(await api.archiveQuery(ingestArchive, ingestOperation, params)); }
+    catch (e) { setIngestError(e.message || 'archive request failed'); }
+    finally { setIngestBusy(false); }
+  };
+
+  const changeIngestArchive = (archive) => {
+    setIngestArchive(archive);
+    setIngestOperation(INGEST_OPERATIONS[archive][0]);
+    if (INGEST_OPERATIONS[archive].includes('tap')) {
+      setIngestParams((current) => ({ ...current, query: PRESET_ADQL[archive] || 'SELECT TOP 10 * FROM TAP_SCHEMA.tables' }));
+    }
+    setIngestResult(null); setIngestError('');
+  };
 
   const archives = (registry && registry.archives) || {};
   const probeOk = probe && probe.okArchives && probe.okArchives.length;
@@ -169,7 +211,7 @@ export default function IvoaLab() {
           <table className="catalogue-table"><thead><tr><th>key</th><th>archive</th><th>org</th><th>category</th><th>protocols</th><th>declared</th></tr></thead>
             <tbody>{Object.entries(archives).map(([k, a]) => (
               <tr key={k}><td className="mono">{k}</td><td>{a.name}</td><td>{a.org}</td><td>{a.category}</td><td className="mono">{a.protocols.join(', ')}</td>
-                <td><span className={`pill ${a.status === 'verified' ? 'confirmed' : a.status === 'configured' ? 'candidate' : ''}`}>{a.status}</span></td></tr>
+                <td><span className={`pill ${String(a.status).includes('verified') ? 'confirmed' : /unverified|no-match/.test(a.status) ? 'candidate' : ''}`}>{a.status}</span></td></tr>
             ))}</tbody></table>
           )}
         {registry && registry.note && <p className="muted note">{registry.note}</p>}
@@ -190,6 +232,47 @@ export default function IvoaLab() {
           </dl>
         ) : <p className="muted">Not resolved: {resolved.reason}</p>)}
         {rErr && <p className="muted err">{rErr}</p>}
+      </section>
+
+      <section className="panel wide">
+        <div className="panel-head"><h2>ARCHIVE INGEST</h2><span className="tag">SOURCE ADAPTERS</span></div>
+        <div className="toolbar ingest-controls">
+          <label className="tb-group">ARCHIVE
+            <select className="search" value={ingestArchive} onChange={(e) => changeIngestArchive(e.target.value)}>
+              {Object.keys(INGEST_OPERATIONS).map((key) => <option key={key} value={key}>{key}</option>)}
+            </select>
+          </label>
+          <label className="tb-group">OPERATION
+            <select className="search" value={ingestOperation} onChange={(e) => { setIngestOperation(e.target.value); setIngestResult(null); }}>
+              {INGEST_OPERATIONS[ingestArchive].map((op) => <option key={op} value={op}>{op}</option>)}
+            </select>
+          </label>
+          <button className="btn" onClick={onIngest} disabled={ingestBusy}>{ingestBusy ? 'FETCHING…' : 'FETCH SOURCE DATA'}</button>
+        </div>
+        {ingestOperation === 'tap' && <textarea className="search adql" rows={3} value={ingestParams.query} onChange={(e) => setIngestParams({ ...ingestParams, query: e.target.value })} spellCheck="false" aria-label="Archive ADQL query" />}
+        {ingestOperation === 'tap' && ['darts', 'esdc'].includes(ingestArchive) && <input className="search ingest-input mono" aria-label="IVOA registry identifier" placeholder="Service IVOID" value={ingestParams.ivoid} onChange={(e) => setIngestParams({ ...ingestParams, ivoid: e.target.value })} />}
+        {ingestOperation === 'cone' && <div className="toolbar ingest-controls">
+          <label className="tb-group">RA °<input className="search ingest-number" type="number" value={ingestParams.ra} onChange={(e) => setIngestParams({ ...ingestParams, ra: e.target.value })} /></label>
+          <label className="tb-group">DEC °<input className="search ingest-number" type="number" value={ingestParams.dec} onChange={(e) => setIngestParams({ ...ingestParams, dec: e.target.value })} /></label>
+          <label className="tb-group">RADIUS °<input className="search ingest-number" type="number" min="0.001" max="5" step="0.01" value={ingestParams.radius} onChange={(e) => setIngestParams({ ...ingestParams, radius: e.target.value })} /></label>
+          <label className="tb-group">PAGE<input className="search ingest-number" type="number" min="1" value={ingestParams.page} onChange={(e) => setIngestParams({ ...ingestParams, page: e.target.value })} /></label>
+          <label className="tb-group">PAGE SIZE<input className="search ingest-number" type="number" min="1" max="5000" value={ingestParams.pagesize} onChange={(e) => setIngestParams({ ...ingestParams, pagesize: e.target.value })} /></label>
+        </div>}
+        {ingestOperation === 'name' && <input className="search ingest-input" aria-label="Object name" placeholder="Object name" value={ingestParams.name} onChange={(e) => setIngestParams({ ...ingestParams, name: e.target.value })} />}
+        {ingestOperation === 'products' && <input className="search ingest-input" aria-label="MAST observation identifier" placeholder="MAST observation ID" value={ingestParams.obsid} onChange={(e) => setIngestParams({ ...ingestParams, obsid: e.target.value })} />}
+        {ingestOperation === 'discover' && <input className="search ingest-input" aria-label="Registry search term" placeholder="Service title term" value={ingestParams.term} onChange={(e) => setIngestParams({ ...ingestParams, term: e.target.value })} />}
+        {ingestOperation === 'file' && <input className="search ingest-input mono" aria-label="Archive-relative product path" placeholder="Archive-relative file path" value={ingestParams.path} onChange={(e) => setIngestParams({ ...ingestParams, path: e.target.value })} />}
+        {ingestError && <p className="muted err">{ingestError}</p>}
+        {ingestResult && <>
+          <StatusLine ok={ingestResult.status === 'READY' || (['OK', 'COMPLETE'].includes(ingestResult.status) && (ingestResult.count > 0 || ingestResult.content))} status={ingestResult.status} count={ingestResult.count ?? 0} />
+          {ingestResult.rows && <ResultTable rows={ingestResult.rows} fields={ingestResult.fields} maxCols={12} maxRows={50} />}
+          {ingestOperation === 'discover' && ingestResult.rows?.filter((row) => String(row.standard_id || '').toLowerCase().startsWith('ivo://ivoa.net/std/tap') && row.ivoid).map((row) => <button className="btn sm" key={`${row.ivoid}-${row.access_url}`} onClick={() => { setIngestParams({ ...ingestParams, ivoid: row.ivoid, query: 'SELECT TOP 10 * FROM TAP_SCHEMA.tables' }); setIngestOperation('tap'); }}>{`QUERY ${row.short_name || row.ivoid}`}</button>)}
+          {ingestOperation === 'file' && ingestResult.rows?.[0]?.url && <p><a className="btn sm" href={ingestArchive === 'darts' ? api.dartsFile(ingestParams.path) : api.lambdaFile(ingestParams.path)} target="_blank" rel="noreferrer">OPEN PUBLIC FILE</a></p>}
+          {ingestArchive === 'mast' && ingestOperation === 'products' && ingestResult.rows?.filter((row) => row.dataURI).map((row) => <p key={row.dataURI}><a className="btn sm" href={api.mastFile(row.dataURI)} target="_blank" rel="noreferrer">DOWNLOAD {row.productFilename || row.dataURI}</a></p>)}
+          {['lambda', 'darts'].includes(ingestArchive) && ingestResult.content && <details><summary className="muted">{ingestArchive.toUpperCase()} directory response</summary><pre className="archive-payload">{ingestResult.content.slice(0, 30000)}</pre></details>}
+          {ingestArchive === 'mast' && ingestOperation === 'products' && ingestResult.rows && ingestResult.rows.some((row) => row.dataURI) && <p className="muted">Product files are available from the returned MAST dataURI values.</p>}
+          <details><summary className="muted">Response metadata</summary><pre className="archive-payload">{JSON.stringify({ archive: ingestResult.archive, service: ingestResult.service, status: ingestResult.status, count: ingestResult.count, query: ingestResult.query, data: ingestResult.data && !ingestResult.rows ? ingestResult.data : undefined }, null, 2).slice(0, 30000)}</pre></details>
+        </>}
       </section>
 
       <section className="panel wide">

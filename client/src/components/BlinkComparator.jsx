@@ -3,7 +3,7 @@ import { api } from '../lib/api.js';
 import BlinkDraw from './BlinkDraw.jsx';
 import Readout from './Readout.jsx';
 
-export default function BlinkComparator({ objects, presetId = null }) {
+export default function BlinkComparator({ objects, presetId = null, onTarget = () => {} }) {
   const [sel, setSel] = useState(presetId || (objects.length ? objects[0].id : null));
   const [frames, setFrames] = useState([]);
   const [meta, setMeta] = useState(null);
@@ -62,6 +62,13 @@ export default function BlinkComparator({ objects, presetId = null }) {
               <option key={o.id} value={o.id}>{o.id} · {o.name} · {o.type}</option>
             ))}
           </select>
+        </div>
+
+        <div className="toolbar">
+          <span className="tb-label">OPEN</span>
+          <button className="btn sm" disabled={!sel} onClick={() => sel && onTarget('sky', sel)}>SKY VIEWER ⌖</button>
+          <button className="btn sm" disabled={!sel} onClick={() => sel && onTarget('spectra', sel)}>SPECTRA ∿</button>
+          <button className="btn sm" disabled={!sel} onClick={() => sel && onTarget('catalogue', sel)}>CATALOGUE ≋</button>
         </div>
 
         <BlinkDraw canvasRef={canvasRef} wrapRef={wrapRef} frames={frames} idx={idx} />

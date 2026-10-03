@@ -74,6 +74,20 @@ test('tapQuery prepends SELECT TOP when a limit is given', async () => {
   assert.equal(u.searchParams.get('QUERY'), 'SELECT TOP 5 * FROM "I/345/gaia2"');
 });
 
+test('tapQuery permits callers to request TABLEDATA VOTable output', async () => {
+  let captured;
+  await tapQuery({
+    endpoint: 'vizier',
+    query: 'SELECT TOP 1 * FROM "I/345/gaia2"',
+    format: 'votable/td',
+    fetchImpl: async (url) => {
+      captured = new URL(url);
+      return { ok: true, text: async () => VOTABLE };
+    },
+  });
+  assert.equal(captured.searchParams.get('FORMAT'), 'votable/td');
+});
+
 test('resolveEndpoint resolves registry keys and passes URLs through', () => {
   assert.equal(resolveEndpoint('vizier', TAP_ENDPOINTS), TAP_ENDPOINTS.vizier);
   assert.equal(resolveEndpoint('https://example.org/tap', TAP_ENDPOINTS), 'https://example.org/tap');

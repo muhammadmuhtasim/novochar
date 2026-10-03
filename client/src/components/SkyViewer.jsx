@@ -74,6 +74,14 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     if (selected) onTarget('blink', selected.id);
   };
 
+  const gotoSpectra = () => {
+    if (selected) onTarget('spectra', selected.id);
+  };
+
+  const gotoCatalog = () => {
+    if (selected) onTarget('catalogue', selected.id);
+  };
+
   const submitSearch = () => {
     const c = parseCoordInput(q.trim());
     if (c) {
@@ -132,7 +140,10 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
             </button>
           ))}
           {selected && (
-            <button className="btn sm primary go-blink" onClick={gotoBlink}>OPEN IN BLINK ⧗</button>
+            <>
+              <button className="btn sm primary go-blink" onClick={gotoBlink}>OPEN IN BLINK ⧗</button>
+              <button className="btn sm" onClick={gotoSpectra}>OPEN SPECTRA ∿</button>
+            </>
           )}
         </div>
 
@@ -164,6 +175,8 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
             <TargetInfo o={selected} />
             <div className="side-actions">
               <button className="btn primary sm" onClick={gotoBlink}>LAUNCH BLINK COMPARATOR</button>
+              <button className="btn sm" onClick={gotoSpectra}>OPEN SPECTRA</button>
+              <button className="btn sm" onClick={gotoCatalog}>OPEN CATALOGUE</button>
             </div>
           </>
         ) : (

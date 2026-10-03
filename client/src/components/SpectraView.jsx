@@ -21,7 +21,7 @@ function linScale(v) {
   return s;
 }
 
-export default function SpectraView({ objects, presetId }) {
+export default function SpectraView({ objects, presetId, onTarget = () => {} }) {
   const [selectedId, setSelectedId] = useState(presetId || (objects[0] && objects[0].id) || null);
   const [sed, setSed] = useState(null);
   const [heat, setHeat] = useState(null);
@@ -34,6 +34,12 @@ export default function SpectraView({ objects, presetId }) {
   useEffect(() => {
     if (presetId) setSelectedId(presetId);
   }, [presetId]);
+
+  // Auto-select the first tracked object once the catalogue arrives, so a
+  // direct load of SPECTRA (before /api/objects resolves) still shows a SED.
+  useEffect(() => {
+    if (!selectedId && objects.length) setSelectedId(objects[0].id);
+  }, [objects, selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -80,6 +86,15 @@ export default function SpectraView({ objects, presetId }) {
                 <option key={o.id} value={o.id}>{o.id} · {o.name}</option>
               ))}
             </select>
+            {selected && (
+              <>
+                <span className="tb-spacer" />
+                <span className="tb-label">OPEN</span>
+                <button className="btn sm" onClick={() => selected && onTarget('sky', selected.id)}>SKY VIEWER ⌖</button>
+                <button className="btn sm" onClick={() => selected && onTarget('blink', selected.id)}>BLINK ⧗</button>
+                <button className="btn sm" onClick={() => selected && onTarget('catalogue', selected.id)}>CATALOGUE ≋</button>
+              </>
+            )}
           </div>
         )}
         {sed && sed.object && <SedChart sed={sed} />}

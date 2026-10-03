@@ -18,6 +18,11 @@ import {
   ARCHIVES,
   PROTOCOL_LABEL,
   queryGaiaMotion,
+  SOURCE_ADAPTERS,
+  queryArchiveSource,
+  lambdaFileUrl,
+  mastProductUrl,
+  dartsFileUrl,
 } from './ivoa/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -137,6 +142,46 @@ app.get('/api/ivoa', (_req, res) =>
     ),
   })
 );
+
+app.get('/api/archives', (_req, res) => res.json({ archives: SOURCE_ADAPTERS }));
+
+app.post('/api/archives/:archive/query', async (req, res) => {
+  const { archive } = req.params;
+  try {
+    res.json(await queryArchiveSource({
+      archive,
+      operation: req.body && req.body.operation,
+      params: req.body && req.body.params,
+    }));
+  } catch (err) {
+    const status = err instanceof TypeError || err instanceof RangeError ? 400 : 502;
+    res.status(status).json({ archive, error: err.message });
+  }
+});
+
+app.get('/api/archives/lambda/file', (req, res) => {
+  try {
+    res.redirect(302, lambdaFileUrl(req.query.path));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/archives/mast/file', (req, res) => {
+  try {
+    res.redirect(302, mastProductUrl(req.query.uri));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/archives/darts/file', (req, res) => {
+  try {
+    res.redirect(302, dartsFileUrl(req.query.path));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 app.get('/api/ivoa/probe', async (req, res) => {
   try {

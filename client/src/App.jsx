@@ -60,6 +60,8 @@ export default function App() {
 
   const skyPreset = tab === 'sky' && target ? target.id : null;
   const blinkPreset = tab === 'blink' && target ? target.id : null;
+  const cataloguePreset = tab === 'catalogue' && target ? target.id : null;
+  const spectraPreset = tab === 'spectra' && target ? target.id : null;
 
   return (
     <div className="shell">
@@ -68,9 +70,9 @@ export default function App() {
       <main className="view">
         {tab === 'home' && <Home stats={stats} health={health} objects={objects} onNavigate={setTab} onTarget={goToTarget} />}
         {tab === 'sky' && <SkyViewer objects={objects} presetId={skyPreset} onTarget={goToTarget} />}
-        {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} />}
-        {tab === 'catalogue' && <Catalogue objects={objects} />}
-        {tab === 'spectra' && <SpectraView objects={objects} presetId={target && target.tab === 'spectra' ? target.id : null} />}
+        {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} onTarget={goToTarget} />}
+        {tab === 'catalogue' && <Catalogue objects={objects} presetId={cataloguePreset} onTarget={goToTarget} />}
+        {tab === 'spectra' && <SpectraView objects={objects} presetId={spectraPreset} onTarget={goToTarget} />}
         {tab === 'archives' && <IvoaLab />}
         {tab === 'sources' && <DataSources />}
       </main>
