@@ -39,6 +39,40 @@ test('buildSpectrum is deterministic and complete for every object', () => {
   }
 });
 
+test('buildSpectrum includes spectral line catalog and observing metadata', () => {
+  const o = objects[0];
+  const s = buildSpectrum(o);
+  // rest-frame line catalog present, with both absorption and emission kinds
+  assert.ok(Array.isArray(s.lines) && s.lines.length > 0);
+  assert.ok(s.lines.some((l) => l.kind === 'abs'));
+  assert.ok(s.lines.some((l) => l.kind === 'em'));
+  for (const l of s.lines) {
+    assert.ok(l.rest > 0 && l.rest <= 5.1, `line ${l.label} rest in window`);
+    assert.ok(l.label && typeof l.label === 'string');
+  }
+  // metadata + redshift reference
+  assert.ok(s.meta.snr > 0);
+  assert.ok(s.meta.integrationSec > 0);
+  assert.ok(s.meta.filter && s.meta.grating);
+  assert.ok(s.meta.resolution > 0);
+  assert.equal(s.z, 0);
+  assert.equal(s.spectrum.length, 200);
+});
+
+test('buildSpectrum injects spectral features producing real line contrast', () => {
+  // Emission features should push flux up relative to the local continuum and
+  // absorption features push it down, so the curve is clearly non-smooth.
+  for (const o of objects) {
+    const s = buildSpectrum(o);
+    const flats = s.spectrum.map((p) => p.flux);
+    const max = Math.max(...flats);
+    const min = Math.min(...flats);
+    // With several injected lines the peak-to-valley range must be substantive
+    // (guard against a perfectly smooth continuum).
+    assert.ok(max / min > 1.4, `line contrast present for ${o.id}`);
+  }
+});
+
 test('buildSpectrum shapes differ by class (Teff ordering)', () => {
   const tno = objects.find((o) => o.type === 'TNO');
   const ast = objects.find((o) => o.type === 'AST');

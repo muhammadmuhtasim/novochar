@@ -5,6 +5,13 @@
 // client can render stable curves across reloads, mirroring the `data.js`
 // seeded-simulation philosophy. A real archive later supplies these points;
 // the client contract stays the same.
+//
+// v2 additions (spectral analysis tooling):
+//   - `spectrum` now has real injected spectral features (not just a sine
+//     ripple) so absorption / emission signatures are visible in the plot.
+//   - `lines` is the rest-frame line catalog (client shifts with (1+z)).
+//   - `meta` carries SNR, integration time, filter/grating + resolution.
+//   - `z` is the (rest, z=0) reference the redshift slider starts from.
 
 import { SPHEREX_BANDS } from './data.js';
 
@@ -22,6 +29,26 @@ const PHOTOMETRIC_POINTS = [
   { band: 'SPHEREx B5', lambda: 4.12, wave: 4.12 },
   { band: 'SPHEREx B6', lambda: 4.71, wave: 4.71 },
 ].map((p) => ({ ...p, wave: p.wave ?? p.lambda }));
+
+// Rest-frame spectral line catalog (wavelengths in µm) spanning the observed
+// 0.2–5.1 µm window, so every class shows a visible chemical signature.
+const SPECTRAL_LINES = [
+  { label: 'Mg II', rest: 0.2798, kind: 'em' },
+  { label: '[O II]', rest: 0.3727, kind: 'em' },
+  { label: 'Ca II K', rest: 0.3934, kind: 'abs' },
+  { label: 'Ca II H', rest: 0.3968, kind: 'abs' },
+  { label: 'Hγ', rest: 0.4340, kind: 'abs' },
+  { label: 'Hβ', rest: 0.4861, kind: 'em' },
+  { label: '[O III]', rest: 0.4959, kind: 'em' },
+  { label: '[O III]', rest: 0.5007, kind: 'em' },
+  { label: 'Na I', rest: 0.5893, kind: 'abs' },
+  { label: 'Hα', rest: 0.6563, kind: 'em' },
+  { label: '[S II]', rest: 0.6725, kind: 'em' },
+  { label: 'Paβ', rest: 1.2818, kind: 'em' },
+  { label: 'Brγ', rest: 2.1655, kind: 'em' },
+];
+
+export { SPECTRAL_LINES };
 
 // rough effective temperatures by class (K)
 const TYPE_TEMP = {
@@ -57,11 +84,19 @@ function reflectedFlux(lambdaMicron, norm) {
   return norm * Math.pow(REF / lambdaMicron, 2);
 }
 
+// v2: inject a single Gaussian spectral feature (abs or em) into a flux value.
+function injectFeature(w, flux, feature) {
+  const d = (w - feature.obs) / feature.sigma;
+  const g = Math.exp(-0.5 * d * d);
+  const factor = feature.kind === 'abs' ? 1 - feature.strength * g : 1 + feature.strength * g;
+  return Math.max(flux * factor, 1e-3);
+}
+
 /**
  * Build a deterministic SED for an object.
  * @param {object} obj  catalogue object with id/type/mag/bandIndex
  * @param {{n?: number}} [opts]
- * @returns {{object, photometry, spectrum, bands}}
+ * @returns {{object, photometry, spectrum, lines, bands, meta, z}}
  */
 export function buildSpectrum(obj, { n = 200 } = {}) {
   const seed = (parseInt(String(obj.id).replace(/\D/g, ''), 10) || 7) * 7919 + 3;
@@ -72,13 +107,24 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
   const refNorm = magFactor * (0.5 + rand());
   const scale = refNorm * (0.15 + rand() * 0.4);
 
+  // Build the (rest, z=0) features that fall inside the observed window.
+  const features = SPECTRAL_LINES.filter((l) => l.rest >= 0.2 && l.rest <= 5.1).map((l) => ({
+    label: l.label,
+    kind: l.kind,
+    rest: l.rest,
+    obs: l.rest, // z = 0 reference spectrum
+    sigma: 0.0035 + rand() * 0.004,
+    strength: l.kind === 'abs' ? 0.16 + rand() * 0.2 : 0.3 + rand() * 0.45,
+  }));
+
   const spectrum = [];
   for (let i = 0; i < n; i++) {
     const w = 0.2 + (i / (n - 1)) * 4.9; // 0.2 -> 5.1 µm
     let flux = reflectedFlux(w, refNorm) + blackbodyFlux(w, teff, scale);
-    // a shallow feature so the curve isn't perfectly smooth
-    flux *= 1 + 0.05 * Math.sin(2 * Math.PI * (w / 0.5) + rand() * 0.2);
-    spectrum.push({ lambda: +w.toFixed(4), flux: +Math.max(flux, 1e-3).toFixed(4) });
+    // a shallow continuum modulation so the curve isn't perfectly smooth
+    flux *= 1 + 0.04 * Math.sin(2 * Math.PI * (w / 0.5) + rand() * 0.2);
+    for (const f of features) flux = injectFeature(w, flux, f);
+    spectrum.push({ lambda: +w.toFixed(4), flux: +flux.toFixed(4) });
   }
 
   const photometry = PHOTOMETRIC_POINTS.map((p) => {
@@ -92,6 +138,10 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
       snr: Math.round((2 + rand() * 9) * 10) / 10,
     };
   });
+
+  const snr = +(photometry.reduce((s, p) => s + p.snr, 0) / photometry.length).toFixed(1);
+  // SPHEREx uses a low-resolution prism/grism over six NIR bands.
+  const resolution = Math.round(60 + 40 * rand());
 
   return {
     object: {
@@ -107,6 +157,17 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
     },
     photometry,
     spectrum,
+    lines: SPECTRAL_LINES.map((l) => ({ label: l.label, rest: l.rest, kind: l.kind })),
     bands: SPHEREX_BANDS,
+    meta: {
+      snr,
+      integrationSec: Math.round(Math.max(60, 300 - (obj.mag || 18) * 8)),
+      filter: obj.band || 'SPHEREx 6-band',
+      grating: `Prism · R ≈ ${resolution}`,
+      resolution,
+      units: { wavelength: 'µm', flux: 'Jy', rend: 'reflected + thermal' },
+    },
+    z: 0,
   };
 }
+

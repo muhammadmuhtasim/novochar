@@ -51,7 +51,7 @@ without it using the simulated survey data.
 | **SKY VIEWER**   | Interactive pan/zoom star map with candidate markers; **6-band SPHEREx filter**, **RA/Dec or name coordinate search**, and one-click **sample-target presets** |
 | **BLINK COMPARATOR** | Time-series blink across survey passes to spot movers; motion trails + readout (per-pass spectral band shown) |
 | **CATALOGUE**    | Filterable / sortable table of tracked objects with detail drawer |
-| **SPECTRA**      | SED & spectra view: multi-band UV→NIR photometric points + continuum curve (asinh/log), synthetic PSF **image cutout**, and a HEALPix **density heatmap**; plus an IVOA name-resolver demo |
+| **SPECTRA**      | Spectral-analysis tool: 1-D flux-vs-wavelength plot with labeled atomic/molecular **line markers** + interactive **redshift/Doppler slider**, 2-D IFS-style dispersion image toggle, clickable HEALPix map that loads spectra + **multi-target comparison overlay**, target metadata bar, and **export** (CSV / JSON / FITS / SVG / PNG) |
 | **DATA SOURCES** | NASA data-source cards + optional live NEO feed |
 
 ### Layout / theming
