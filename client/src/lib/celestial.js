@@ -48,6 +48,20 @@ export function starField(seed = 7, count = 900) {
   return stars;
 }
 
+// SPHEREx six-band accessors for the co-ordinated analysis views.
+// `o.mags` is the per-band apparent-magnitude array (index 0 = Band 1).
+export function bandMag(o, b) {
+  return Array.isArray(o.mags) && o.mags[b - 1] != null ? o.mags[b - 1] : null;
+}
+
+// A colour index mag(bluer) - mag(redder). Null when a band is missing.
+export function colourIndex(o, b1, b2) {
+  const a = bandMag(o, b1);
+  const c = bandMag(o, b2);
+  if (a == null || c == null) return null;
+  return a - c;
+}
+
 // Loose RA/Dec parser for the coordinate-search box. Accepts:
 //   - decimal degrees:   "84 -58"
 //   - sexagesimal with units: "12h 30m 45s +12d 30m 00s"

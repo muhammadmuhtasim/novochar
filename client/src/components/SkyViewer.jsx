@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SkyViewerCanvas from './SkyViewerCanvas.jsx';
+import SkyAnalysis from './SkyAnalysis.jsx';
 import TargetInfo from './TargetInfo.jsx';
 import { api, fmtRA, fmtDec } from '../lib/api.js';
 import { parseCoordInput } from '../lib/celestial.js';
@@ -30,6 +31,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
   const [presets, setPresets] = useState([]);
   const [searchNote, setSearchNote] = useState('');
   const [imagery, setImagery] = useState(true);
+  const [highlight, setHighlight] = useState(null); // Set of ids from brushing
 
   useEffect(() => { api.presets().then((d) => setPresets(d.list || [])).catch(() => {}); }, []);
 
@@ -170,11 +172,20 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           onSelect={select}
           imagery={imagery}
           initialZoom={IMAGERY_ZOOM}
+          highlight={highlight}
         />
         <p className="muted caption">
           Field centered at {fmtRA(field.raCenter)} / {fmtDec(field.decCenter)} · coverage{' '}
           {field.raHalf * 2}° × {field.decHalf * 2}°.
         </p>
+
+        <SkyAnalysis
+          objects={visible}
+          selectedId={selected ? selected.id : null}
+          onSelect={select}
+          highlight={highlight}
+          onBrush={setHighlight}
+        />
 
         <details className="sky-help">
           <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>

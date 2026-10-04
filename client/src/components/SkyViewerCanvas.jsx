@@ -5,15 +5,25 @@ import { api, fmtRA, fmtDec } from '../lib/api.js';
 const STARS = starField();
 const MAXIMAGERY_DEG = 2.0; // DSS cutouts cap at 2°.
 
+// Semantic-zoom thresholds (see the marker pass in draw()):
+//  - zoom < DENSITY_ZOOM  => hexbin density layer (no individual markers)
+//  - mid zoom             => markers + motion vectors on the top-N movers
+//  - zoom >= DEEP_ZOOM    => all markers + velocity trails
+const DENSITY_ZOOM = 3.0;
+const DEEP_ZOOM = 16;
+const MAX_VECTORS = 10; // top-N by motion that get vector ticks at mid zoom
+
 // One colour per *object class* so the markers carry meaning at a glance and the
-// on-canvas legend can explain what each ring is. (The server currently ships all
-// classes in the same orange family, which reads as a single blob of "dots".)
+// on-canvas legend can explain what each ring is. Shape is the class-agnostic
+// (colour-blind-safe) channel: ring = TNO, diamond = AST, arrow = HPM.
 const TYPE_COLORS = {
   TNO: '#ff8c1a', // distant trans-Neptunian candidates
   AST: '#27d4e6', // near-by asteroids
   HPM: '#ff5fc2', // high proper-motion stars
 };
 const typeColor = (o) => TYPE_COLORS[o.type] || o.color || '#ff8c1a';
+// Legend glyphs (Unicode) mirror the shapes drawn on the canvas.
+const TYPE_GLYPHS = { TNO: '◎', AST: '◇', HPM: '›' };
 
 /**
  * Interactive sky canvas. When `imagery` is enabled and the view is zoomed into
@@ -30,6 +40,7 @@ export default function SkyViewerCanvas({
   imagery = true,
   initialZoom = 1,
   onImageryStatus = null,
+  highlight = null, // Set of ids to keep lit during brushing (empty => no brush)
 }) {
   const [hover, setHover] = useState(null);
   const [readout, setReadout] = useState('');
@@ -228,44 +239,258 @@ export default function SkyViewerCanvas({
       ctx.textAlign = 'right';
       ctx.fillText(barLabel, bx + px, by - 7);
 
-      // Candidate markers (visible on both real and synthetic backdrops).
+      // Candidate markers — representation switches with zoom (semantic zoom).
+      // Wide: hexbin density layer. Mid: markers + top-N motion vectors.
+      // Deep: all markers + trails + selected label.
+      if (state.current.zoom < DENSITY_ZOOM) {
+        drawDensity(w, h);
+      } else {
+        drawMarkers(state.current.zoom >= DEEP_ZOOM, w, h);
+      }
+      scheduleImagery();
+    };
+    // --- semantic-zoom layers ------------------------------------------------
+    const brushed = highlight && highlight.size ? highlight : null;
+    const isBrushed = !!brushed;
+    // Marker opacity from detection confidence (dim marginal detections without
+    // hiding them) and, when a brush is active, dim everything outside it.
+    const markerAlpha = (o) => {
+      let a = Math.max(0.3, Math.min(1, (o.snr || 8) / 12));
+      if (o.id !== selRef.current && isBrushed && !brushed.has(o.id)) a *= 0.16;
+      return a;
+    };
+    // Apparent-motion direction in [nx, ny] unit terms. Position angle (`pa`)
+    // is measured east of north; on this map north = +ny and east = -nx.
+    const motionDir = (o) => {
+      const rad = (((o.pa != null ? o.pa : 90) % 360) * Math.PI) / 180;
+      return { dx: -Math.sin(rad), dy: Math.cos(rad) };
+    };
+    const drawArrowhead = (x, y, dx, dy, size, alpha, col) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(Math.atan2(dy, dx));
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.6, -size * 0.55);
+      ctx.lineTo(-size * 0.2, 0);
+      ctx.lineTo(-size * 0.6, size * 0.55);
+      ctx.closePath();
+      ctx.fillStyle = col;
+      ctx.globalAlpha = alpha;
+      ctx.fill();
+      ctx.restore();
+    };
+    // Velocity tick: a short arrow along the direction of travel. Length grows
+    // with (log) motion and zoom so slow TNO drift and fast HPM streaks are both
+    // legible. (HPM markers already encode direction via their arrowhead shape.)
+    const drawMotionVector = (o, p, zoom) => {
+      if (o.type === 'HPM') return;
+      const len = (5 + 15 * Math.log10((o.motion || 1) + 2)) * (0.7 + zoom * 0.05);
+      const d = motionDir(o);
+      const tipX = p.x + d.dx * len;
+      const tipY = p.y + d.dy * len;
+      const col = typeColor(o);
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.globalAlpha = markerAlpha(o) * 0.9;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+      drawArrowhead(tipX, tipY, d.dx, d.dy, Math.max(5, len * 0.22), markerAlpha(o), col);
+      ctx.restore();
+    };
+    // Fading ghost trail behind the marker (past positions on the sky).
+    const drawTrail = (o, p, zoom) => {
+      const d = motionDir(o);
+      const step = (2 + 4 * Math.log10((o.motion || 1) + 2)) * (0.7 + zoom * 0.04);
+      ctx.save();
+      for (let i = 1; i <= 5; i++) {
+        const t = i * step;
+        ctx.beginPath();
+        ctx.arc(p.x - d.dx * t, p.y - d.dy * t, Math.max(0.6, 2.2 - i * 0.3), 0, Math.PI * 2);
+        ctx.fillStyle = typeColor(o);
+        ctx.globalAlpha = markerAlpha(o) * (0.28 - i * 0.045);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
+    // Draw a single candidate marker: shape by class, nBands rings for TNOs,
+    // dashed outline for unconfirmed candidates, opacity = confidence / brush.
+    const drawMarker = (o, p, size) => {
+      const sel = selRef.current === o.id;
+      const col = typeColor(o);
+      const alpha = markerAlpha(o);
+      const stroke = o.status === 'confirmed' ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.22)';
+
+      if (o.type === 'HPM') {
+        const d = motionDir(o);
+        const s = size * (sel ? 2.2 : 1.6);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(Math.atan2(d.dy, d.dx));
+        ctx.beginPath();
+        ctx.moveTo(s, 0);
+        ctx.lineTo(-s * 0.75, -s * 0.8);
+        ctx.lineTo(-s * 0.75, s * 0.8);
+        ctx.closePath();
+        ctx.fillStyle = col;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        ctx.restore();
+      } else if (o.type === 'AST') {
+        const s = size * (sel ? 2.0 : 1.5);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(Math.PI / 4);
+        ctx.beginPath();
+        ctx.rect(-s, -s, s * 2, s * 2);
+        ctx.fillStyle = col;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 14;
+        ctx.fill();
+        ctx.restore();
+      } else {
+        // TNO: one concentric ring per strongly-detected band (capped at 6).
+        const rings = Math.max(1, Math.min(6, o.nBands || 1));
+        ctx.save();
+        ctx.strokeStyle = col;
+        ctx.globalAlpha = alpha;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 12;
+        for (let i = 1; i <= rings; i++) {
+          const r = size * (i / rings) * (sel ? 2.0 : 1.5);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.lineWidth = sel ? 2.2 : 1.1;
+          if (o.status !== 'confirmed') ctx.setLineDash([3, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        ctx.restore();
+      }
+
+      // Quality/outline flag around every marker.
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (o.status !== 'confirmed') ctx.setLineDash([3, 3]);
+      ctx.lineWidth = sel ? 2.6 : 1.2;
+      ctx.strokeStyle = sel ? '#fff' : stroke;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size * (sel ? 2.0 : 1.5), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Label the active marker so ordinary users see who they've caught.
+      if (sel) {
+        ctx.save();
+        ctx.font = '11px "Share Tech Mono", monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.shadowColor = 'rgba(0,0,0,0.9)';
+        ctx.shadowBlur = 4;
+        ctx.fillText(
+          isBrushed && !brushed.has(o.id) ? `${o.id} · dimmed by brush` : `${o.id} · ${o.name}`,
+          p.x + size + 5,
+          p.y - size - 3
+        );
+        ctx.restore();
+      }
+    };
+
+    // Mid/deep marker pass. At mid zoom, vector ticks only on the top-N movers.
+    const drawMarkers = (deep, w, h) => {
+      const zoom = state.current.zoom;
+      const vectorPass =
+        deep || objects.length <= MAX_VECTORS
+          ? objects
+          : objects
+              .filter((o) => o.type !== 'HPM')
+              .sort((a, b) => (b.motion || 0) - (a.motion || 0))
+              .slice(0, MAX_VECTORS);
+      for (const o of vectorPass) {
+        const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
+        const p = toScreen(nx, ny);
+        if (p.x < -60 || p.x > w + 60 || p.y < -60 || p.y > h + 60) continue;
+        if (deep) drawTrail(o, p, zoom);
+        drawMotionVector(o, p, zoom);
+      }
       for (const o of objects) {
         const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
         const p = toScreen(nx, ny);
         if (p.x < -24 || p.x > w + 24 || p.y < -24 || p.y > h + 24) continue;
-        const sel = selRef.current === o.id;
-        const col = typeColor(o);
-        const size = (3.5 + Math.min(10, o.motion / 28)) * (0.72 + state.current.zoom * 0.24);
-        ctx.save();
-        ctx.shadowColor = col;
-        ctx.shadowBlur = 14;
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, size * (sel ? 2.0 : 1.5), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-        ctx.fillStyle = col;
-        ctx.fill();
-        ctx.lineWidth = sel ? 2.6 : 1.3;
-        ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.35)';
-        ctx.stroke();
-        // Label the active marker so ordinary users see who they've caught.
-        if (sel) {
-          ctx.save();
-          ctx.font = '11px "Share Tech Mono", monospace';
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'bottom';
-          ctx.fillStyle = 'rgba(255,255,255,0.92)';
-          ctx.shadowColor = 'rgba(0,0,0,0.9)';
-          ctx.shadowBlur = 4;
-          ctx.fillText(`${o.id} · ${o.name}`, p.x + size + 5, p.y - size - 3);
-          ctx.restore();
-        }
+        const size = (3.5 + Math.min(10, (o.motion || 0) / 28)) * (0.72 + zoom * 0.24);
+        drawMarker(o, p, size);
       }
-      scheduleImagery();
     };
+    // Wide zoom: hexbin density layer instead of individual dots.
+    const drawDensity = (w, h) => {
+      const R = Math.max(12, 16 * (1 - state.current.zoom / (DENSITY_ZOOM * 1.6)));
+      const hstep = R * Math.sqrt(3);
+      const counts = new Map();
+      let max = 0;
+      for (const o of objects) {
+        const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
+        const p = toScreen(nx, ny);
+        if (p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
+        let q = Math.round(p.x / (R * 1.5));
+        let r = Math.round(p.y / hstep - q * 0.5);
+        // cube-coordinate rounding for a clean hex grid
+        let x = q; let z = r; let y = -x - z;
+        let rx = Math.round(x); let ry = Math.round(y); let rz = Math.round(z);
+        const xd = Math.abs(rx - x); const yd = Math.abs(ry - y); const zd = Math.abs(rz - z);
+        if (xd > yd && xd > zd) rx = -ry - rz;
+        else if (yd > zd) ry = -rx - rz;
+        else rz = -rx - ry;
+        q = rx; r = rz;
+        const key = q + ',' + r;
+        counts.set(key, (counts.get(key) || 0) + 1);
+        max = Math.max(max, counts.get(key));
+      }
+      for (const [key, n] of counts) {
+        const [qq, rr] = key.split(',').map(Number);
+        const cx = R * 1.5 * qq;
+        const cy = hstep * (rr + qq * 0.5);
+        const t = n / (max || 1);
+        const alpha = 0.16 + 0.82 * t;
+        const hue = 26 - t * 26; // orange -> red as clusters densify
+        ctx.save();
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI / 3) * i;
+          const px = cx + R * Math.cos(a);
+          const py = cy + R * Math.sin(a);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = `hsla(${hue}, 95%, 58%, ${alpha})`;
+        ctx.strokeStyle = `hsla(${hue}, 90%, 62%, ${Math.min(1, alpha + 0.15)})`;
+        ctx.lineWidth = 1;
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = '10px "Share Tech Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(n, cx, cy);
+        ctx.restore();
+      }
+      ctx.save();
+      ctx.font = '10px "Share Tech Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255,215,165,0.7)';
+      ctx.fillText('DENSITY · scroll to zoom into markers', 12, 18);
+      ctx.restore();
+    };
+
     const toCanvas = (e) => {
       const r = canvas.getBoundingClientRect();
       return {
@@ -278,6 +503,7 @@ export default function SkyViewerCanvas({
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
     const hitTest = (mx, my) => {
+      if (state.current.zoom < DENSITY_ZOOM) return null; // density layer has no discrete markers
       for (let i = objects.length - 1; i >= 0; i--) {
         const o = objects[i];
         const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
@@ -402,7 +628,7 @@ export default function SkyViewerCanvas({
       resizeObserver.disconnect();
       if (canvasRef.current) delete canvasRef.current.action;
     };
-  }, [objects, field, selRef, onSelect, imagery, initialZoom, canvasRef, wrapRef]);
+  }, [objects, field, selRef, onSelect, imagery, initialZoom, canvasRef, wrapRef, highlight]);
   return (
     <div className="canvas-wrap" ref={wrapRef}>
       <canvas ref={canvasRef} className="sky-canvas" />
@@ -417,11 +643,11 @@ export default function SkyViewerCanvas({
       <div className="sky-legend" title="Object classes flagged by the survey">
         {Object.entries(TYPE_COLORS).map(([t, c]) => (
           <span className="sky-legend-item" key={t}>
-            <span className="sky-legend-dot" style={{ background: c, boxShadow: `0 0 6px ${c}` }} />
+            <span className="sky-legend-glyph" style={{ color: c, textShadow: `0 0 6px ${c}` }}>{TYPE_GLYPHS[t]}</span>
             {t}
           </span>
         ))}
-        <span className="sky-legend-note">ring size ≈ motion speed</span>
+        <span className="sky-legend-note">shape = class · ring count = bands · arrow = motion</span>
       </div>
       {hover && (
         <div className="hover-tip" style={{ left: Math.min(hover.x + 18, (wrapRef.current ? wrapRef.current.clientWidth : 200) - 140), top: hover.y - 6 }}>

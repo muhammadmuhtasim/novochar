@@ -196,6 +196,9 @@ The plan's four visualisation families map to client views:
 | Time-series & motion | existing **BLINK COMPARATOR** |
 | SED & spectra | **NEW SPECTRA** view — multi-band photometry + spectrum overlay (asinh/log) |
 | HEALPix footprints | `/api/field/heatmap` -> density heatmap canvas |
+| Co-ordinated multi-view (RFC) | `SkyViewer` **linked analysis panel** — brushable **colour–colour** (B1−B3 vs B4−B6) and **magnitude-vs-motion** scatters + a sortable table, sharing selection with the map (`SkyAnalysis` / `ScatterPlot`) |
+| Richer markers (RFC) | **Semantic zoom** in `SkyViewerCanvas` (hexbin density < zoom 3 → markers → deep trails); shape per class, vector = motion, rings = `nBands`, opacity = `snr`, dashed = unconfirmed |
+| Velocity / proper motion | New per-object `pa` (position angle) drives marker vectors (motion direction). `mags` per-band powers the colour indices |
 
 Server feeds:
 
@@ -204,6 +207,13 @@ Server feeds:
 - `GET /api/field/heatmap?nside=64` — HEALPix (ring) counts over the survey
   field, produced with `server/astro/healpix.js` (the seam where imported
   catalogues will later supply the counts).
+
+RFC data contract additions (`server/data.js`, deterministic like every field):
+
+- `pa` — position angle of apparent motion (deg, east of north) → motion vectors.
+- `snr` — detection confidence (~3–20) → marker opacity.
+- `nBands` — bands with a strong detection (1–6) → concentric marker rings.
+- `mags[1..6]` — per-band apparent magnitudes → colour-colour indices.
 
 ## 9. Open questions / next steps
 

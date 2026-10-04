@@ -102,6 +102,28 @@ export function generateSurvey() {
     const bandIndex = 1 + Math.floor(Math.min(5, Math.max(0, rand() * 4 + bandBias)));
     const band = SPHEREX_BANDS[bandIndex - 1];
 
+    // --- Extra encoding channels for the sky viewer (RFC: richer markers) ---
+    // Position angle of the apparent motion (degrees, 0..360, measured east of
+    // north), so the client can draw a velocity *vector* per marker instead of
+    // relying on ring size alone. Deterministic like every other field here.
+    const pa = Math.round(rand() * 3600) / 10;
+    // Detection confidence (SNR-like, ~3..20): drives marker opacity, dimming
+    // marginal detections without hiding them.
+    const snr = Math.round((3 + Math.pow(rand(), 1.3) * 17) * 10) / 10;
+    // Number of SPHEREx bands with a strong detection (1..6): encodes the
+    // multi-band channel as concentric marker rings, so a source bright in many
+    // bands is distinguishable from a single-band blip at a glance.
+    const nBands = 1 + Math.floor(rand() * 6);
+    // Per-band apparent magnitudes (all six). The spectral slope is class-aware
+    // (cold TNOs and brown-dwarf HPMs are redder -> relatively brighter in the
+    // longer-wavelength bands), so colour-colour diagrams separate the classes.
+    const spectralSlope = type === 'TNO' ? -0.55 : type === 'HPM' ? -0.34 : -0.08;
+    const mags = SPHEREX_BANDS.map((b, bi) => {
+      const k = bi + 1 - bandIndex; // 0 at the dominant band
+      const off = spectralSlope * k + (rand() - 0.5) * 0.55;
+      return Math.round((baseMag + off) * 10) / 10;
+    });
+
     objects.push({
       id,
       name,
@@ -114,6 +136,11 @@ export function generateSurvey() {
       mag: Math.round(baseMag * 10) / 10,
       motion: Math.round(motion * 100) / 100,
       motionUnits: 'mas/day',
+      // RFC: richer marker channels
+      pa,           // position angle of motion (deg, east of north)
+      snr,          // detection confidence -> marker opacity
+      nBands,       // detected bands -> concentric marker rings
+      mags,         // per-band apparent magnitude array (index 0 = Band 1)
       discovered: discoveryPass.code,
       epochOfDiscovery: discoveryPass.epochJD,
       flags: [
