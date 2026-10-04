@@ -173,10 +173,24 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
         />
         <p className="muted caption">
           Field centered at {fmtRA(field.raCenter)} / {fmtDec(field.decCenter)} · coverage{' '}
-          {field.raHalf * 2}° × {field.decHalf * 2}°. Click a marker to inspect; brighter markers move
-          faster. Use the <strong>BAND</strong> filter to switch SPHEREx near-infrared channels and the
-          search box for RA/Dec or target names.
+          {field.raHalf * 2}° × {field.decHalf * 2}°.
         </p>
+
+        <details className="sky-help">
+          <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>
+          <p>
+            The dark background is a real patch of night sky pulled live from the{' '}
+            <strong>Digitized Sky Survey</strong> — zoom in past a ~2° field and the true stars appear.
+            The orange-tinged markers are the <em>moving objects</em> this survey flagged: each ring is a
+            candidate <strong>TNO</strong> (remote icy body beyond Neptune), <strong>AST</strong>
+            (nearby asteroid) or <strong>HPM</strong> (a star gliding across the field).
+          </p>
+          <ul>
+            <li><strong>Ring size</strong> scales with how fast the object is moving.</li>
+            <li><strong>Drag</strong> to pan, <strong>scroll / pinch</strong> to zoom, <strong>click a ring</strong> to inspect a candidate.</li>
+            <li>Use <strong>BAND</strong> to filter SPHEREx near-infrared channels, or <strong>search</strong> by RA/Dec or target name.</li>
+          </ul>
+        </details>
       </div>
 
       <aside className="panel side">

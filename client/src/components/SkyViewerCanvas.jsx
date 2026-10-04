@@ -5,6 +5,16 @@ import { api, fmtRA, fmtDec } from '../lib/api.js';
 const STARS = starField();
 const MAXIMAGERY_DEG = 2.0; // DSS cutouts cap at 2°.
 
+// One colour per *object class* so the markers carry meaning at a glance and the
+// on-canvas legend can explain what each ring is. (The server currently ships all
+// classes in the same orange family, which reads as a single blob of "dots".)
+const TYPE_COLORS = {
+  TNO: '#ff8c1a', // distant trans-Neptunian candidates
+  AST: '#27d4e6', // near-by asteroids
+  HPM: '#ff5fc2', // high proper-motion stars
+};
+const typeColor = (o) => TYPE_COLORS[o.type] || o.color || '#ff8c1a';
+
 /**
  * Interactive sky canvas. When `imagery` is enabled and the view is zoomed into
  * a field ≤ 2°, a real DSS survey cutout (proxied through the server) is drawn
@@ -139,10 +149,12 @@ export default function SkyViewerCanvas({
         const dx = Math.min(xLeft, xRight);
         const dy = Math.min(yTop, yBottom);
         ctx.drawImage(img, dx, dy, Math.abs(xRight - xLeft), Math.abs(yBottom - yTop));
-        // Subtle vignette + dim so the neon markers stay readable above the stars.
+        // Only a whisper of corner vignette — enough to seat the markers without
+        // crushing the real star field into near-invisibility (the accuracy bug
+        // where the survey imagery looked like it wasn't there at all).
         const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2);
-        g.addColorStop(0, 'rgba(0,0,0,0.04)');
-        g.addColorStop(1, 'rgba(0,0,0,0.5)');
+        g.addColorStop(0, 'rgba(0,0,0,0)');
+        g.addColorStop(1, 'rgba(0,0,0,0.12)');
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
       } else {
@@ -183,28 +195,74 @@ export default function SkyViewerCanvas({
         ctx.beginPath(); ctx.moveTo(0, p.y); ctx.lineTo(w, p.y); ctx.stroke();
       }
 
+      // Compass + angular scale so the view reads as an *accurate* map of the
+      // sky instead of an abstract dot-plot. In this projection RA increases
+      // eastward but is drawn decreasing to the right, so East sits on the left.
+      ctx.font = `${hasImg ? 10 : 11}px "Share Tech Mono", monospace`;
+      ctx.fillStyle = 'rgba(255,215,165,0.55)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const pad = 14;
+      ctx.fillText('N ↑', w / 2, pad + 4);
+      ctx.fillText('S ↓', w / 2, h - pad - 4);
+      ctx.textAlign = 'left';
+      ctx.fillText('← E', pad, h / 2);
+      ctx.textAlign = 'right';
+      ctx.fillText('W →', w - pad, h / 2);
+
+      // Scale bar (arcminutes when zoomed, degrees when wide).
+      const degWide = (2 * field.raHalf) / state.current.zoom;
+      const barFrac = 0.22;
+      const px = Math.min(w * barFrac, 140);
+      const barDeg = degWide * barFrac;
+      const barLabel = barDeg >= 1 ? `${barDeg.toFixed(1)}°` : `${Math.round(barDeg * 60)}′`;
+      const bx = w - pad - px;
+      const by = h - pad - 4;
+      ctx.strokeStyle = 'rgba(255,215,165,0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bx, by); ctx.lineTo(bx + px, by);
+      ctx.moveTo(bx, by - 3); ctx.lineTo(bx, by + 3);
+      ctx.moveTo(bx + px, by - 3); ctx.lineTo(bx + px, by + 3);
+      ctx.stroke();
+      ctx.textAlign = 'right';
+      ctx.fillText(barLabel, bx + px, by - 7);
+
       // Candidate markers (visible on both real and synthetic backdrops).
       for (const o of objects) {
         const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
         const p = toScreen(nx, ny);
         if (p.x < -24 || p.x > w + 24 || p.y < -24 || p.y > h + 24) continue;
         const sel = selRef.current === o.id;
+        const col = typeColor(o);
         const size = (3.5 + Math.min(10, o.motion / 28)) * (0.72 + state.current.zoom * 0.24);
         ctx.save();
-        ctx.shadowColor = o.color;
-        ctx.shadowBlur = 12;
-        ctx.fillStyle = o.color;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = col;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, size * (sel ? 1.9 : 1.45), 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, size * (sel ? 2.0 : 1.5), 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         ctx.beginPath();
         ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
-        ctx.fillStyle = o.color;
+        ctx.fillStyle = col;
         ctx.fill();
         ctx.lineWidth = sel ? 2.6 : 1.3;
-        ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.25)';
+        ctx.strokeStyle = sel ? '#fff' : 'rgba(255,255,255,0.35)';
         ctx.stroke();
+        // Label the active marker so ordinary users see who they've caught.
+        if (sel) {
+          ctx.save();
+          ctx.font = '11px "Share Tech Mono", monospace';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'bottom';
+          ctx.fillStyle = 'rgba(255,255,255,0.92)';
+          ctx.shadowColor = 'rgba(0,0,0,0.9)';
+          ctx.shadowBlur = 4;
+          ctx.fillText(`${o.id} · ${o.name}`, p.x + size + 5, p.y - size - 3);
+          ctx.restore();
+        }
       }
       scheduleImagery();
     };
@@ -350,12 +408,21 @@ export default function SkyViewerCanvas({
       <canvas ref={canvasRef} className="sky-canvas" />
       {imgState.status === 'ready' && imgState.survey && (
         <div className="imagery-badge" title="Real sky pixels proxied from the connected survey archive">
-          ◉ {imgState.survey.trim() || 'DSS'}
+          ◉ LIVE {imgState.survey.trim() || 'DSS'} SURVEY
         </div>
       )}
-      {imgState.status === 'pending' && <div className="imagery-badge loading">SKY…</div>}
-      {imgState.status === 'wide' && <div className="imagery-badge hint">SCROLL / PINCH TO ZOOM — REAL SKY</div>}
-      {imgState.status === 'error' && <div className="imagery-badge hint">SKY ARCHIVE OFFLINE</div>}
+      {imgState.status === 'pending' && <div className="imagery-badge loading">LOADING REAL SKY…</div>}
+      {imgState.status === 'wide' && <div className="imagery-badge hint">OVERVIEW — SCROLL / PINCH TO ZOOM INTO REAL SKY</div>}
+      {imgState.status === 'error' && <div className="imagery-badge hint">SKY ARCHIVE OFFLINE — SHOWING STATIC STARS</div>}
+      <div className="sky-legend" title="Object classes flagged by the survey">
+        {Object.entries(TYPE_COLORS).map(([t, c]) => (
+          <span className="sky-legend-item" key={t}>
+            <span className="sky-legend-dot" style={{ background: c, boxShadow: `0 0 6px ${c}` }} />
+            {t}
+          </span>
+        ))}
+        <span className="sky-legend-note">ring size ≈ motion speed</span>
+      </div>
       {hover && (
         <div className="hover-tip" style={{ left: Math.min(hover.x + 18, (wrapRef.current ? wrapRef.current.clientWidth : 200) - 140), top: hover.y - 6 }}>
           <strong>{hover.name}</strong> · {hover.type}

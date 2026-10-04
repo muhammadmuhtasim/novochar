@@ -529,6 +529,35 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
 .imagery-badge.loading::before { background: var(--muted); box-shadow: none; animation: pulse-dot 1.1s infinite; }
 .imagery-badge.hint::before { background: var(--neon); box-shadow: 0 0 6px var(--neon); }
 
+.sky-legend {
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  background: rgba(6,6,9,0.72);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px 8px;
+  pointer-events: none;
+}
+.sky-legend-item { display: inline-flex; align-items: center; gap: 5px; color: #cfd2de; }
+.sky-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.sky-legend-note { color: var(--muted); }
+
+.sky-help { margin-top: 10px; font-size: 12px; line-height: 1.7; color: var(--text); }
+.sky-help summary { cursor: pointer; color: var(--neon2); font-weight: 600; }
+.sky-help summary:hover { color: var(--neon); }
+.sky-help p { margin: 8px 0 4px; }
+.sky-help ul { margin: 0; padding-left: 18px; }
+.sky-help li { margin: 2px 0; }
+
 .seg-group { display: flex; gap: 4px; flex-wrap: nowrap; }
 
 .target-info .target-title { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
@@ -689,6 +718,20 @@ main.view { flex: 1; padding: 18px 22px; animation: view-in 0.3s ease; }
 .source-top { display: flex; justify-content: space-between; align-items: center; }
 .source-card h3 { margin: 8px 0 4px; font-size: 13px; color: var(--text); letter-spacing: 0.03em; }
 .source-card .muted { font-size: 12px; margin: 0; }
+.source-card h3 .src-cat { color: var(--muted); font-size: 11px; font-weight: 400; }
+.source-card .src-row, .source-card .src-col {
+  font-size: 11px; line-height: 1.5; color: var(--text);
+  margin: 6px 0 0; font-family: var(--mono);
+  border-top: 1px dashed rgba(36,32,22,0.6); padding-top: 6px;
+}
+.source-card .src-col { color: #c8c5ba; margin-top: 3px; padding-top: 0; border-top: 0; }
+.source-card .src-label {
+  display: inline-block; margin-right: 6px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--neon2); background: rgba(255,134,24,0.12);
+  border: 1px solid rgba(255,134,24,0.3); border-radius: 3px; padding: 1px 5px;
+  vertical-align: middle;
+}
 .neo-table { font-size: 11.5px; }
 .neo-table th { color: var(--muted); }
 .panel.cold-start { border-style: dashed; }
