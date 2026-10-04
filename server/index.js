@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { generateSurvey, buildFrames, fetchNEO } from './data.js';
 import { buildSpectrum } from './spectra.js';
 import { buildHeatmap } from './heatmap.js';
+import { fetchDssImage, normSkyParams } from './sky.js';
 import {
   tapQuery,
   tapTables,
@@ -283,6 +284,39 @@ app.get('/api/ivoa/ssa', async (req, res) => {
     });
   } catch (err) {
     res.status(502).json({ error: err.message });
+  }
+});
+
+// Real sky imagery for the SKY VIEWER: a DSS cutout (the survey plates served by
+// IRSA/STScI/MAST) rendered server-side into an oriented PNG, proxied so the
+// browser never needs cross-origin access. WCS corner metadata is returned in
+// response headers so the client can register the image under the marker layer.
+app.get('/api/sky/image', async (req, res) => {
+  const { ra, dec, size, aspect, width } = req.query;
+  try {
+    const p = normSkyParams(ra, dec, size, aspect);
+    const out = await fetchDssImage({
+      ...p,
+      width: width && Number.isFinite(Number(width)) ? Math.min(720, Math.max(64, parseInt(width, 10))) : 480,
+    });
+    res.set({
+      'Content-Type': out.contentType,
+      'Cache-Control': 'public, max-age=300',
+      'X-Sky-Center-Ra': String(out.meta.ra),
+      'X-Sky-Center-Dec': String(out.meta.dec),
+      'X-Sky-Size': String(out.meta.size),
+      'X-Sky-Aspect': String(out.meta.aspect),
+      'X-Sky-Ra-Left': String(out.meta.raLeft),
+      'X-Sky-Ra-Right': String(out.meta.raRight),
+      'X-Sky-Dec-Top': String(out.meta.decTop),
+      'X-Sky-Dec-Bottom': String(out.meta.decBottom),
+      'X-Sky-Survey': out.meta.survey,
+      'X-Sky-Source': out.meta.source,
+    });
+    res.send(out.buffer);
+  } catch (err) {
+    const status = err instanceof RangeError || err instanceof TypeError ? 400 : 502;
+    res.status(status).json({ error: err.message });
   }
 });
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SkyViewerCanvas from './SkyViewerCanvas.jsx';
 import { api } from '../lib/api.js';
+import { IMAGERY_ZOOM } from './SkyViewer.jsx';
 
 // Compact, interactive sky preview embedded in the landing hero so judges see
 // live survey data the moment the page opens. Drag / scroll to pan & zoom, click
@@ -24,7 +25,7 @@ export default function HeroSky({ objects, field, onTarget }) {
     if (!obj) return;
     select(obj);
     if (canvasRef.current) {
-      canvasRef.current.action({ mode: 'focus', ra: obj.ra, dec: obj.dec, zoom: 6 });
+      canvasRef.current.action({ mode: 'focus', ra: obj.ra, dec: obj.dec, zoom: IMAGERY_ZOOM });
     }
   };
 
@@ -45,6 +46,8 @@ export default function HeroSky({ objects, field, onTarget }) {
         field={field}
         selRef={selRef}
         onSelect={select}
+        imagery
+        initialZoom={IMAGERY_ZOOM}
       />
 
       <div className="hero-presets">

@@ -1,18 +1,31 @@
 // Simple plate carrée projection helpers for the sky viewer. The simulated
 // SPHEREx field is a small ~28°x18° tract of sky, so a linear projection is a
 // fine placeholder — swap for a gnomonic/TAN projection if you widen the field.
+//
+// RA is scaled by cos(decCenter) so the map is measured in *physical* angular
+// distance on the sky. This keeps the marker layer registered 1:1 with the
+// real DSS survey imagery drawn underneath it by the sky viewer.
 
-export function raDecToNormalized(ra, dec, { raCenter, decCenter, raHalf, decHalf }) {
+// Guard against degenerate cos(Dec) near the pole.
+function cosDec(dec) {
+  return Math.max(0.12, Math.cos((dec * Math.PI) / 180));
+}
+
+export function raDecToNormalized(ra, dec, field) {
+  const { raCenter, decCenter, raHalf, decHalf } = field;
   let dRA = raCenter - ra; // RA increases eastward; we show RA decreasing to the right
   if (dRA > 180) dRA -= 360;
   if (dRA < -180) dRA += 360;
-  const nx = (dRA / raHalf + 1) / 2; // 0..1
+  const c = cosDec(decCenter);
+  const nx = (dRA * c / raHalf + 1) / 2; // 0..1 (physical RA)
   const ny = (dec - (decCenter - decHalf)) / (2 * decHalf); // 0..1
   return { nx, ny };
 }
 
-export function normalizedToRaDec(nx, ny, { raCenter, decCenter, raHalf, decHalf }) {
-  const ra = raCenter - (nx - 0.5) * 2 * raHalf;
+export function normalizedToRaDec(nx, ny, field) {
+  const { raCenter, decCenter, raHalf, decHalf } = field;
+  const c = cosDec(decCenter);
+  const ra = raCenter - (nx - 0.5) * 2 * raHalf / c;
   const dec = decCenter - decHalf + ny * 2 * decHalf;
   return { ra: ((ra % 360) + 360) % 360, dec };
 }

@@ -6,6 +6,10 @@ import { parseCoordInput } from '../lib/celestial.js';
 
 export const FIELD = { raCenter: 84.0, decCenter: -58.0, raHalf: 14.0, decHalf: 9.0 };
 
+// Zoom that shows a ≤~2° field so the real DSS survey imagery is visible.
+export const IMAGERY_ZOOM = 18;
+export const IMAGERY_ZOOM_BIG = 4;
+
 export const BAND_OPTIONS = [
   { value: 'ALL', label: 'ALL BANDS' },
   { value: '1', label: 'Band 1 · 0.75–1.11 µm' },
@@ -25,6 +29,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
   const [q, setQ] = useState('');
   const [presets, setPresets] = useState([]);
   const [searchNote, setSearchNote] = useState('');
+  const [imagery, setImagery] = useState(true);
 
   useEffect(() => { api.presets().then((d) => setPresets(d.list || [])).catch(() => {}); }, []);
 
@@ -48,7 +53,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     if (!presetId || presetId === prevPreset.current) return;
     prevPreset.current = presetId;
     const obj = objects.find((o) => o.id === presetId);
-    if (obj) { setBand('ALL'); setQ(''); focusTarget(obj, 5); }
+    if (obj) { setBand('ALL'); setQ(''); focusTarget(obj, IMAGERY_ZOOM); }
   }, [presetId, objects]);
 
   // Filter pipeline: band first, then free-text name/coordinate search.
@@ -67,7 +72,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     setBand('ALL');
     setQ('');
     setSearchNote(`${p.label} → ${obj.id} ${obj.name}`);
-    focusTarget(obj, 5);
+    focusTarget(obj, IMAGERY_ZOOM);
   };
 
   const gotoBlink = () => {
@@ -87,7 +92,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     if (c) {
       const near = nearestObject(visible.length ? visible : objects, c);
       setSearchNote(`Centred at ${fmtRA(c.ra)} / ${fmtDec(c.dec)} — nearest ${near ? near.id : 'none'}`);
-      if (canvasRef.current) canvasRef.current.action({ mode: 'focus', ra: c.ra, dec: c.dec, zoom: 4 });
+      if (canvasRef.current) canvasRef.current.action({ mode: 'focus', ra: c.ra, dec: c.dec, zoom: IMAGERY_ZOOM });
       if (near) select(near);
       return;
     }
@@ -118,6 +123,13 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
             >
               {BAND_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
             </select>
+          </div>
+          <div className="tb-group">
+            <span className="tb-label">IMAGERY</span>
+            <div className="seg-group">
+              <button className={`seg${imagery ? ' on' : ''}`} onClick={() => setImagery(true)}>REAL</button>
+              <button className={`seg${imagery ? '' : ' on'}`} onClick={() => setImagery(false)}>SYNTH</button>
+            </div>
           </div>
           <div className="tb-group grow">
             <span className="tb-label">{coords ? 'COORDS' : 'TARGET'}</span>
@@ -156,6 +168,8 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           field={field}
           selRef={selRef}
           onSelect={select}
+          imagery={imagery}
+          initialZoom={IMAGERY_ZOOM}
         />
         <p className="muted caption">
           Field centered at {fmtRA(field.raCenter)} / {fmtDec(field.decCenter)} · coverage{' '}

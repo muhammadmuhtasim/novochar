@@ -55,6 +55,9 @@ export const api = {
   ivoaSsa: (archive, pos, size) =>
     getJSON(`/ivoa/ssa?archive=${encodeURIComponent(archive)}&pos=${encodeURIComponent(pos)}${size ? `&size=${size}` : ''}`),
   ivoaResolve: (name, service = 'sesame') => getJSON(`/ivoa/resolve?name=${encodeURIComponent(name)}${service ? `&service=${service}` : ''}`),
+  // Real sky imagery (DSS cutout proxied through the server).
+  skyImageUrl: (ra, dec, size, { aspect = 1, width = 480 } = {}) =>
+    `${BASE}/sky/image?${new URLSearchParams({ ra, dec, size, aspect, width })}`,
 };
 
 export function fmtRA(ra) {
