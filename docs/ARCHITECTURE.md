@@ -199,6 +199,7 @@ The plan's four visualisation families map to client views:
 | Co-ordinated multi-view (RFC) | `SkyViewer` **linked analysis panel** — brushable **colour–colour** (B1−B3 vs B4−B6) and **magnitude-vs-motion** scatters + a sortable table, sharing selection with the map (`SkyAnalysis` / `ScatterPlot`) |
 | Richer markers (RFC) | **Semantic zoom** in `SkyViewerCanvas` (hexbin density < zoom 3 → markers → deep trails); shape per class, vector = motion, rings = `nBands`, opacity = `snr`, dashed = unconfirmed |
 | Velocity / proper motion | New per-object `pa` (position angle) drives marker vectors (motion direction). `mags` per-band powers the colour indices |
+| Live sky imagery | Moved **off** the main map; `RealSkyMosaic` renders a synced grid of DSS cutouts (`/api/sky/image`) that mirrors the map's pan/zoom, so travelling feels continuous instead of one cutout popping in |
 
 Server feeds:
 

@@ -1,15 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import SkyViewerCanvas from './SkyViewerCanvas.jsx';
 import SkyAnalysis from './SkyAnalysis.jsx';
+import RealSkyMosaic from './RealSkyMosaic.jsx';
 import TargetInfo from './TargetInfo.jsx';
 import { api, fmtRA, fmtDec } from '../lib/api.js';
 import { parseCoordInput } from '../lib/celestial.js';
 
 export const FIELD = { raCenter: 84.0, decCenter: -58.0, raHalf: 14.0, decHalf: 9.0 };
 
-// Zoom that shows a ≤~2° field so the real DSS survey imagery is visible.
-export const IMAGERY_ZOOM = 18;
-export const IMAGERY_ZOOM_BIG = 4;
+// Default overview zoom for the interactive sky map (real sky now lives in the
+// separate synced REAL SKY mosaic, not the main map).
+export const SKY_INITIAL_ZOOM = 5;
+// Zoom used to jump to / inspect a single target (markers + trails).
+export const TARGET_ZOOM = 18;
 
 export const BAND_OPTIONS = [
   { value: 'ALL', label: 'ALL BANDS' },
@@ -30,8 +33,12 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
   const [q, setQ] = useState('');
   const [presets, setPresets] = useState([]);
   const [searchNote, setSearchNote] = useState('');
-  const [imagery, setImagery] = useState(true);
+  const viewRef = useRef(null);   // latest { ra, dec, raW, decH, zoom } from the sky map
   const [highlight, setHighlight] = useState(null); // Set of ids from brushing
+
+  // Fed by SkyViewerCanvas on every pan/zoom so the synced REAL SKY mosaic can
+  // mirror the exact patch of sky on screen without re-rendering this component.
+  const onView = useCallback((v) => { viewRef.current = v; }, []);
 
   useEffect(() => { api.presets().then((d) => setPresets(d.list || [])).catch(() => {}); }, []);
 
@@ -55,7 +62,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     if (!presetId || presetId === prevPreset.current) return;
     prevPreset.current = presetId;
     const obj = objects.find((o) => o.id === presetId);
-    if (obj) { setBand('ALL'); setQ(''); focusTarget(obj, IMAGERY_ZOOM); }
+    if (obj) { setBand('ALL'); setQ(''); focusTarget(obj, TARGET_ZOOM); }
   }, [presetId, objects]);
 
   // Filter pipeline: band first, then free-text name/coordinate search.
@@ -74,7 +81,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     setBand('ALL');
     setQ('');
     setSearchNote(`${p.label} → ${obj.id} ${obj.name}`);
-    focusTarget(obj, IMAGERY_ZOOM);
+    focusTarget(obj, TARGET_ZOOM);
   };
 
   const gotoBlink = () => {
@@ -94,7 +101,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
     if (c) {
       const near = nearestObject(visible.length ? visible : objects, c);
       setSearchNote(`Centred at ${fmtRA(c.ra)} / ${fmtDec(c.dec)} — nearest ${near ? near.id : 'none'}`);
-      if (canvasRef.current) canvasRef.current.action({ mode: 'focus', ra: c.ra, dec: c.dec, zoom: IMAGERY_ZOOM });
+      if (canvasRef.current) canvasRef.current.action({ mode: 'focus', ra: c.ra, dec: c.dec, zoom: TARGET_ZOOM });
       if (near) select(near);
       return;
     }
@@ -105,7 +112,8 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
   };
 
   return (
-    <section className="viewer-grid">
+    <>
+      <section className="viewer-grid">
       <div className="panel viewer-panel">
         <div className="panel-head">
           <h2>SKY VIEWER</h2>
@@ -128,10 +136,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           </div>
           <div className="tb-group">
             <span className="tb-label">IMAGERY</span>
-            <div className="seg-group">
-              <button className={`seg${imagery ? ' on' : ''}`} onClick={() => setImagery(true)}>REAL</button>
-              <button className={`seg${imagery ? '' : ' on'}`} onClick={() => setImagery(false)}>SYNTH</button>
-            </div>
+            <span className="tag" title="Real sky now lives in the synced REAL SKY mosaic below">REAL ↴</span>
           </div>
           <div className="tb-group grow">
             <span className="tb-label">{coords ? 'COORDS' : 'TARGET'}</span>
@@ -170,8 +175,8 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           field={field}
           selRef={selRef}
           onSelect={select}
-          imagery={imagery}
-          initialZoom={IMAGERY_ZOOM}
+          onView={onView}
+          initialZoom={SKY_INITIAL_ZOOM}
           highlight={highlight}
         />
         <p className="muted caption">
@@ -190,11 +195,14 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
         <details className="sky-help">
           <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>
           <p>
-            The dark background is a real patch of night sky pulled live from the{' '}
-            <strong>Digitized Sky Survey</strong> — zoom in past a ~2° field and the true stars appear.
-            The orange-tinged markers are the <em>moving objects</em> this survey flagged: each ring is a
-            candidate <strong>TNO</strong> (remote icy body beyond Neptune), <strong>AST</strong>
-            (nearby asteroid) or <strong>HPM</strong> (a star gliding across the field).
+            The dark background is a synthetic star field — the real patch of night
+            sky lives in the <strong>REAL SKY · SYNCED MOSAIC</strong> panel below,
+            which mirrors exactly where you're looking and streams live{' '}
+            <strong>Digitized Sky Survey</strong> tiles as you pan and zoom. The
+            colored markers are the <em>moving objects</em> this survey flagged: a
+            candidate <strong>TNO</strong> (remote icy body beyond Neptune),{' '}
+            <strong>AST</strong> (nearby asteroid) or <strong>HPM</strong> (a star
+            gliding across the field).
           </p>
           <ul>
             <li><strong>Ring size</strong> scales with how fast the object is moving.</li>
@@ -222,7 +230,9 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           <p className="muted empty">Click a colored marker on the field, use a preset, or search coordinates to inspect a candidate.</p>
         )}
       </aside>
-    </section>
+      </section>
+      <RealSkyMosaic viewRef={viewRef} />
+    </>
   );
 }
 

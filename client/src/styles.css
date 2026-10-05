@@ -1109,3 +1109,23 @@ pill.candidate {
   .analysis-table { grid-column: 1; }
 }
 
+/* ---- sky: synced REAL SKY mosaic ---- */
+.realsky { margin-top: 18px; }
+.realsky-wrap {
+  position: relative;
+  aspect-ratio: 14 / 9; /* matches the survey field shape (raHalf:decHalf) */
+  max-height: 460px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #04060b;
+}
+.realsky-canvas { display: block; width: 100%; height: 100%; cursor: default; touch-action: none; }
+.realsky .imagery-badge.real {
+  background: rgba(6, 9, 16, 0.85);
+  border-color: rgba(61, 255, 155, 0.45);
+  color: #bfffe0;
+}
+.realsky .imagery-badge.real.loading { color: var(--muted); border-color: var(--line); }
+.realsky .imagery-badge.real.hint { color: var(--muted); border-color: var(--line); }
+

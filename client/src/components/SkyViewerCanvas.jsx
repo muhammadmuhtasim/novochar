@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { starField, normalizedToRaDec, raDecToNormalized } from '../lib/celestial.js';
-import { api, fmtRA, fmtDec } from '../lib/api.js';
+import { fmtRA, fmtDec } from '../lib/api.js';
 
 const STARS = starField();
-const MAXIMAGERY_DEG = 2.0; // DSS cutouts cap at 2°.
 
 // Semantic-zoom thresholds (see the marker pass in draw()):
 //  - zoom < DENSITY_ZOOM  => hexbin density layer (no individual markers)
@@ -26,9 +25,10 @@ const typeColor = (o) => TYPE_COLORS[o.type] || o.color || '#ff8c1a';
 const TYPE_GLYPHS = { TNO: '◎', AST: '◇', HPM: '›' };
 
 /**
- * Interactive sky canvas. When `imagery` is enabled and the view is zoomed into
- * a field ≤ 2°, a real DSS survey cutout (proxied through the server) is drawn
- * beneath the marker layer so the viewer shows true sky pixels from the archive.
+ * Interactive sky map (synthetic star field + candidate markers, no live sky
+ * imagery). It reports the current view through `onView({ ra, dec, raW, decH,
+ * zoom })` so a synced companion view (e.g. the REAL SKY mosaic) can mirror the
+ * exact patch of sky the user is looking at.
  */
 export default function SkyViewerCanvas({
   canvasRef,
@@ -37,19 +37,13 @@ export default function SkyViewerCanvas({
   field,
   selRef,
   onSelect,
-  imagery = true,
   initialZoom = 1,
-  onImageryStatus = null,
+  onView = null, // callback: ({ ra, dec, raW, decH, zoom }) on every view change
   highlight = null, // Set of ids to keep lit during brushing (empty => no brush)
 }) {
   const [hover, setHover] = useState(null);
   const [readout, setReadout] = useState('');
-  const [imgState, setImgState] = useState({ status: imagery ? 'pending' : 'disabled', survey: '' });
   const state = useRef({ cx: 0.5, cy: 0.5, zoom: Math.max(1, initialZoom || 1), drag: null });
-  const bg = useRef({ image: null, meta: null, key: '' });
-  const fetchSeq = useRef(0);
-  const bgTimer = useRef(null);
-  const lastSig = useRef('');
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -69,74 +63,19 @@ export default function SkyViewerCanvas({
       ny: (my / H() - 0.5) / state.current.zoom + state.current.cy,
     });
 
-    const loadImage = (blob) => new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => { resolve(img); URL.revokeObjectURL(url); };
-      img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
-      img.src = url;
-    });
-
-    const setImg = (patch) => setImgState((s) => ({ ...s, ...patch }));
-
-    const requestImagery = async () => {
-      const w = W();
-      const h = H();
-      const z = state.current.zoom;
-      if (!imagery || w < 2 || h < 2) return;
-      // Visible angular extents in the (physical) projection used by the canvas.
-      const raW = (2 * field.raHalf) / z;   // physical degrees wide
-      const decH = (2 * field.decHalf) / z; // degrees tall
-      if (Math.max(raW, decH) > MAXIMAGERY_DEG) {
-        bg.current.image = null;
-        bg.current.meta = null;
-        setImg({ status: 'wide', survey: '' });
-        draw();
-        return;
-      }
-      const { ra, dec } = normalizedToRaDec(state.current.cx, state.current.cy, field);
-      const size = Math.min(raW, decH);
-      const aspect = raW / decH;
-      const key = `${ra.toFixed(3)}/${dec.toFixed(3)}/${size.toFixed(3)}/${aspect.toFixed(2)}`;
-      if (bg.current.key === key && bg.current.image) { setImg({ status: 'ready', survey: bg.current.survey || '' }); return; }
-      const seq = ++fetchSeq.current;
-      setImg({ status: 'pending', survey: '' });
-      try {
-        const res = await fetch(api.skyImageUrl(ra, dec, size, { aspect, width: 480 }));
-        if (!res.ok) throw new Error(`sky image ${res.status}`);
-        const meta = {
-          raLeft: parseFloat(res.headers.get('X-Sky-Ra-Left')),
-          raRight: parseFloat(res.headers.get('X-Sky-Ra-Right')),
-          decTop: parseFloat(res.headers.get('X-Sky-Dec-Top')),
-          decBottom: parseFloat(res.headers.get('X-Sky-Dec-Bottom')),
-          survey: res.headers.get('X-Sky-Survey') || '',
-        };
-        if (![meta.raLeft, meta.raRight, meta.decTop, meta.decBottom].every(Number.isFinite)) {
-          throw new Error('sky imagery returned no usable WCS corners');
-        }
-        const blob = await res.blob();
-        const image = typeof createImageBitmap === 'function' ? await createImageBitmap(blob) : await loadImage(blob);
-        if (seq !== fetchSeq.current) return;
-        bg.current = { image, meta, key, survey: meta.survey };
-        setImg({ status: 'ready', survey: meta.survey });
-        draw();
-      } catch (err) {
-        if (seq !== fetchSeq.current) return;
-        bg.current.image = null;
-        bg.current.meta = null;
-        setImg({ status: 'error', survey: '' });
-        draw();
-      }
-    };
-
-    const scheduleImagery = () => {
-      // Only re-request when the view actually changed, so an idle canvas never
-      // runs a steady fetch loop (important when zoomed out to the synthetic view).
-      const sig = `${imagery}|${state.current.cx.toFixed(4)}|${state.current.cy.toFixed(4)}|${state.current.zoom.toFixed(4)}|${W()}|${H()}`;
-      if (sig === lastSig.current) return;
-      lastSig.current = sig;
-      clearTimeout(bgTimer.current);
-      bgTimer.current = setTimeout(requestImagery, 260);
+    // Publish the current view so a synced companion (REAL SKY mosaic) can mirror
+    // the exact patch of sky on screen. Called from the end of every draw().
+    const reportView = () => {
+      if (!onView) return;
+      const { cx, cy, zoom } = state.current;
+      const { ra, dec } = normalizedToRaDec(cx, cy, field);
+      onView({
+        ra,
+        dec,
+        raW: (2 * field.raHalf) / zoom,   // physical degrees wide
+        decH: (2 * field.decHalf) / zoom, // degrees tall
+        zoom,
+      });
     };
 
     const draw = () => {
@@ -146,49 +85,26 @@ export default function SkyViewerCanvas({
       ctx.fillStyle = '#030201';
       ctx.fillRect(0, 0, w, h);
 
-      const img = bg.current.image;
-      const hasImg = Boolean(img && bg.current.meta);
-
-      if (hasImg) {
-        const m = bg.current.meta;
-        const centerY = 0.5;
-        const centerX = 0.5;
-        const xLeft = toScreen(raDecToNormalized(m.raLeft, field.decCenter, field).nx, centerY).x;
-        const xRight = toScreen(raDecToNormalized(m.raRight, field.decCenter, field).nx, centerY).x;
-        const yTop = toScreen(centerX, raDecToNormalized(field.raCenter, m.decTop, field).ny).y;
-        const yBottom = toScreen(centerX, raDecToNormalized(field.raCenter, m.decBottom, field).ny).y;
-        const dx = Math.min(xLeft, xRight);
-        const dy = Math.min(yTop, yBottom);
-        ctx.drawImage(img, dx, dy, Math.abs(xRight - xLeft), Math.abs(yBottom - yTop));
-        // Only a whisper of corner vignette — enough to seat the markers without
-        // crushing the real star field into near-invisibility (the accuracy bug
-        // where the survey imagery looked like it wasn't there at all).
-        const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2);
-        g.addColorStop(0, 'rgba(0,0,0,0)');
-        g.addColorStop(1, 'rgba(0,0,0,0.12)');
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, w, h);
-      } else {
-        const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2);
-        grad.addColorStop(0, '#211006');
-        grad.addColorStop(0.7, '#0d0805');
-        grad.addColorStop(1, '#030201');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
-        for (const s of STARS) {
-          const p = toScreen(s.nx, s.ny);
-          if (p.x < -4 || p.x > w + 4 || p.y < -4 || p.y > h + 4) continue;
-          const r = Math.max(0.6, (20 - s.mag) / (3 + state.current.zoom * 0.25));
-          ctx.fillStyle =
-            s.mag < 9 ? 'rgba(255,205,150,0.9)' : s.mag < 14 ? 'rgba(255,255,255,0.6)' : 'rgba(205,205,225,0.32)';
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-          ctx.fill();
-        }
+      // Synthetic backdrop (no live imagery on the main map).
+      const grad = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) / 2);
+      grad.addColorStop(0, '#211006');
+      grad.addColorStop(0.7, '#0d0805');
+      grad.addColorStop(1, '#030201');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+      for (const s of STARS) {
+        const p = toScreen(s.nx, s.ny);
+        if (p.x < -4 || p.x > w + 4 || p.y < -4 || p.y > h + 4) continue;
+        const r = Math.max(0.6, (20 - s.mag) / (3 + state.current.zoom * 0.25));
+        ctx.fillStyle =
+          s.mag < 9 ? 'rgba(255,205,150,0.9)' : s.mag < 14 ? 'rgba(255,255,255,0.6)' : 'rgba(205,205,225,0.32)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fill();
       }
 
-      // Celestial grid (fainter over real imagery).
-      ctx.strokeStyle = hasImg ? 'rgba(255,128,24,0.10)' : 'rgba(255,128,24,0.18)';
+      // Celestial grid.
+      ctx.strokeStyle = 'rgba(255,128,24,0.18)';
       ctx.lineWidth = 1;
       const stepDeg = Math.max(1, 2 * Math.round(1 / state.current.zoom));
       for (let i = -8; i <= 8; i++) {
@@ -209,7 +125,7 @@ export default function SkyViewerCanvas({
       // Compass + angular scale so the view reads as an *accurate* map of the
       // sky instead of an abstract dot-plot. In this projection RA increases
       // eastward but is drawn decreasing to the right, so East sits on the left.
-      ctx.font = `${hasImg ? 10 : 11}px "Share Tech Mono", monospace`;
+      ctx.font = `11px "Share Tech Mono", monospace`;
       ctx.fillStyle = 'rgba(255,215,165,0.55)';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -247,7 +163,7 @@ export default function SkyViewerCanvas({
       } else {
         drawMarkers(state.current.zoom >= DEEP_ZOOM, w, h);
       }
-      scheduleImagery();
+      reportView();
     };
     // --- semantic-zoom layers ------------------------------------------------
     const brushed = highlight && highlight.size ? highlight : null;
@@ -562,7 +478,7 @@ export default function SkyViewerCanvas({
     };
 
     canvasRef.current.action = (cmd) => {
-      if (cmd === 'reset') { state.current = { cx: 0.5, cy: 0.5, zoom: (initialZoom || 1), drag: null }; bg.current.key = ''; setImg({ status: 'pending', survey: '' }); draw(); }
+      if (cmd === 'reset') { state.current = { cx: 0.5, cy: 0.5, zoom: (initialZoom || 1), drag: null }; draw(); }
       if (cmd && cmd.mode === 'focus') {
         const { ra, dec, zoom } = cmd;
         const { nx, ny } = raDecToNormalized(ra, dec, field);
@@ -570,8 +486,6 @@ export default function SkyViewerCanvas({
         state.current.cy = Math.min(1, Math.max(0, ny));
         state.current.zoom = Math.min(120, Math.max(1, zoom || 3));
         state.current.drag = null;
-        bg.current.key = ''; // force a fresh cutout at the new centre
-        setImg({ status: 'pending', survey: '' });
         draw();
       }
     };
@@ -612,8 +526,6 @@ export default function SkyViewerCanvas({
     resizeObserver.observe(wrap);
 
     return () => {
-      clearTimeout(bgTimer.current);
-      fetchSeq.current += 1;
       if ('ontouchstart' in window) {
         canvas.removeEventListener('touchstart', onTouchStart);
         canvas.removeEventListener('touchmove', onTouchMove);
@@ -628,18 +540,10 @@ export default function SkyViewerCanvas({
       resizeObserver.disconnect();
       if (canvasRef.current) delete canvasRef.current.action;
     };
-  }, [objects, field, selRef, onSelect, imagery, initialZoom, canvasRef, wrapRef, highlight]);
+  }, [objects, field, selRef, onSelect, onView, initialZoom, canvasRef, wrapRef, highlight]);
   return (
     <div className="canvas-wrap" ref={wrapRef}>
       <canvas ref={canvasRef} className="sky-canvas" />
-      {imgState.status === 'ready' && imgState.survey && (
-        <div className="imagery-badge" title="Real sky pixels proxied from the connected survey archive">
-          ◉ LIVE {imgState.survey.trim() || 'DSS'} SURVEY
-        </div>
-      )}
-      {imgState.status === 'pending' && <div className="imagery-badge loading">LOADING REAL SKY…</div>}
-      {imgState.status === 'wide' && <div className="imagery-badge hint">OVERVIEW — SCROLL / PINCH TO ZOOM INTO REAL SKY</div>}
-      {imgState.status === 'error' && <div className="imagery-badge hint">SKY ARCHIVE OFFLINE — SHOWING STATIC STARS</div>}
       <div className="sky-legend" title="Object classes flagged by the survey">
         {Object.entries(TYPE_COLORS).map(([t, c]) => (
           <span className="sky-legend-item" key={t}>
