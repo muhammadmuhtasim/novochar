@@ -6,7 +6,7 @@ import { raDecToNormalized, normalizedToRaDec } from '../lib/celestial.js';
 // square (aspect=1) cutouts, then resample each to square-on-sky pixels on load
 // (DSS `width` is in RA-coordinate degrees), so tiles look round and gap-free.
 const TILE_CAP_DEG = 1.7;
-const MAX_FIELD_DEG = 3.0; // max on-screen field for real imagery
+const MAX_FIELD_DEG = 6.0; // widest on-screen field still tiled (the followed overview)
 const MIN_TILE = 0.3;
 const COVER = 0.9;        // tile overlap (1-COVER) so tiles butt up, no gaps
 const MAX_GRID = 8;       // cap tiles per axis (view area)
@@ -63,6 +63,7 @@ export default function RealSkyMosaic({ field, viewRef }) {
     let queue = [];
     let loading = new Set();
     let pumpBusy = false;
+    let loadTries = 0; let loadFails = 0; // so a dead archive is reported, not silent black
     const toView = () => {
       const { ra, dec } = normalizedToRaDec(cx, cy, field || { raCenter: 84, decCenter: -58, raHalf: 14, decHalf: 9 });
       const f = field || { raHalf: 14, decHalf: 9 };
@@ -109,21 +110,21 @@ export default function RealSkyMosaic({ field, viewRef }) {
         // square-on-sky pixels here, then draw it into its WCS-corner box below,
         // so the content stays round and the mosaic stays gap-free.
         const res = await fetch(api.skyImageUrl(ra, dec, tile, { aspect: 1, width: 360 }));
-        if (!res.ok) return false;
+        if (!res.ok) { loadTries++; loadFails++; return false; }
         const meta = {
           raLeft: parseFloat(res.headers.get('X-Sky-Ra-Left')),
           raRight: parseFloat(res.headers.get('X-Sky-Ra-Right')),
           decTop: parseFloat(res.headers.get('X-Sky-Dec-Top')),
           decBottom: parseFloat(res.headers.get('X-Sky-Dec-Bottom')),
         };
-        if (![meta.raLeft, meta.raRight, meta.decTop, meta.decBottom].every(Number.isFinite)) return false;
+        if (![meta.raLeft, meta.raRight, meta.decTop, meta.decBottom].every(Number.isFinite)) { loadTries++; loadFails++; return false; }
         const blob = await res.blob();
         const raw = typeof createImageBitmap === 'function' ? await createImageBitmap(blob) : await loadImageEl(blob);
 
         const decC = (meta.decTop + meta.decBottom) / 2;
         const physW = Math.abs(meta.raLeft - meta.raRight) * cosDec(decC); // on-sky degrees wide
         const physH = Math.abs(meta.decTop - meta.decBottom);              // on-sky degrees tall
-        if (!(physW > 0 && physH > 0)) return false;
+        if (!(physW > 0 && physH > 0)) { loadTries++; loadFails++; return false; }
 
         // Resample so pixel aspect matches the on-sky footprint => content round.
         const corrW = raw.width;
@@ -134,8 +135,9 @@ export default function RealSkyMosaic({ field, viewRef }) {
         off.getContext('2d').drawImage(raw, 0, 0, corrW, corrH);
 
         cache(key, { img: off, meta });
+        loadTries = 0; loadFails = 0; // any success resets the failure streak
         return true;
-      } catch (e) { return false; }
+      } catch (e) { loadTries++; loadFails++; return false; }
     };
 
     // Tiles covering a sky region of `spanRA`×`spanDec` (on-sky degrees) around the
@@ -238,6 +240,7 @@ export default function RealSkyMosaic({ field, viewRef }) {
       }
       setTileCount(drawn);
       if (drawn > 0) setError(false);
+      else if (loadTries > 0 && loadFails === loadTries) setError(true);
       setReadout(readoutText(v));
       startPreload(v, tile);
     };
