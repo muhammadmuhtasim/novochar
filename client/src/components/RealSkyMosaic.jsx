@@ -8,10 +8,13 @@ import { raDecToNormalized, normalizedToRaDec } from '../lib/celestial.js';
 const TILE_CAP_DEG = 1.7;
 const MAX_FIELD_DEG = 3.0; // max on-screen field for real imagery
 const MIN_TILE = 0.3;
-const COVER = 0.9;       // tile overlap (1-COVER) so tiles butt up, no gaps
-const MAX_GRID = 8;       // cap tiles per axis
+const COVER = 0.9;        // tile overlap (1-COVER) so tiles butt up, no gaps
+const MAX_GRID = 8;       // cap tiles per axis (view area)
 const CONCURRENCY = 4;    // simultaneous DSS fetches
-const CACHE_LIMIT = 160;  // tile LRU cap so long pans don't balloon memory
+const CACHE_LIMIT = 240;  // tile LRU cap (holds the warmed buffer beyond view)
+const PRELOAD_MARGIN = 1.6; // prefetch a ring this many × beyond the viewport
+const BUFFER_CAP = 72;    // max tiles kept in the prefetch queue
+const MAX_INFLIGHT = 48;  // cap outstanding prefetch slots
 
 function cosDec(dec) { return Math.max(0.12, Math.cos((dec * Math.PI) / 180)); }
 const clamp01 = (n) => Math.min(1, Math.max(0, n));
@@ -54,6 +57,12 @@ export default function RealSkyMosaic({ field, viewRef }) {
     let drag = null;
     let renderTimer = null;
     let raf = null;
+    // Ring preloader state: tiles are fetched nearest-the-view first so the
+    // visible sky + a warm buffer beyond the viewport are ready before you get
+    // there (you never wait on the edge of the canvas).
+    let queue = [];
+    let loading = new Set();
+    let pumpBusy = false;
     const toView = () => {
       const { ra, dec } = normalizedToRaDec(cx, cy, field || { raCenter: 84, decCenter: -58, raHalf: 14, decHalf: 9 });
       const f = field || { raHalf: 14, decHalf: 9 };
@@ -129,21 +138,71 @@ export default function RealSkyMosaic({ field, viewRef }) {
       } catch (e) { return false; }
     };
 
-    const fetchMissing = async (missing, tile) => {
-      setLoading(true);
-      let idx = 0; let ok = 0; let att = 0;
+    // Tiles covering a sky region of `spanRA`×`spanDec` (on-sky degrees) around the
+// view, ordered nearest-first (ring expansion from the current centre).
+    const gridTiles = (v, spanRA, spanDec, tile) => {
+      const c = cosDec(v.dec);
+      const raStep = tile * COVER;      // RA-coordinate step (physical = ×cos)
+      const decStep = tile * COVER;
+      const cols = Math.max(1, Math.ceil(spanRA / (tile * c * COVER)));
+      const rows = Math.max(1, Math.ceil(spanDec / (tile * COVER)));
+      const arr = [];
+      for (let j = 0; j < rows; j++) {
+        const decT = v.dec + (j - (rows - 1) / 2) * decStep;
+        for (let i = 0; i < cols; i++) {
+          const raT = v.ra + (i - (cols - 1) / 2) * raStep;
+          const di = i - (cols - 1) / 2;
+          const dj = j - (rows - 1) / 2;
+          arr.push({ ra: raT, dec: decT, tile, d2: di * di + dj * dj });
+        }
+      }
+      arr.sort((a, b) => a.d2 - b.d2);
+      return arr;
+    };
+
+    // Keep the prefetch queue = the ring-ordered buffer targets not yet cached
+    // (nearest first, capped). Rebuilt on each view change so it always points
+    // where the user is heading / approaching.
+    const enqueue = (targets) => {
+      const next = [];
+      for (const t of targets) {
+        const key = tileKey(t.ra, t.dec, t.tile);
+        if (tiles.current.has(key) || loading.has(key)) continue;
+        next.push({ ra: t.ra, dec: t.dec, tile: t.tile, key });
+        if (next.length >= BUFFER_CAP) break;
+      }
+      queue = next;
+    };
+
+    // Drive the prefetch workers: pump nearest tiles first, at fixed concurrency.
+    const pump = () => {
+      if (pumpBusy) return;
+      pumpBusy = true;
+      const n = Math.min(CONCURRENCY, queue.length);
+      setLoading(queue.length > 0);
+      if (n === 0) { pumpBusy = false; setLoading(false); return; }
       const worker = async () => {
-        while (idx < missing.length) {
-          const [ra, dec] = missing[idx++];
-          att += 1;
-          if (await loadTile(ra, dec, tile)) ok += 1;
+        let t;
+        while ((t = queue.shift())) {
+          if (tiles.current.has(t.key) || loading.has(t.key)) continue;
+          loading.add(t.key);
+          const ok = await loadTile(t.ra, t.dec, t.tile);
+          loading.delete(t.key);
+          if (ok) drawCanvas(); // repaint the moment a tile arrives
         }
       };
-      const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, () => worker());
-      await Promise.all(workers);
-      setLoading(false);
-      drawCanvas();
-      if (att > 0 && ok === 0 && tiles.current.size === 0) setError(true);
+      const workers = Array.from({ length: n }, () => worker());
+      Promise.all(workers).then(() => { pumpBusy = false; setLoading(queue.length > 0); });
+    };
+
+    // Warm a buffer ring around the current view so panning rarely hits a gap.
+    const startPreload = (v, tile) => {
+      const spanRA = v.raW * PRELOAD_MARGIN;
+      const spanDec = v.decH * PRELOAD_MARGIN;
+      const targets = gridTiles(v, spanRA, spanDec, tile);
+      enqueue(targets);
+      setLoading(queue.length > 0);
+      pump();
     };
 
     const drawCanvas = () => {
@@ -167,32 +226,20 @@ export default function RealSkyMosaic({ field, viewRef }) {
 
       const c = cosDec(v.dec);
       const tile = Math.min(TILE_CAP_DEG, Math.max(MIN_TILE, maxF / 3));
-      // aspect=1 tiles are size·cos(dec) on-sky wide and size tall, so columns
-      // are cos-heavier and RA tile centres step by `tile` (coordinates).
-      const cols = Math.max(1, Math.ceil(v.raW / (tile * c * COVER)));
-      const rows = Math.max(1, Math.ceil(v.decH / (tile * COVER)));
-      if (cols > MAX_GRID || rows > MAX_GRID) { setHint('ZOOM INTO THE SKY MAP'); setTileCount(0); setLoading(false); return; }
+      // Draw the tiles that make up the visible view area (the buffer beyond is
+      // prefetched separately so panning into it is instant).
+      const viewTiles = gridTiles(v, v.raW, v.decH, tile);
+      if (viewTiles.length > MAX_GRID * MAX_GRID) { setHint('ZOOM INTO THE SKY MAP'); setTileCount(0); setLoading(false); return; }
 
-      const raStep = tile * COVER;     // RA-coordinate step (physical = ×cos)
-      const decStep = tile * COVER;
       let drawn = 0;
-      const keys = [];
-      for (let j = 0; j < rows; j++) {
-        const decT = v.dec + (j - (rows - 1) / 2) * decStep;
-        for (let i = 0; i < cols; i++) {
-          const raT = v.ra + (i - (cols - 1) / 2) * raStep;
-          const key = tileKey(raT, decT, tile);
-          keys.push([raT, decT]);
-          const te = tiles.current.get(key);
-          if (te) { drawTile(te.meta, te.img); drawn++; }
-        }
+      for (const t of viewTiles) {
+        const te = tiles.current.get(tileKey(t.ra, t.dec, tile));
+        if (te) { drawTile(te.meta, te.img); drawn++; }
       }
       setTileCount(drawn);
       if (drawn > 0) setError(false);
       setReadout(readoutText(v));
-      const missing = keys.filter(([ra, dec]) => !tiles.current.has(tileKey(ra, dec, tile)));
-      if (missing.length) fetchMissing(missing, tile);
-      else setLoading(false);
+      startPreload(v, tile);
     };
 
     const readoutText = (v) => `RA ${v.ra.toFixed(2)}° · DEC ${v.dec.toFixed(2)}° · ${Math.round(v.raW * 60)}\u2032 field · ×${v.zoom.toFixed(1)}`;
