@@ -33,6 +33,7 @@ export default function RealSkyMosaic({ viewRef }) {
   const viewState = useRef({ last: null });
   const [hint, setHint] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [tileCount, setTileCount] = useState(0);
 
   useEffect(() => {
@@ -55,8 +56,7 @@ export default function RealSkyMosaic({ viewRef }) {
       }
     };
 
-    const drawTile = (meta, img) => {
-      const mine = viewState.current.last;
+    const drawTile = (meta, img, mine) => {
       if (!mine) return;
       const xL = p(raDecToNormalized(meta.raLeft, mine.decCenter, mine).nx, 0.5).x;
       const xR = p(raDecToNormalized(meta.raRight, mine.decCenter, mine).nx, 0.5).x;
@@ -67,17 +67,17 @@ export default function RealSkyMosaic({ viewRef }) {
 
     const loadTile = async (ra, dec, tile) => {
       const key = tileKey(ra, dec, tile);
-      if (tiles.current.has(key)) return;
+      if (tiles.current.has(key)) return true;
       try {
         const res = await fetch(api.skyImageUrl(ra, dec, tile, { aspect: 1, width: 360 }));
-        if (!res.ok) return;
+        if (!res.ok) return false;
         const meta = {
           raLeft: parseFloat(res.headers.get('X-Sky-Ra-Left')),
           raRight: parseFloat(res.headers.get('X-Sky-Ra-Right')),
           decTop: parseFloat(res.headers.get('X-Sky-Dec-Top')),
           decBottom: parseFloat(res.headers.get('X-Sky-Dec-Bottom')),
         };
-        if (![meta.raLeft, meta.raRight, meta.decTop, meta.decBottom].every(Number.isFinite)) return;
+        if (![meta.raLeft, meta.raRight, meta.decTop, meta.decBottom].every(Number.isFinite)) return false;
         const blob = await res.blob();
         let img;
         if (typeof createImageBitmap === 'function') img = await createImageBitmap(blob);
@@ -86,22 +86,27 @@ export default function RealSkyMosaic({ viewRef }) {
           await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = URL.createObjectURL(blob); });
         }
         cache(key, { img, meta });
-      } catch (e) { /* tile simply not drawn */ }
+        return true;
+      } catch (e) { return false; }
     };
 
     const fetchMissing = async (missing, tile) => {
       setLoading(true);
       let idx = 0;
+      let okCount = 0; let attemptCount = 0;
       const worker = async () => {
         while (idx < missing.length) {
           const [ra, dec] = missing[idx++];
-          await loadTile(ra, dec, tile);
+          attemptCount += 1;
+          if (await loadTile(ra, dec, tile)) okCount += 1;
         }
       };
       const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, () => worker());
       await Promise.all(workers);
       setLoading(false);
       if (viewState.current.last) drawCanvas();
+      // Nothing loaded at all and nothing cached => archive is unreachable.
+      if (attemptCount > 0 && okCount === 0 && tiles.current.size === 0) setError(true);
     };
 
     const drawCanvas = () => {
@@ -124,7 +129,7 @@ export default function RealSkyMosaic({ viewRef }) {
       const rows = Math.max(1, Math.ceil(v.decH / (tile * COVER)));
       if (cols > MAX_GRID || rows > MAX_GRID) { setHint('ZOOM INTO THE SKY MAP'); setTileCount(0); return; }
 
-      viewState.current.last = mineView(v);
+      const mine = mineView(v); // keep the raw view in `last`; mine is only for mapping
       let drawn = 0;
       const keys = [];
       for (let j = 0; j < rows; j++) {
@@ -134,10 +139,11 @@ export default function RealSkyMosaic({ viewRef }) {
           const key = tileKey(raT, decT, tile);
           keys.push([raT, decT]);
           const te = tiles.current.get(key);
-          if (te) { drawTile(te.meta, te.img); drawn++; }
+          if (te) { drawTile(te.meta, te.img, mine); drawn++; }
         }
       }
       setTileCount(drawn);
+      if (drawn > 0) setError(false);
       const missing = keys.filter(([ra, dec]) => !tiles.current.has(tileKey(ra, dec, tile)));
       if (missing.length) fetchMissing(missing, tile);
       else setLoading(false);
@@ -191,9 +197,10 @@ export default function RealSkyMosaic({ viewRef }) {
       </p>
       <div className="realsky-wrap" ref={wrapRef}>
         <canvas ref={canvasRef} className="realsky-canvas" />
-        {hint && <div className="imagery-badge hint real">{hint}</div>}
-        {!hint && loading && <div className="imagery-badge loading real">LOADING REAL SKY…</div>}
-        {!hint && !loading && tileCount === 0 && (
+        {error && <div className="imagery-badge hint real">REAL SKY UNREACHABLE — check the server / DSS network</div>}
+        {!error && hint && <div className="imagery-badge hint real">{hint}</div>}
+        {!error && !hint && loading && <div className="imagery-badge loading real">LOADING REAL SKY…</div>}
+        {!error && !hint && !loading && tileCount === 0 && (
           <div className="imagery-badge hint real">SWEEP THE SKY MAP TO FETCH TILES</div>
         )}
       </div>
