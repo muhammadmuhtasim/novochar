@@ -184,6 +184,8 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           {field.raHalf * 2}° × {field.decHalf * 2}°.
         </p>
 
+        <RealSkyMosaic viewRef={viewRef} />
+
         <SkyAnalysis
           objects={visible}
           selectedId={selected ? selected.id : null}
@@ -231,7 +233,6 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
         )}
       </aside>
       </section>
-      <RealSkyMosaic viewRef={viewRef} />
     </>
   );
 }
