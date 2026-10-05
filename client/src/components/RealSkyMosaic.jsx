@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { raDecToNormalized, normalizedToRaDec } from '../lib/celestial.js';
 
-// DSS cutouts cap at 2° server-side; keep each mosaic tile under that. `width`
-// is in RA-coordinate degrees, so we pass aspect=1/cos(dec) to make tiles
-// physically square on the sky and step the grid by that real footprint.
+// DSS cutouts cap at 2° server-side; keep each mosaic tile under that. We request
+// square (aspect=1) cutouts, then resample each to square-on-sky pixels on load
+// (DSS `width` is in RA-coordinate degrees), so tiles look round and gap-free.
 const TILE_CAP_DEG = 1.7;
 const MAX_FIELD_DEG = 3.0; // max on-screen field for real imagery
 const MIN_TILE = 0.3;
@@ -83,11 +83,23 @@ export default function RealSkyMosaic({ field, viewRef }) {
       ctx.drawImage(img, Math.min(xL, xR), Math.min(yT, yB), Math.abs(xR - xL), Math.abs(yB - yT));
     };
 
-    const loadTile = async (ra, dec, tile, aspect) => {
+    const loadImageEl = (blob) => new Promise((ok, fail) => {
+      const i = new Image();
+      i.onload = () => ok(i);
+      i.onerror = fail;
+      i.src = URL.createObjectURL(blob);
+    });
+
+    const loadTile = async (ra, dec, tile) => {
       const key = tileKey(ra, dec, tile);
       if (tiles.current.has(key)) return true;
       try {
-        const res = await fetch(api.skyImageUrl(ra, dec, tile, { aspect, width: 360 }));
+        // aspect=1: DSS `width` is in RA-coordinate degrees, so a square request
+        // spans size·cos(dec) on-sky in RA and size in Dec — its source pixels
+        // are anisotropic on the sky by 1/cos(dec). We resample each tile to
+        // square-on-sky pixels here, then draw it into its WCS-corner box below,
+        // so the content stays round and the mosaic stays gap-free.
+        const res = await fetch(api.skyImageUrl(ra, dec, tile, { aspect: 1, width: 360 }));
         if (!res.ok) return false;
         const meta = {
           raLeft: parseFloat(res.headers.get('X-Sky-Ra-Left')),
@@ -97,25 +109,34 @@ export default function RealSkyMosaic({ field, viewRef }) {
         };
         if (![meta.raLeft, meta.raRight, meta.decTop, meta.decBottom].every(Number.isFinite)) return false;
         const blob = await res.blob();
-        let img;
-        if (typeof createImageBitmap === 'function') img = await createImageBitmap(blob);
-        else {
-          img = new Image();
-          await new Promise((ok, fail) => { img.onload = ok; img.onerror = fail; img.src = URL.createObjectURL(blob); });
-        }
-        cache(key, { img, meta });
+        const raw = typeof createImageBitmap === 'function' ? await createImageBitmap(blob) : await loadImageEl(blob);
+
+        const decC = (meta.decTop + meta.decBottom) / 2;
+        const physW = Math.abs(meta.raLeft - meta.raRight) * cosDec(decC); // on-sky degrees wide
+        const physH = Math.abs(meta.decTop - meta.decBottom);              // on-sky degrees tall
+        if (!(physW > 0 && physH > 0)) return false;
+
+        // Resample so pixel aspect matches the on-sky footprint => content round.
+        const corrW = raw.width;
+        const corrH = Math.max(1, Math.round(raw.width * (physH / physW)));
+        const off = document.createElement('canvas');
+        off.width = corrW;
+        off.height = corrH;
+        off.getContext('2d').drawImage(raw, 0, 0, corrW, corrH);
+
+        cache(key, { img: off, meta });
         return true;
       } catch (e) { return false; }
     };
 
-    const fetchMissing = async (missing, tile, aspect) => {
+    const fetchMissing = async (missing, tile) => {
       setLoading(true);
       let idx = 0; let ok = 0; let att = 0;
       const worker = async () => {
         while (idx < missing.length) {
           const [ra, dec] = missing[idx++];
           att += 1;
-          if (await loadTile(ra, dec, tile, aspect)) ok += 1;
+          if (await loadTile(ra, dec, tile)) ok += 1;
         }
       };
       const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, () => worker());
@@ -145,14 +166,14 @@ export default function RealSkyMosaic({ field, viewRef }) {
       p = (nx, ny) => ({ x: offX + nx * drawW, y: offY + ny * drawH });
 
       const c = cosDec(v.dec);
-      const aspect = 1 / c;
-      const maxTile = Math.min(TILE_CAP_DEG, 2 * c);
-      const tile = Math.max(MIN_TILE, Math.min(maxTile, maxF / 3));
-      const cols = Math.max(1, Math.ceil(v.raW / (tile * COVER)));
+      const tile = Math.min(TILE_CAP_DEG, Math.max(MIN_TILE, maxF / 3));
+      // aspect=1 tiles are size·cos(dec) on-sky wide and size tall, so columns
+      // are cos-heavier and RA tile centres step by `tile` (coordinates).
+      const cols = Math.max(1, Math.ceil(v.raW / (tile * c * COVER)));
       const rows = Math.max(1, Math.ceil(v.decH / (tile * COVER)));
       if (cols > MAX_GRID || rows > MAX_GRID) { setHint('ZOOM INTO THE SKY MAP'); setTileCount(0); setLoading(false); return; }
 
-      const raStep = (tile * COVER) / c;
+      const raStep = tile * COVER;     // RA-coordinate step (physical = ×cos)
       const decStep = tile * COVER;
       let drawn = 0;
       const keys = [];
@@ -170,7 +191,7 @@ export default function RealSkyMosaic({ field, viewRef }) {
       if (drawn > 0) setError(false);
       setReadout(readoutText(v));
       const missing = keys.filter(([ra, dec]) => !tiles.current.has(tileKey(ra, dec, tile)));
-      if (missing.length) fetchMissing(missing, tile, aspect);
+      if (missing.length) fetchMissing(missing, tile);
       else setLoading(false);
     };
 
