@@ -1075,6 +1075,21 @@ pill.candidate {
 .analysis-table { grid-column: 1 / -1; }
 .scatter .panel-head { margin-bottom: 6px; }
 .scatter .panel-head h3 { font-size: 11px; }
+.scatter-wrap {
+  position: relative;
+  height: 300px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #06070b;
+}
+.scatter-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
 .scatter-svg {
   width: 100%;
   height: auto;

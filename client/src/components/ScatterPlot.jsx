@@ -1,14 +1,13 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
-const W = 440; const H = 300;
-const PAD = { l: 46, r: 14, t: 20, b: 38 };
+const PADL = 46; const PADR = 14; const PADT = 20; const PADB = 38;
 
 /**
- * A small brushable SVG scatter used by the linked-analysis panel. Dragging
- * draws a rectangle and emits the ids inside it via `onBrush` (empty Set to
- * clear); clicking a single point picks it via `onPick`; clicking empty clears
- * the brush. Points in `highlightIds` are ringed so each view echoes the
- * current linked selection.
+ * A brushable canvas scatter used by the linked-analysis panel. Dragging draws
+ * a rectangle and emits the ids inside it via `onBrush` (empty Set to clear);
+ * clicking a single point picks it via `onPick`; clicking empty clears the
+ * brush. Points in `highlightIds` are ringed so each view echoes the current
+ * linked selection. Rendered as its own <canvas> (one per SkyView analysis view).
  */
 export default function ScatterPlot({
   title,
@@ -20,51 +19,147 @@ export default function ScatterPlot({
   onPick = () => {},
   onBrush = () => {},
 }) {
-  const svgRef = useRef(null);
+  const wrapRef = useRef(null);
+  const canvasRef = useRef(null);
   const drag = useRef(null);
+  const drawRef = useRef(null);
+  const projRef = useRef(null);
+  const propsRef = useRef({ points, selectedId, highlightIds, onPick, onBrush });
+  const rectRef = useRef(null);
   const [rect, setRect] = useState(null);
 
-  const valid = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-  if (!valid.length) {
-    return (
-      <div className="scatter panel-sub">
-        <div className="panel-head"><h3>{title}</h3></div>
-        <p className="muted empty">No points in this projection.</p>
-      </div>
-    );
-  }
+  propsRef.current = { points, selectedId, highlightIds, onPick, onBrush };
+  rectRef.current = rect;
 
-  const xs = valid.map((p) => p.x);
-  const ys = valid.map((p) => p.y);
-  let xmin = Math.min(...xs); let xmax = Math.max(...xs);
-  let ymin = Math.min(...ys); let ymax = Math.max(...ys);
-  if (xmin === xmax) { xmin -= 1; xmax += 1; }
-  if (ymin === ymax) { ymin -= 1; ymax += 1; }
-  const px = (xmax - xmin) * 0.06; const py = (ymax - ymin) * 0.06;
-  xmin -= px; xmax += px; ymin -= py; ymax += py;
+  // Build + draw on the canvas whenever props or the brush rect change.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const canvas = canvasRef.current;
+    if (!wrap || !canvas) return undefined;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
 
-  const plotW = W - PAD.l - PAD.r;
-  const plotH = H - PAD.t - PAD.b;
-  const toXY = (x, y) => ({
-    cx: PAD.l + ((x - xmin) / (xmax - xmin)) * plotW,
-    cy: PAD.t + (1 - (y - ymin) / (ymax - ymin)) * plotH,
-  });
+    const draw = () => {
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (w < 24 || h < 24) return;
+      canvas.width = Math.floor(w * dpr);
+      canvas.height = Math.floor(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const { points, selectedId, highlightIds } = propsRef.current;
+      const all = points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+      ctx.fillStyle = '#06070b';
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+
+      if (!all.length) {
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.font = '12px "Share Tech Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('No points in this projection.', w / 2, h / 2);
+        return;
+      }
+
+      let xmin = Infinity; let xmax = -Infinity; let ymin = Infinity; let ymax = -Infinity;
+      for (const p of all) {
+        xmin = Math.min(xmin, p.x); xmax = Math.max(xmax, p.x);
+        ymin = Math.min(ymin, p.y); ymax = Math.max(ymax, p.y);
+      }
+      if (xmin === xmax) { xmin -= 1; xmax += 1; }
+      if (ymin === ymax) { ymin -= 1; ymax += 1; }
+      const px = (xmax - xmin) * 0.06; const py = (ymax - ymin) * 0.06;
+      xmin -= px; xmax += px; ymin -= py; ymax += py;
+
+      const plotW = w - PADL - PADR;
+      const plotH = h - PADT - PADB;
+      const X = (x) => PADL + ((x - xmin) / (xmax - xmin)) * plotW;
+      const Y = (y) => PADT + (1 - (y - ymin) / (ymax - ymin)) * plotH;
+      projRef.current = { all, X, Y };
+
+      for (let i = 0; i <= 4; i++) {
+        const gx = X(xmin + (i / 4) * (xmax - xmin));
+        ctx.beginPath(); ctx.moveTo(gx, PADT); ctx.lineTo(gx, h - PADB); ctx.stroke();
+        const gy = Y(ymin + (i / 4) * (ymax - ymin));
+        ctx.beginPath(); ctx.moveTo(PADL, gy); ctx.lineTo(w - PADR, gy); ctx.stroke();
+      }
+      ctx.fillStyle = '#888d98';
+      ctx.font = '10px "Share Tech Mono", monospace';
+      ctx.textBaseline = 'alphabetic';
+      for (let i = 0; i <= 4; i++) {
+        const vx = xmin + (i / 4) * (xmax - xmin);
+        ctx.textAlign = 'center';
+        ctx.fillText(vx.toFixed(1), X(vx), h - PADB + 16);
+        const vy = ymin + (i / 4) * (ymax - ymin);
+        ctx.textAlign = 'right';
+        ctx.fillText(vy.toFixed(1), PADL - 6, Y(vy) + 3);
+      }
+
+      ctx.fillStyle = '#9aa0aa';
+      ctx.font = '11px "Share Tech Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(xLabel, w / 2, h - 6);
+      ctx.save();
+      ctx.translate(13, h / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(yLabel, 0, 0);
+      ctx.restore();
+
+      const hiOn = highlightIds && highlightIds.size > 0;
+      for (const p of all) {
+        const sx = X(p.x); const sy = Y(p.y);
+        const sel = selectedId === p.o.id;
+        const hi = hiOn && highlightIds.has(p.o.id);
+        const dim = hiOn && !hi && !sel;
+        if (sel) {
+          ctx.beginPath(); ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+          ctx.strokeStyle = '#ff6a00'; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        ctx.globalAlpha = dim ? 0.18 : 0.95;
+        ctx.beginPath(); ctx.arc(sx, sy, sel ? 5 : hi ? 4.5 : 3.4, 0, Math.PI * 2);
+        ctx.fillStyle = p.color; ctx.fill();
+        if (hi) { ctx.globalAlpha = 1; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.stroke(); }
+        ctx.globalAlpha = 1;
+      }
+
+      const r = rectRef.current;
+      if (r) {
+        const bx = Math.min(r.x1, r.x2); const by = Math.min(r.y1, r.y2);
+        const bw = Math.abs(r.x2 - r.x1); const bh = Math.abs(r.y2 - r.y1);
+        ctx.fillStyle = 'rgba(255,106,0,0.12)';
+        ctx.strokeStyle = '#ff6a00';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 2]);
+        ctx.fillRect(bx, by, bw, bh);
+        ctx.strokeRect(bx, by, bw, bh);
+        ctx.setLineDash([]);
+      }
+    };
+
+    drawRef.current = draw;
+    draw();
+    const ro = new ResizeObserver(draw);
+    ro.observe(wrap);
+    return () => { ro.disconnect(); drawRef.current = null; };
+  }, [points, selectedId, highlightIds, rect]);
 
   const toLocal = (e) => {
-    const svg = svgRef.current;
-    const pt = svg.createSVGPoint();
-    pt.x = e.clientX; pt.y = e.clientY;
-    return pt.matrixTransform(svg.getScreenCTM().inverse());
+    const r = canvasRef.current.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-
   const idAt = (px, py) => {
+    const proj = projRef.current;
+    if (!proj) return null;
     let best = null; let bestD = Infinity;
-    valid.forEach((p) => {
-      const { cx, cy } = toXY(p.x, p.y);
-      const d = Math.hypot(px - cx, py - cy);
+    for (const p of proj.all) {
+      const d = Math.hypot(proj.X(p.x) - px, proj.Y(p.y) - py);
       if (d < bestD) { bestD = d; best = p; }
-    });
-    return bestD < 14 ? best : null;
+    }
+    return bestD < 14 ? best.o : null;
   };
 
   const onPointerDown = (e) => {
@@ -74,14 +169,12 @@ export default function ScatterPlot({
     drag.current = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
     setRect(drag.current);
   };
-
   const onPointerMove = (e) => {
     if (!drag.current) return;
     const p = toLocal(e);
     drag.current.x2 = p.x; drag.current.y2 = p.y;
     setRect({ ...drag.current });
   };
-
   const onPointerUp = (e) => {
     if (!drag.current) return;
     const p = toLocal(e);
@@ -90,92 +183,36 @@ export default function ScatterPlot({
     const moved = Math.abs(x2 - x1) + Math.abs(y2 - y1) > 5;
     if (moved) {
       const ids = new Set();
-      valid.forEach((pt) => {
-        const { cx, cy } = toXY(pt.x, pt.y);
-        if (cx >= x1 && cx <= x2 && cy >= y1 && cy <= y2) ids.add(pt.o.id);
-      });
-      onBrush(ids);
+      const proj = projRef.current;
+      if (proj) {
+        for (const pt of proj.all) {
+          const sx = proj.X(pt.x); const sy = proj.Y(pt.y);
+          if (sx >= x1 && sx <= x2 && sy >= y1 && sy <= y2) ids.add(pt.o.id);
+        }
+      }
+      propsRef.current.onBrush(ids);
     } else {
       const picked = idAt(p.x, p.y);
-      if (picked) onPick(picked.o);
-      else onBrush(new Set());
+      if (picked) propsRef.current.onPick(picked);
+      else propsRef.current.onBrush(new Set());
     }
     drag.current = null;
     setRect(null);
   };
 
-  const ticks = (min, max, n) => Array.from({ length: n + 1 }, (_, i) => min + (i / n) * (max - min));
-
   return (
     <div className="scatter panel-sub">
       <div className="panel-head"><h3>{title}</h3></div>
-      <svg
-        ref={svgRef}
-        className="scatter-svg"
-        viewBox={`0 0 ${W} ${H}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={() => { if (!drag.current) setRect(null); }}
-      >
-        {/* gridlines + axis ticks */}
-        {ticks(ymin, ymax, 4).map((y, i) => {
-          const { cy } = toXY(xmin, y);
-          return <line key={i} x1={PAD.l} y1={cy} x2={W - PAD.r} y2={cy} className="scatter-grid" />;
-        })}
-        {ticks(xmin, xmax, 4).map((x, i) => {
-          const { cx } = toXY(x, ymin);
-          return <line key={i} x1={cx} y1={PAD.t} x2={cx} y2={H - PAD.b} className="scatter-grid" />;
-        })}
-        {ticks(ymin, ymax, 4).map((y, i) => {
-          const { cy } = toXY(xmin, y);
-          return (
-            <text key={`ty${i}`} x={PAD.l - 6} y={cy + 3} textAnchor="end" className="scatter-tick">
-              {y.toFixed(1)}
-            </text>
-          );
-        })}
-        {ticks(xmin, xmax, 4).map((x, i) => {
-          const { cx } = toXY(x, ymin);
-          return (
-            <text key={`tx${i}`} x={cx} y={H - PAD.b + 16} textAnchor="middle" className="scatter-tick">
-              {x.toFixed(1)}
-            </text>
-          );
-        })}
-
-        {/* points */}
-        {valid.map((pt) => {
-          const { cx, cy } = toXY(pt.x, pt.y);
-          const sel = selectedId === pt.o.id;
-          const hi = highlightIds && highlightIds.has(pt.o.id);
-          const dimmed = highlightIds && highlightIds.size > 0 && !hi && !sel;
-          return (
-            <g key={pt.o.id}>
-              {sel && <circle cx={cx} cy={cy} r={8} className="scatter-halo" />}
-              <circle
-                cx={cx} cy={cy} r={sel ? 5 : hi ? 4.5 : 3.4}
-                fill={pt.color}
-                className={dimmed ? 'scatter-pt dim' : 'scatter-pt'}
-                stroke={hi ? '#fff' : 'rgba(0,0,0,0.4)'}
-                strokeWidth={hi ? 1.4 : 0.6}
-              />
-            </g>
-          );
-        })}
-
-        {/* brush rectangle */}
-        {rect && (
-          <rect
-            x={Math.min(rect.x1, rect.x2)} y={Math.min(rect.y1, rect.y2)}
-            width={Math.abs(rect.x2 - rect.x1)} height={Math.abs(rect.y2 - rect.y1)}
-            className="scatter-brush"
-          />
-        )}
-
-        <text x={W / 2} y={H - 6} textAnchor="middle" className="scatter-axis">{xLabel}</text>
-        <text x={-H / 2} y={14} textAnchor="middle" transform="rotate(-90)" className="scatter-axis">{yLabel}</text>
-      </svg>
+      <div className="scatter-wrap" ref={wrapRef}>
+        <canvas
+          ref={canvasRef}
+          className="scatter-canvas"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerLeave={() => { if (!drag.current) setRect(null); }}
+        />
+      </div>
       {highlightIds && highlightIds.size > 0 && (
         <p className="muted caption">
           Linking {highlightIds.size} object{highlightIds.size > 1 ? 's' : ''} — click empty space to clear the brush.
