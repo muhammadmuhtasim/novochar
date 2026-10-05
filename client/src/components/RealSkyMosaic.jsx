@@ -2,14 +2,16 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
 import { raDecToNormalized } from '../lib/celestial.js';
 
-// DSS cutouts cap at 2° server-side; keep each mosaic tile well under that.
+// DSS cutouts cap at 2° server-side; keep each mosaic tile under that. `width`
+// is in RA-coordinate degrees, so we pass aspect=1/cos(dec) to make tiles
+// physically square on the sky and step the grid by that real footprint.
 const TILE_CAP_DEG = 1.7;
-const MAX_FIELD_DEG = 6.0; // max on-screen field for real imagery
+const MAX_FIELD_DEG = 3.0; // max on-screen field for real imagery
 const MIN_TILE = 0.3;
-const COVER = 0.95;       // slight grid overlap so tiles butt up with no gaps
-const MAX_GRID = 6;       // cap tiles per axis
+const COVER = 0.9;        // tile overlap (1-COVER) so tiles butt up, no gaps
+const MAX_GRID = 8;       // cap tiles per axis
 const CONCURRENCY = 4;    // simultaneous DSS fetches
-const CACHE_LIMIT = 96;   // tile LRU cap so long pans don't balloon memory
+const CACHE_LIMIT = 128;  // tile LRU cap so long pans don't balloon memory
 
 function cosDec(dec) { return Math.max(0.12, Math.cos((dec * Math.PI) / 180)); }
 const tileKey = (ra, dec, tile) => `${ra.toFixed(4)}/${dec.toFixed(4)}/${tile.toFixed(4)}`;
@@ -45,7 +47,10 @@ export default function RealSkyMosaic({ viewRef }) {
 
     const W = () => canvas.width / dpr;
     const H = () => canvas.height / dpr;
-    const p = (nx, ny) => ({ x: nx * W(), y: ny * H() });
+    // Maps normalized sky coords -> canvas pixels, preserving the true field
+    // aspect ratio. Reassigned on every draw so the sky is never stretched,
+    // even when the wrapper has been clamped by max-height.
+    let p = (nx, ny) => ({ x: nx * W(), y: ny * H() });
 
     const cache = (key, entry) => {
       tiles.current.set(key, entry);
@@ -65,11 +70,13 @@ export default function RealSkyMosaic({ viewRef }) {
       ctx.drawImage(img, Math.min(xL, xR), Math.min(yT, yB), Math.abs(xR - xL), Math.abs(yB - yT));
     };
 
-    const loadTile = async (ra, dec, tile) => {
+    const loadTile = async (ra, dec, tile, aspect) => {
       const key = tileKey(ra, dec, tile);
       if (tiles.current.has(key)) return true;
       try {
-        const res = await fetch(api.skyImageUrl(ra, dec, tile, { aspect: 1, width: 360 }));
+        // aspect = 1/cos(dec) makes the cutout physically square on the sky
+        // (DSS `width` is in RA-coordinate degrees, not on-sky degrees).
+        const res = await fetch(api.skyImageUrl(ra, dec, tile, { aspect, width: 360 }));
         if (!res.ok) return false;
         const meta = {
           raLeft: parseFloat(res.headers.get('X-Sky-Ra-Left')),
@@ -90,7 +97,7 @@ export default function RealSkyMosaic({ viewRef }) {
       } catch (e) { return false; }
     };
 
-    const fetchMissing = async (missing, tile) => {
+    const fetchMissing = async (missing, tile, aspect) => {
       setLoading(true);
       let idx = 0;
       let okCount = 0; let attemptCount = 0;
@@ -98,7 +105,7 @@ export default function RealSkyMosaic({ viewRef }) {
         while (idx < missing.length) {
           const [ra, dec] = missing[idx++];
           attemptCount += 1;
-          if (await loadTile(ra, dec, tile)) okCount += 1;
+          if (await loadTile(ra, dec, tile, aspect)) okCount += 1;
         }
       };
       const workers = Array.from({ length: Math.min(CONCURRENCY, missing.length) }, () => worker());
@@ -123,19 +130,34 @@ export default function RealSkyMosaic({ viewRef }) {
       if (maxF < MIN_TILE * 0.5) { setHint('VERY DEEP'); setTileCount(0); return; }
       setHint('');
 
+      // Fit the sky inside the canvas at its correct aspect ratio (letterboxed
+      // if the wrapper is wider/taller than the field), so stars aren't stretched.
+      const fa = v.raW / v.decH; // true sky aspect (w/h), constant = raHalf/decHalf
+      let drawW = w; let drawH = h; let offX = 0; let offY = 0;
+      if (w / h > fa) { drawH = h; drawW = h * fa; offX = (w - drawW) / 2; }
+      else { drawW = w; drawH = w / fa; offY = (h - drawH) / 2; }
+      p = (nx, ny) => ({ x: offX + nx * drawW, y: offY + ny * drawH });
+
       const c = cosDec(v.dec);
-      const tile = Math.min(TILE_CAP_DEG, Math.max(MIN_TILE, maxF / 3));
+      const aspect = 1 / c; // makes each cutout physically square on the sky
+      // Largest on-sky tile that still fits under the 2° RA-coordinate cap.
+      const maxTile = Math.min(TILE_CAP_DEG, 2 * c);
+      const tile = Math.max(MIN_TILE, Math.min(maxTile, maxF / 3));
+      // Physically-square tiles: each spans `tile` on-sky in both axes, so the
+      // grid counts/step derive from `tile` directly (no extra cos factor).
       const cols = Math.max(1, Math.ceil(v.raW / (tile * COVER)));
       const rows = Math.max(1, Math.ceil(v.decH / (tile * COVER)));
       if (cols > MAX_GRID || rows > MAX_GRID) { setHint('ZOOM INTO THE SKY MAP'); setTileCount(0); return; }
 
       const mine = mineView(v); // keep the raw view in `last`; mine is only for mapping
+      const raStep = (tile * COVER) / c; // overlap in RA-coordinate degrees
+      const decStep = tile * COVER;
       let drawn = 0;
       const keys = [];
       for (let j = 0; j < rows; j++) {
-        const decT = v.dec + (j - (rows - 1) / 2) * tile;
+        const decT = v.dec + (j - (rows - 1) / 2) * decStep;
         for (let i = 0; i < cols; i++) {
-          const raT = v.ra + (i - (cols - 1) / 2) * (tile / c);
+          const raT = v.ra + (i - (cols - 1) / 2) * raStep;
           const key = tileKey(raT, decT, tile);
           keys.push([raT, decT]);
           const te = tiles.current.get(key);
@@ -145,7 +167,7 @@ export default function RealSkyMosaic({ viewRef }) {
       setTileCount(drawn);
       if (drawn > 0) setError(false);
       const missing = keys.filter(([ra, dec]) => !tiles.current.has(tileKey(ra, dec, tile)));
-      if (missing.length) fetchMissing(missing, tile);
+      if (missing.length) fetchMissing(missing, tile, aspect);
       else setLoading(false);
     };
 
