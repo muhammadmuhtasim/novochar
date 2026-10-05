@@ -1126,6 +1126,21 @@ pill.candidate {
 
 /* ---- sky: synced REAL SKY mosaic ---- */
 .realsky { margin-top: 18px; }
+.realsky-head-btns { display: flex; align-items: center; gap: 8px; }
+.realsky-canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.sky-readout.real {
+  position: absolute;
+  left: 8px; bottom: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #bdf1ff;
+  background: rgba(6, 9, 16, 0.82);
+  padding: 2px 8px;
+  border: 1px solid rgba(61, 255, 155, 0.4);
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: nowrap;
+}
 .realsky-wrap {
   position: relative;
   aspect-ratio: 14 / 9; /* matches the survey field shape (raHalf:decHalf) */
