@@ -61,6 +61,30 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    // Scroll reveal observer for panels and cards
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in-view');
+          }
+        });
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -30px 0px' }
+    );
+
+    const timer = setTimeout(() => {
+      const elements = document.querySelectorAll('.panel, .source-card, .obj-card, .kv div, .sed-chart, .chip');
+      elements.forEach((el) => observer.observe(el));
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [tab, target, objects]);
+
   const skyPreset = tab === 'sky' && target ? target.id : null;
   const blinkPreset = tab === 'blink' && target ? target.id : null;
   const cataloguePreset = tab === 'catalogue' && target ? target.id : null;
@@ -73,7 +97,8 @@ export default function App() {
         <Navbar tab={tab} setTab={setTab} stats={stats} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen((v) => !v)} />
         <NavMenu tab={tab} setTab={setTab} open={menuOpen} />
       </div>
-      <main className="view">
+      <main className="view" key={tab}>
+        <div className="view-scanline-sweep" />
         {tab === 'home' && <Home stats={stats} health={health} objects={objects} onNavigate={setTab} onTarget={goToTarget} />}
         {tab === 'sky' && <SkyViewer objects={objects} presetId={skyPreset} onTarget={goToTarget} />}
         {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} onTarget={goToTarget} />}

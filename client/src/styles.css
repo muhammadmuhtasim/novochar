@@ -160,12 +160,96 @@ code, .mono {
 }
 
 main.view {
+  position: relative;
   flex: 1;
   padding: 20px 28px;
   max-width: 1720px;
   width: 100%;
   margin: 0 auto;
-  animation: hud-view-enter 0.35s var(--trans-norm);
+  animation: sci-fi-hud-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter;
+}
+
+/* Sci-Fi Shutter Scanning Line Sweep on Tab Switch */
+.view-scanline-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, var(--neon-bright) 50%, transparent 100%);
+  box-shadow: 0 0 15px var(--neon-bright), 0 0 30px var(--neon-orange);
+  z-index: 120;
+  pointer-events: none;
+  animation: scanline-sweep-anim 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes scanline-sweep-anim {
+  0% {
+    top: 0%;
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes sci-fi-hud-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) scale(0.985);
+    filter: brightness(1.7) contrast(1.2) blur(2px);
+  }
+  40% {
+    opacity: 0.7;
+    filter: brightness(1.2) contrast(1.1) blur(0.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: brightness(1) contrast(1) blur(0);
+  }
+}
+
+/* ==========================================================================
+   SCROLL-DRIVEN REVEAL ANIMATIONS
+   ========================================================================== */
+
+.panel, .source-card, .obj-card, .sed-chart, .chip {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color var(--trans-norm),
+              box-shadow var(--trans-norm);
+}
+
+.panel.in-view, .source-card.in-view, .obj-card.in-view, .sed-chart.in-view, .chip.in-view {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Staggered Delay for Grid Cards */
+.source-card:nth-child(1), .obj-card:nth-child(1) { transition-delay: 0.04s; }
+.source-card:nth-child(2), .obj-card:nth-child(2) { transition-delay: 0.08s; }
+.source-card:nth-child(3), .obj-card:nth-child(3) { transition-delay: 0.12s; }
+.source-card:nth-child(4), .obj-card:nth-child(4) { transition-delay: 0.16s; }
+.source-card:nth-child(5), .obj-card:nth-child(5) { transition-delay: 0.20s; }
+.source-card:nth-child(6), .obj-card:nth-child(6) { transition-delay: 0.24s; }
+
+@media (prefers-reduced-motion: reduce) {
+  main.view {
+    animation: none !important;
+  }
+  .view-scanline-sweep {
+    display: none !important;
+  }
+  .panel, .source-card, .obj-card, .sed-chart, .chip {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
 }
 
 @keyframes hud-view-enter {
