@@ -99,6 +99,10 @@ export default function App() {
       </div>
       <main className="view" key={tab}>
         <div className="view-scanline-sweep" />
+        <div className="hud-tab-banner">
+          <span className="hud-banner-dot" />
+          <span className="hud-banner-text">SYS.INIT // MODULE: {tab.toUpperCase()} // NOVOCHAR HUD OPERATIONAL</span>
+        </div>
         {tab === 'home' && <Home stats={stats} health={health} objects={objects} onNavigate={setTab} onTarget={goToTarget} />}
         {tab === 'sky' && <SkyViewer objects={objects} presetId={skyPreset} onTarget={goToTarget} />}
         {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} onTarget={goToTarget} />}

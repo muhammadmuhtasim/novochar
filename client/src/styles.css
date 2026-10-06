@@ -166,77 +166,150 @@ main.view {
   max-width: 1720px;
   width: 100%;
   margin: 0 auto;
-  animation: sci-fi-hud-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  will-change: transform, opacity, filter;
+  animation: sci-fi-glitch-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity, filter, clip-path;
 }
 
-/* Sci-Fi Shutter Scanning Line Sweep on Tab Switch */
+/* Sci-Fi Shutter Scanning Laser Line Sweep on Tab Switch */
 .view-scanline-sweep {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent 0%, var(--neon-bright) 50%, transparent 100%);
-  box-shadow: 0 0 15px var(--neon-bright), 0 0 30px var(--neon-orange);
-  z-index: 120;
+  height: 4px;
+  background: linear-gradient(90deg, transparent 0%, #FF4D00 20%, #00F0FF 50%, #FF6A00 80%, transparent 100%);
+  box-shadow: 0 0 20px #FF6A00, 0 0 40px #FF4D00, 0 0 10px #00F0FF;
+  z-index: 150;
   pointer-events: none;
-  animation: scanline-sweep-anim 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scanline-sweep-anim 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Sci-Fi HUD Tab Module Initialization Banner */
+.hud-tab-banner {
+  position: fixed;
+  top: 68px;
+  right: 28px;
+  z-index: 140;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 9, 14, 0.92);
+  border: 1px solid var(--neon-bright);
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--neon-amber);
+  box-shadow: var(--glow-md);
+  pointer-events: none;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+  animation: hud-banner-flash 1.8s ease-in-out forwards;
+}
+
+.hud-banner-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--neon-bright);
+  box-shadow: 0 0 8px var(--neon-bright);
+  animation: pulse-hud 0.8s infinite;
+}
+
+@keyframes hud-banner-flash {
+  0% { opacity: 0; transform: translateY(-10px) scale(0.9); }
+  15% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1.6); }
+  75% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-6px); pointer-events: none; }
 }
 
 @keyframes scanline-sweep-anim {
-  0% {
-    top: 0%;
-    opacity: 1;
-  }
-  100% {
-    top: 100%;
-    opacity: 0;
-  }
+  0% { top: 0%; opacity: 1; }
+  100% { top: 100%; opacity: 0; }
 }
 
-@keyframes sci-fi-hud-enter {
+/* Digital RGB Chromatic Aberration & Iris Wipe Keyframe */
+@keyframes sci-fi-glitch-enter {
   0% {
     opacity: 0;
-    transform: translateY(12px) scale(0.985);
-    filter: brightness(1.7) contrast(1.2) blur(2px);
+    clip-path: polygon(0 45%, 100% 45%, 100% 55%, 0 55%);
+    transform: scaleX(1.03) translateY(8px);
+    filter: brightness(2.4) contrast(1.5) drop-shadow(-6px 0 #FF4D00) drop-shadow(6px 0 #00F0FF);
   }
-  40% {
-    opacity: 0.7;
-    filter: brightness(1.2) contrast(1.1) blur(0.5px);
+  30% {
+    opacity: 0.75;
+    clip-path: polygon(0 15%, 100% 5%, 100% 90%, 0 95%);
+    transform: skewX(-1.5deg) translateY(-2px);
+    filter: brightness(1.6) contrast(1.2) drop-shadow(3px 0 #FF4D00);
+  }
+  60% {
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    transform: skewX(0.5deg) translateY(0);
+    filter: brightness(1.1);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: brightness(1) contrast(1) blur(0);
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    transform: none;
+    filter: none;
   }
 }
 
 /* ==========================================================================
-   SCROLL-DRIVEN REVEAL ANIMATIONS
+   SCI-FI CHAMFER IRIS SCROLL-DRIVEN REVEALS
    ========================================================================== */
 
 .panel, .source-card, .obj-card, .sed-chart, .chip {
   opacity: 0;
-  transform: translateY(18px);
-  transition: opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+  clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 16px, calc(100% - 16px) 16px, 16px 16px, 0 16px);
+  transform: scale(0.96) translateY(16px);
+  transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1),
               transform 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+              clip-path 0.55s cubic-bezier(0.16, 1, 0.3, 1),
               border-color var(--trans-norm),
               box-shadow var(--trans-norm);
+  will-change: opacity, transform, clip-path;
 }
 
 .panel.in-view, .source-card.in-view, .obj-card.in-view, .sed-chart.in-view, .chip.in-view {
   opacity: 1;
-  transform: translateY(0);
+  transform: scale(1) translateY(0);
+  clip-path: polygon(
+    0 8px, 8px 0,
+    calc(100% - 18px) 0, 100% 18px,
+    100% calc(100% - 8px), calc(100% - 8px) 100%,
+    18px 100%, 0 calc(100% - 18px)
+  );
 }
 
-/* Staggered Delay for Grid Cards */
-.source-card:nth-child(1), .obj-card:nth-child(1) { transition-delay: 0.04s; }
-.source-card:nth-child(2), .obj-card:nth-child(2) { transition-delay: 0.08s; }
-.source-card:nth-child(3), .obj-card:nth-child(3) { transition-delay: 0.12s; }
-.source-card:nth-child(4), .obj-card:nth-child(4) { transition-delay: 0.16s; }
-.source-card:nth-child(5), .obj-card:nth-child(5) { transition-delay: 0.20s; }
-.source-card:nth-child(6), .obj-card:nth-child(6) { transition-delay: 0.24s; }
+/* Staggered Chamfer Expansion Delays for Grid Items */
+.source-card:nth-child(1), .obj-card:nth-child(1) { transition-delay: 0.05s; }
+.source-card:nth-child(2), .obj-card:nth-child(2) { transition-delay: 0.10s; }
+.source-card:nth-child(3), .obj-card:nth-child(3) { transition-delay: 0.15s; }
+.source-card:nth-child(4), .obj-card:nth-child(4) { transition-delay: 0.20s; }
+.source-card:nth-child(5), .obj-card:nth-child(5) { transition-delay: 0.25s; }
+.source-card:nth-child(6), .obj-card:nth-child(6) { transition-delay: 0.30s; }
+
+/* Laser Shockwave Pulse on Button Active Click */
+.btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  background: transparent;
+  border: 1px solid var(--neon-bright);
+  opacity: 0;
+  clip-path: inherit;
+  transition: all 0.35s ease-out;
+  pointer-events: none;
+}
+
+.btn:active::before {
+  inset: -12px;
+  opacity: 1;
+  border-color: var(--neon-orange);
+  box-shadow: 0 0 24px var(--neon-bright), 0 0 40px var(--neon-orange);
+  transition: none;
+}
 
 @media (prefers-reduced-motion: reduce) {
   main.view {
