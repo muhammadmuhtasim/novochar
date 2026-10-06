@@ -37,6 +37,16 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Deterministic GET endpoints never change per-request, so allow the browser and
+// Vercel's edge to cache them (repeat loads avoid a serverless cold start).
+const CACHEABLE_API = /^\/api\/(survey|objects|stats|presets|spectra\/|field\/heatmap)/;
+app.use((req, res, next) => {
+  if (req.method === 'GET' && CACHEABLE_API.test(req.path || req.url)) {
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=31536000');
+  }
+  next();
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     ok: true,

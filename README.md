@@ -39,6 +39,14 @@ configured build command and output directory are `npm run build` and
 `client/dist`. The server workspace's build script validates its JavaScript
 syntax for deployments that run workspace build scripts.
 
+**Why first paint is fast & reliable:** the survey/passes/objects/stats/presets
+are fully deterministic (seeded), so `build` also runs `scripts/precompute-data.mjs`
+to bake them into static JSON under `client/dist/data/`. The client loads those
+from Vercel's CDN first (with a live-API fallback), so the home page never blocks
+on a serverless-function cold start. Deterministic API routes also send
+`Cache-Control` so repeat loads avoid the function entirely. `vercel.json` raises
+the API function's `maxDuration`/`memory` and long-caches `/data/*`.
+
 To enable the live NASA NEO feed in production, add `NASA_API_KEY` as an
 environment variable in the Vercel project settings and redeploy. The app works
 without it using the simulated survey data.

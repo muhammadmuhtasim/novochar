@@ -1,10 +1,26 @@
 // Thin typed-ish API client for the Novochar backend.
 const BASE = '/api';
+// Deterministic dataset is baked into client/dist/data at build time and served
+// from Vercel's edge CDN, so first paint never blocks on a serverless cold
+// start. We try the static file first and fall back to the live API only if it
+// is missing (e.g. local `vite dev` before any build).
+const DATA = '/data';
 
 async function getJSON(path) {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(`API ${path} -> ${res.status}`);
   return res.json();
+}
+
+// Try a precomputed static JSON file; fall back to the live API on any error.
+async function staticOrApi(dataFile, apiPath) {
+  try {
+    const res = await fetch(`${DATA}/${dataFile}`, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(`static ${dataFile} -> ${res.status}`);
+    return await res.json();
+  } catch {
+    return getJSON(apiPath);
+  }
 }
 
 async function postJSON(path, body) {
@@ -22,21 +38,24 @@ async function postJSON(path, body) {
 
 export const api = {
   health: () => getJSON('/health'),
-  survey: () => getJSON('/survey'),
-  stats: () => getJSON('/stats'),
+  survey: () => staticOrApi('survey.json', '/survey'),
+  stats: () => staticOrApi('stats.json', '/stats'),
   objects: (params = {}) => {
     const qs = new URLSearchParams();
     if (params.type && params.type !== 'ALL') qs.set('type', params.type);
     if (params.band && params.band !== 'ALL') qs.set('band', params.band);
     if (params.q) qs.set('q', params.q);
-    return getJSON(`/objects${qs.toString() ? `?${qs}` : ''}`);
+    // No filters -> deterministic full dataset is precomputed at build time.
+    if (!qs.toString()) return staticOrApi('objects.json', '/objects');
+    return getJSON(`/objects?${qs}`);
   },
   object: (id) => getJSON(`/objects/${id}`),
   blink: (id, count = 18) => getJSON(`/objects/${id}/blink?count=${count}`),
-  presets: () => getJSON('/presets'),
+  presets: () => staticOrApi('presets.json', '/presets'),
   neo: (key) => getJSON(`/nasa/neo${key ? `?api_key=${encodeURIComponent(key)}` : ''}`),
   spectra: (id) => getJSON(`/spectra/${id}`),
-  fieldHeatmap: (nside = 64) => getJSON(`/field/heatmap?nside=${nside}`),
+  fieldHeatmap: (nside = 64) =>
+    nside === 64 ? staticOrApi('heatmap/64.json', `/field/heatmap?nside=${nside}`) : getJSON(`/field/heatmap?nside=${nside}`),
   ivoa: () => getJSON('/ivoa'),
   archives: () => getJSON('/archives'),
   archiveQuery: (archive, operation, params = {}) =>
