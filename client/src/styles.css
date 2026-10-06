@@ -1673,3 +1673,244 @@ main.view {
   }
 }
 
+/* ==========================================================================
+   LIVING DEEP-SPACE LAYERS — parallax starfield, drifting nebula & meteors
+   (transform/opacity only; pure CSS, pointer-events none)
+   ========================================================================== */
+.nebula,
+.stars-far,
+.stars-near,
+.dust,
+.meteor {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* Soft aurora / gradient-mesh nebula behind every view */
+.nebula {
+  inset: -40%;
+  opacity: 0.34;
+  mix-blend-mode: screen;
+}
+.nebula::before,
+.nebula::after {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  background:
+    radial-gradient(ellipse 70% 45% at 60% 22%, rgba(255, 77, 0, 0.16) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 38% at 26% 68%, rgba(0, 240, 255, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 82% 80%, rgba(150, 90, 220, 0.08) 0%, transparent 60%);
+}
+.nebula::before { animation: nebula-drift 26s ease-in-out infinite alternate; }
+.nebula::after { animation: nebula-drift 36s ease-in-out infinite alternate-reverse; }
+
+@keyframes nebula-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); }
+  100% { transform: translate3d(-6%, -4%, 0) scale(1.12) rotate(6deg); }
+}
+
+/* Multi-layer parallax starfield (repeatable dot gradients, moving slowly) */
+.stars-far {
+  inset: -20%;
+  background-repeat: repeat;
+  background-size: 360px 240px;
+  background-image:
+    radial-gradient(1px 1px at 25px 35px, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(1px 1px at 160px 20px, rgba(255, 200, 120, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 90px 130px, rgba(120, 200, 255, 0.8), transparent),
+    radial-gradient(1px 1px at 260px 110px, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1px 1px at 60px 200px, rgba(255, 122, 0, 0.7), transparent);
+  opacity: 0.72;
+  animation: star-drift 130s linear infinite;
+}
+.stars-near {
+  inset: -30%;
+  background-repeat: repeat;
+  background-size: 420px 260px;
+  background-image:
+    radial-gradient(1.6px 1.6px at 40px 40px, rgba(255, 255, 255, 0.95), transparent),
+    radial-gradient(1.2px 1.2px at 200px 80px, rgba(190, 230, 255, 0.9), transparent),
+    radial-gradient(2px 2px at 120px 180px, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1.4px 1.4px at 300px 40px, rgba(0, 240, 255, 0.9), transparent);
+  opacity: 0.66;
+  animation: star-drift 72s linear infinite, star-twinkle 7s ease-in-out infinite;
+}
+@keyframes star-drift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-160px, -90px, 0); }
+}
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 0.85; }
+}
+/* Sparse slow-drifting debris */
+.dust {
+  inset: -40%;
+  background-repeat: repeat;
+  background-size: 300px 200px;
+  background-image:
+    radial-gradient(2px 2px at 90px 70px, rgba(255, 122, 0, 0.2), transparent),
+    radial-gradient(1px 1px at 250px 140px, rgba(120, 180, 255, 0.18), transparent);
+  opacity: 0.5;
+  animation: star-drift 210s linear infinite, star-twinkle 12s ease-in-out infinite;
+}
+
+/* Intermittent meteor / satellite streaks */
+.meteor {
+  width: 110px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(120, 200, 255, 0.9) 40%, #eaf6ff 85%, #fff 100%);
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(160, 220, 255, 0.8);
+  opacity: 0;
+  animation: meteor-shoot 7s ease-out infinite;
+  animation-delay: var(--d, 2s);
+}
+.meteor:nth-of-type(1) { top: 16%; left: 64%; --mr: 22deg; --d: 0.8s; }
+.meteor:nth-of-type(2) { top: 58%; left: 20%; --mr: 30deg; --d: 3.6s; }
+.meteor:nth-of-type(3) { top: 34%; left: 78%; --mr: 18deg; --d: 5.4s; }
+@keyframes meteor-shoot {
+  0%   { transform: translate3d(0, 0, 0) rotate(var(--mr, 22deg)); opacity: 0; }
+  2%   { opacity: 1; }
+  20%  { transform: translate3d(-340px, 150px, 0) rotate(var(--mr, 22deg)); opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* ==========================================================================
+   HUD CURSOR-SPOTLIGHT — a radial glow that follows the pointer over panels.
+   Position is driven by JS via the --spx / --spy CSS vars.
+   ========================================================================== */
+.obj-card,
+.source-card {
+  position: relative;
+}
+
+.hud-spot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 230px;
+  height: 230px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(0, 240, 255, 0.10) 0%, rgba(255, 77, 0, 0.12) 28%, rgba(255, 77, 0, 0.05) 52%, transparent 72%);
+  transform: translate(var(--spx, 0px), var(--spy, 0px)) translate(-50%, -50%);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.22s ease-out;
+}
+/* ==========================================================================
+   HOLOGRAPHIC SHIMMER TEXT (animated gradient clipped to glyphs)
+   ========================================================================== */
+.brand-name,
+.hero-title {
+  background: linear-gradient(100deg, #FF6A00 0%, #FFC436 25%, #F7F9FF 52%, #00E5FF 76%, #FF4D00 100%);
+  background-size: 240% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: text-shimmer 6s ease-in-out infinite;
+}
+@keyframes text-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+
+/* ==========================================================================
+   BUTTON LASER SCAN + BREATHING NEON CTA
+   ========================================================================== */
+.btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(105deg, transparent, rgba(150, 210, 255, 0.5) 50%, transparent);
+  clip-path: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+.btn:hover::after {
+  animation: btn-shine 0.55s ease-out;
+}
+@keyframes btn-shine {
+  0%   { transform: translateX(-120%); opacity: 0; }
+  16%  { opacity: 0.9; }
+  100% { transform: translateX(320%); opacity: 0; }
+}
+
+.btn.primary {
+  animation: cta-breathe 2.6s ease-in-out infinite;
+}
+@keyframes cta-breathe {
+  0%, 100% { box-shadow: var(--glow-sm); }
+  50%      { box-shadow: 0 0 5px rgba(255, 106, 0, 0.6), 0 0 20px rgba(255, 77, 0, 0.6); }
+}
+/* ==========================================================================
+   PROGRESS BAR — flowing scan shine + pulsing neon
+   ========================================================================== */
+.progress-fill {
+  position: relative;
+  overflow: hidden;
+  animation: progress-pulse 2s ease-in-out infinite;
+}
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  left: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: progress-shine 2.6s ease-out infinite;
+  clip-path: inherit;
+}
+@keyframes progress-shine {
+  0%   { transform: translateX(-40%); opacity: 0; }
+  8%   { opacity: 0.85; }
+  92%  { opacity: 0.85; }
+  100% { transform: translateX(400%); opacity: 0; }
+}
+@keyframes progress-pulse {
+  0%, 100% { box-shadow: var(--glow-sm); }
+  50%      { box-shadow: 0 0 4px rgba(255, 122, 0, 0.55), 0 0 14px rgba(255, 77, 0, 0.55); }
+}
+
+/* ==========================================================================
+   REDUCED MOTION — disable every background/interactive effect for users who
+   prefer less motion (accessibility & battery).
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .nebula::before,
+  .nebula::after,
+  .stars-far,
+  .stars-near,
+  .dust,
+  .meteor {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+  .hud-spot {
+    opacity: 0 !important;
+    animation: none !important;
+  }
+  .view-tear {
+    display: none !important;
+  }
+  .brand-name,
+  .hero-title {
+    background: none !important;
+    -webkit-text-fill-color: currentcolor !important;
+    color: var(--text-primary) !important;
+    animation: none !important;
+  }
+  .btn::after,
+  .btn.primary,
+  .progress-fill,
+  .progress-fill::after {
+    animation: none !important;
+  }
+}

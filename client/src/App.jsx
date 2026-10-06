@@ -85,6 +85,46 @@ export default function App() {
     };
   }, [tab, target, objects]);
 
+  // Cursor-tracking HUD spotlight: a radial glow follows the pointer over panels
+  // and cards (drives the --spx/--spy CSS vars consumed by `.hud-spot`).
+  useEffect(() => {
+    const els = document.querySelectorAll('.panel, .obj-card, .source-card');
+    const timer = setTimeout(() => {
+      els.forEach((el) => {
+        let spot = el.querySelector('.hud-spot');
+        if (!spot) {
+          spot = document.createElement('span');
+          spot.className = 'hud-spot';
+          spot.setAttribute('aria-hidden', 'true');
+          el.appendChild(spot);
+        }
+        const onMove = (e) => {
+          const r = el.getBoundingClientRect();
+          spot.style.setProperty('--spx', `${e.clientX - r.left}px`);
+          spot.style.setProperty('--spy', `${e.clientY - r.top}px`);
+          spot.style.opacity = '1';
+        };
+        const onLeave = () => { spot.style.opacity = '0'; };
+        el.addEventListener('mousemove', onMove);
+        el.addEventListener('mouseleave', onLeave);
+        el.__spot = { spot, onMove, onLeave };
+      });
+    }, 60);
+
+    return () => {
+      clearTimeout(timer);
+      els.forEach((el) => {
+        const s = el.__spot;
+        if (s) {
+          el.removeEventListener('mousemove', s.onMove);
+          el.removeEventListener('mouseleave', s.onLeave);
+          if (s.spot && s.spot.parentNode === el) s.spot.remove();
+          el.__spot = null;
+        }
+      });
+    };
+  }, [tab, target, objects]);
+
   const skyPreset = tab === 'sky' && target ? target.id : null;
   const blinkPreset = tab === 'blink' && target ? target.id : null;
   const cataloguePreset = tab === 'catalogue' && target ? target.id : null;
@@ -92,7 +132,15 @@ export default function App() {
 
   return (
     <div className="shell">
-      <div className="bg fx" />
+      <div className="bg fx">
+        <div className="nebula" />
+        <div className="stars-far" />
+        <div className="stars-near" />
+        <div className="dust" />
+        <span className="meteor" />
+        <span className="meteor" />
+        <span className="meteor" />
+      </div>
       <div className="app-sticky">
         <Navbar tab={tab} setTab={setTab} stats={stats} menuOpen={menuOpen} onToggleMenu={() => setMenuOpen((v) => !v)} />
         <NavMenu tab={tab} setTab={setTab} open={menuOpen} />
