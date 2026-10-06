@@ -79,8 +79,23 @@ export default function App() {
       elements.forEach((el) => observer.observe(el));
     }, 50);
 
+    // Safety net: if IntersectionObserver ever fails to fire (edge cases / odd
+    // layouts), force-reveal anything already on screen so content is never left
+    // invisible ("loading forever"). Below-the-fold items still wait for scroll.
+    const fallback = setTimeout(() => {
+      const vh = window.innerHeight;
+      document
+        .querySelectorAll('.panel, .source-card, .obj-card, .kv div, .sed-chart, .chip')
+        .forEach((el) => {
+          if (!el.classList.contains('in-view') && el.getBoundingClientRect().top < vh) {
+            el.classList.add('in-view');
+          }
+        });
+    }, 1100);
+
     return () => {
       clearTimeout(timer);
+      clearTimeout(fallback);
       observer.disconnect();
     };
   }, [tab, target, objects]);
@@ -181,12 +196,15 @@ export default function App() {
         cursor.style.opacity = '1';
       }
       updateHover();
+      start();
     };
     const hide = () => { cursor.style.opacity = '0'; shown = false; };
     const press = () => cursor.classList.add('press');
     const release = () => cursor.classList.remove('press');
 
-    let raf;
+    let raf = null;
+    let running = false;
+    const start = () => { if (!running) { running = true; raf = requestAnimationFrame(loop); } };
     const loop = () => {
       CUR.x += (TARGET.x - CUR.x) * 0.9;
       CUR.y += (TARGET.y - CUR.y) * 0.9;
@@ -197,6 +215,11 @@ export default function App() {
       wrap.style.transform = `translate3d(${CUR.x - 22}px, ${CUR.y - 22}px, 0)`;
       ring.style.transform = `translate3d(${RING.x - 23}px, ${RING.y - 23}px, 0)`;
       glow.style.transform = `translate3d(${GLOW.x - 37}px, ${GLOW.y - 37}px, 0)`;
+      // Stop re-rendering once settled so idle pages don't burn CPU.
+      const settled =
+        Math.abs(TARGET.x - CUR.x) < 0.4 && Math.abs(TARGET.y - CUR.y) < 0.4 &&
+        Math.abs(CUR.x - RING.x) < 0.4 && Math.abs(CUR.y - RING.y) < 0.4;
+      if (settled) { running = false; return; }
       raf = requestAnimationFrame(loop);
     };
 
@@ -204,7 +227,7 @@ export default function App() {
     document.addEventListener('mouseleave', hide);
     document.addEventListener('mousedown', press);
     document.addEventListener('mouseup', release);
-    raf = requestAnimationFrame(loop);
+    start();
 
     return () => {
       cancelAnimationFrame(raf);
