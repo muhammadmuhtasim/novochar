@@ -302,6 +302,7 @@ app.get('/api/sky/image', async (req, res) => {
     res.set({
       'Content-Type': out.contentType,
       'Cache-Control': 'public, max-age=300',
+      'Access-Control-Expose-Headers': 'X-Sky-Center-Ra, X-Sky-Center-Dec, X-Sky-Size, X-Sky-Aspect, X-Sky-Ra-Left, X-Sky-Ra-Right, X-Sky-Dec-Top, X-Sky-Dec-Bottom, X-Sky-Survey, X-Sky-Source',
       'X-Sky-Center-Ra': String(out.meta.ra),
       'X-Sky-Center-Dec': String(out.meta.dec),
       'X-Sky-Size': String(out.meta.size),

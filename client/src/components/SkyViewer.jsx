@@ -112,77 +112,97 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
   };
 
   return (
-    <>
-      <section className="viewer-grid">
-      <div className="panel viewer-panel">
-        <div className="panel-head">
-          <h2>SKY VIEWER</h2>
-          <div className="viewer-tools">
-            <span className="tag">DRAG</span>
-            <span className="tag">SCROLL</span>
+    <div className="viewer-grid">
+      <div className="viewer-main-col">
+        <section className="panel viewer-panel">
+          <div className="panel-head">
+            <h2>SKY VIEWER</h2>
+            <div className="viewer-tools">
+              <span className="tag">DRAG</span>
+              <span className="tag">SCROLL</span>
+            </div>
           </div>
-        </div>
 
-        <div className="sky-toolbar">
-          <div className="tb-group">
-            <span className="tb-label">BAND</span>
-            <select
-              className="select band-select"
-              value={band}
-              onChange={(e) => { setBand(e.target.value); setSearchNote(''); }}
-            >
-              {BAND_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-            </select>
+          <div className="sky-toolbar">
+            <div className="tb-group">
+              <span className="tb-label">BAND</span>
+              <select
+                className="select band-select"
+                value={band}
+                onChange={(e) => { setBand(e.target.value); setSearchNote(''); }}
+              >
+                {BAND_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
+              </select>
+            </div>
+            <div className="tb-group">
+              <span className="tb-label">IMAGERY</span>
+              <span className="tag" title="Real sky now lives in the synced REAL SKY mosaic below">REAL ↴</span>
+            </div>
+            <div className="tb-group grow">
+              <span className="tb-label">{coords ? 'COORDS' : 'TARGET'}</span>
+              <input
+                className="search sky-search"
+                placeholder="RA / Dec or name — e.g. 6h 3m −58° 12′ 30″  or  NC-012"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') submitSearch(); }}
+              />
+              <button className="btn sm" onClick={submitSearch}>LOCATE</button>
+            </div>
           </div>
-          <div className="tb-group">
-            <span className="tb-label">IMAGERY</span>
-            <span className="tag" title="Real sky now lives in the synced REAL SKY mosaic below">REAL ↴</span>
+
+          <div className="preset-row">
+            <span className="tb-label">PRESETS</span>
+            {presets.map((p) => (
+              <button key={p.key} className="seg preset-chip" onClick={() => applyPreset(p)}>
+                {p.label}
+              </button>
+            ))}
+            {selected && (
+              <>
+                <button className="btn sm primary go-blink" onClick={gotoBlink}>OPEN IN BLINK ⧗</button>
+                <button className="btn sm" onClick={gotoSpectra}>OPEN SPECTRA ∿</button>
+              </>
+            )}
           </div>
-          <div className="tb-group grow">
-            <span className="tb-label">{coords ? 'COORDS' : 'TARGET'}</span>
-            <input
-              className="search sky-search"
-              placeholder="RA / Dec or name — e.g. 6h 3m −58° 12′ 30″  or  NC-012"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') submitSearch(); }}
-            />
-            <button className="btn sm" onClick={submitSearch}>LOCATE</button>
-          </div>
-        </div>
 
-        <div className="preset-row">
-          <span className="tb-label">PRESETS</span>
-          {presets.map((p) => (
-            <button key={p.key} className="seg preset-chip" onClick={() => applyPreset(p)}>
-              {p.label}
-            </button>
-          ))}
-          {selected && (
-            <>
-              <button className="btn sm primary go-blink" onClick={gotoBlink}>OPEN IN BLINK ⧗</button>
-              <button className="btn sm" onClick={gotoSpectra}>OPEN SPECTRA ∿</button>
-            </>
-          )}
-        </div>
+          {searchNote && <p className="muted caption">{searchNote}</p>}
 
-        {searchNote && <p className="muted caption">{searchNote}</p>}
+          <SkyViewerCanvas
+            canvasRef={canvasRef}
+            wrapRef={wrapRef}
+            objects={visible}
+            field={field}
+            selRef={selRef}
+            onSelect={select}
+            onView={onView}
+            initialZoom={SKY_INITIAL_ZOOM}
+            highlight={highlight}
+          />
+          <p className="muted caption">
+            Field centered at {fmtRA(field.raCenter)} / {fmtDec(field.decCenter)} · coverage{' '}
+            {field.raHalf * 2}° × {field.decHalf * 2}°.
+          </p>
 
-        <SkyViewerCanvas
-          canvasRef={canvasRef}
-          wrapRef={wrapRef}
-          objects={visible}
-          field={field}
-          selRef={selRef}
-          onSelect={select}
-          onView={onView}
-          initialZoom={SKY_INITIAL_ZOOM}
-          highlight={highlight}
-        />
-        <p className="muted caption">
-          Field centered at {fmtRA(field.raCenter)} / {fmtDec(field.decCenter)} · coverage{' '}
-          {field.raHalf * 2}° × {field.decHalf * 2}°.
-        </p>
+          <details className="sky-help">
+            <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>
+            <p>
+              The dark background is a synthetic star field — the real patch of night
+              sky lives in the <strong>REAL SKY · SYNCED MOSAIC</strong> panel below,
+              which mirrors exactly where you're looking and streams live{' '}
+              <strong>Digitized Sky Survey</strong> tiles as you pan and zoom. The
+              colored markers are the <em>moving objects</em> this survey flagged: a
+              candidate <strong>TNO</strong> (remote icy body beyond Neptune),{' '}
+              <strong>AST</strong> (nearby asteroid) or <strong>HPM</strong> (a star
+              gliding across the field).
+            </p>
+            <ul>
+              <li><strong>Ring size</strong> scales with how fast the object is moving.</li>
+              <li><strong>Drag</strong> to pan, <strong>scroll / pinch</strong> to zoom, <strong>click a ring</strong> to inspect a candidate.</li>
+              <li>Use <strong>BAND</strong> to filter SPHEREx near-infrared channels, or <strong>search</strong> by RA/Dec or target name.</li>
+            </ul>
+          </details>
+        </section>
 
         <RealSkyMosaic field={field} viewRef={viewRef} />
 
@@ -193,25 +213,6 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           highlight={highlight}
           onBrush={setHighlight}
         />
-
-        <details className="sky-help">
-          <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>
-          <p>
-            The dark background is a synthetic star field — the real patch of night
-            sky lives in the <strong>REAL SKY · SYNCED MOSAIC</strong> panel below,
-            which mirrors exactly where you're looking and streams live{' '}
-            <strong>Digitized Sky Survey</strong> tiles as you pan and zoom. The
-            colored markers are the <em>moving objects</em> this survey flagged: a
-            candidate <strong>TNO</strong> (remote icy body beyond Neptune),{' '}
-            <strong>AST</strong> (nearby asteroid) or <strong>HPM</strong> (a star
-            gliding across the field).
-          </p>
-          <ul>
-            <li><strong>Ring size</strong> scales with how fast the object is moving.</li>
-            <li><strong>Drag</strong> to pan, <strong>scroll / pinch</strong> to zoom, <strong>click a ring</strong> to inspect a candidate.</li>
-            <li>Use <strong>BAND</strong> to filter SPHEREx near-infrared channels, or <strong>search</strong> by RA/Dec or target name.</li>
-          </ul>
-        </details>
       </div>
 
       <aside className="panel side">
@@ -232,8 +233,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
           <p className="muted empty">Click a colored marker on the field, use a preset, or search coordinates to inspect a candidate.</p>
         )}
       </aside>
-      </section>
-    </>
+    </div>
   );
 }
 
