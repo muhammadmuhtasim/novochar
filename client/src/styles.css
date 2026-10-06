@@ -1778,30 +1778,6 @@ main.view {
 }
 
 /* ==========================================================================
-   HUD CURSOR-SPOTLIGHT — a radial glow that follows the pointer over panels.
-   Position is driven by JS via the --spx / --spy CSS vars.
-   ========================================================================== */
-.obj-card,
-.source-card {
-  position: relative;
-}
-
-.hud-spot {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 230px;
-  height: 230px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(0, 240, 255, 0.10) 0%, rgba(255, 77, 0, 0.12) 28%, rgba(255, 77, 0, 0.05) 52%, transparent 72%);
-  transform: translate(var(--spx, 0px), var(--spy, 0px)) translate(-50%, -50%);
-  mix-blend-mode: screen;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.22s ease-out;
-}
-/* ==========================================================================
    HOLOGRAPHIC SHIMMER TEXT (animated gradient clipped to glyphs)
    ========================================================================== */
 .brand-name,
@@ -1892,10 +1868,6 @@ main.view {
   .meteor {
     animation: none !important;
     opacity: 0 !important;
-  }
-  .hud-spot {
-    opacity: 0 !important;
-    animation: none !important;
   }
   .view-tear {
     display: none !important;
