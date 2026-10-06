@@ -99,6 +99,7 @@ export default function App() {
       </div>
       <main className="view" key={tab}>
         <div className="view-scanline-sweep" />
+        <div className="view-tear" />
         <div className="hud-tab-banner">
           <span className="hud-banner-dot" />
           <span className="hud-banner-text">SYS.INIT // MODULE: {tab.toUpperCase()} // NOVOCHAR HUD OPERATIONAL</span>
