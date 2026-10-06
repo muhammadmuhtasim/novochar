@@ -1886,3 +1886,108 @@ main.view {
     animation: none !important;
   }
 }
+/* ==========================================================================
+   CUSTOM SCI-FI TARGETING-RETICLE CURSOR
+   Enabled when JS adds the `nc-cursor-on` class to <html>. The `cursor: none`
+   rules only apply while that class is present, so touch / reduced-motion
+   devices (where JS never enables it) keep the native cursor.
+   ========================================================================== */
+html.nc-cursor-on,
+html.nc-cursor-on * {
+  cursor: none;
+}
+html.nc-cursor-on textarea,
+html.nc-cursor-on input,
+html.nc-cursor-on select,
+html.nc-cursor-on [contenteditable="true"] {
+  cursor: auto;
+}
+
+.nc-cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
+}
+
+.nc-cursor .nc-cross-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 44px;
+  height: 44px;
+  will-change: transform;
+}
+.nc-cursor .nc-cross {
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: var(--neon-orange);
+  filter: drop-shadow(0 0 5px rgba(255, 77, 0, 0.7)) drop-shadow(0 0 14px rgba(255, 77, 0, 0.35));
+  transition: transform var(--trans-fast), color var(--trans-fast);
+  will-change: transform;
+}
+.nc-cursor .nc-cross svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.nc-cursor .nc-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 46px;
+  height: 46px;
+  border: 1px solid rgba(0, 240, 255, 0.85);
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
+  filter: drop-shadow(0 0 5px rgba(0, 240, 255, 0.6));
+  transition: transform var(--trans-slow), border-color var(--trans-fast), box-shadow var(--trans-fast);
+  will-change: transform;
+}
+.nc-cursor .nc-glow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(255, 77, 0, 0.16) 0%, rgba(0, 240, 255, 0.08) 45%, transparent 72%);
+  transition: transform var(--trans-slow), background var(--trans-norm);
+  will-change: transform;
+}
+
+/* Hovering an interactive control = "target locked" (cyan, enlarged) */
+.nc-cursor.busy .nc-cross {
+  color: var(--accent-cyan);
+  transform: scale(1.35);
+}
+.nc-cursor.busy .nc-ring {
+  border-color: #10E6FF;
+  box-shadow: 0 0 14px rgba(0, 240, 255, 0.7);
+}
+.nc-cursor.busy .nc-glow {
+  background:
+    radial-gradient(circle, rgba(0, 240, 255, 0.2) 0%, rgba(255, 255, 255, 0.12) 40%, transparent 72%);
+}
+
+/* Click feedback */
+.nc-cursor.press .nc-cross {
+  color: #FFFFFF;
+  transform: scale(1.55);
+}
+.nc-cursor.press .nc-ring {
+  border-color: #FFFFFF;
+}
+
+/* Hidden over text-entry fields so the native caret shows */
+.nc-cursor.hidden {
+  opacity: 0;
+}

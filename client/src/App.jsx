@@ -85,6 +85,138 @@ export default function App() {
     };
   }, [tab, target, objects]);
 
+  // Custom sci-fi targeting-reticle cursor. Disabled on coarse-pointer (touch)
+  // and `prefers-reduced-motion` devices, where the native cursor is kept.
+  useEffect(() => {
+    const mm = (q) => window.matchMedia && window.matchMedia(q).matches;
+    if (mm('(any-pointer: coarse)') || mm('(prefers-reduced-motion: reduce)')) return undefined;
+
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const make = (tag, cls, ns) => {
+      const el = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+      if (cls) el.setAttribute('class', cls);
+      return el;
+    };
+
+    const cursor = make('div', 'nc-cursor');
+    const wrap = make('span', 'nc-cross-wrap');
+    const cross = make('span', 'nc-cross');
+    const svg = make('svg', null, SVGNS);
+    svg.setAttribute('viewBox', '-24 -24 48 48');
+    svg.setAttribute('width', '44');
+    svg.setAttribute('height', '44');
+    svg.setAttribute('aria-hidden', 'true');
+
+    const g = make('g', null, SVGNS);
+    g.setAttribute('stroke', 'currentColor');
+    g.setAttribute('stroke-width', '1.2');
+    g.setAttribute('stroke-linecap', 'square');
+    g.setAttribute('fill', 'none');
+    [
+      'M-18-18 L-9-18 L-18-11',   // top-left bracket
+      'M18-18 L9-18 L18-11',      // top-right
+      'M-18 18 L-9 18 L-18 11',   // bottom-left
+      'M18 18 L9 18 L18 11',      // bottom-right
+      'M0-15 L0-9',               // N tick
+      'M0 15 L0 9',               // S tick
+      'M-15 0 L-9 0',             // W tick
+      'M15 0 L9 0',               // E tick
+    ].forEach((d) => {
+      const p = make('path', null, SVGNS);
+      p.setAttribute('d', d);
+      g.appendChild(p);
+    });
+    svg.appendChild(g);
+
+    const dot = make('circle', null, SVGNS);
+    dot.setAttribute('r', '1.5');
+    dot.setAttribute('fill', 'currentColor');
+    svg.appendChild(dot);
+
+    cross.appendChild(svg);
+    wrap.appendChild(cross);
+    const ring = make('span', 'nc-ring');
+    const glow = make('span', 'nc-glow');
+    cursor.appendChild(wrap);
+    cursor.appendChild(ring);
+    cursor.appendChild(glow);
+    document.body.appendChild(cursor);
+    document.documentElement.classList.add('nc-cursor-on');
+    cursor.style.opacity = '0';
+
+    const TARGET = { x: -100, y: -100 };
+    const CUR = { x: -100, y: -100 };
+    const RING = { x: -100, y: -100 };
+    const GLOW = { x: -100, y: -100 };
+    let shown = false;
+
+    const INTERACTIVE =
+      'a, button:not(:disabled), [role="button"], .tab, .btn, .seg, .chip, .tag, summary, label, ' +
+      '.obj-card, .source-card, select, input[type="checkbox"], input[type="radio"], [onclick]';
+    const TEXTISH =
+      'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]), select, [contenteditable="true"]';
+
+    const updateHover = () => {
+      if (!shown) return;
+      const el = document.elementFromPoint(TARGET.x, TARGET.y);
+      if (!el) return;
+      if (el.closest && (el.closest(TEXTISH) || el.closest('[contenteditable]'))) {
+        cursor.classList.remove('busy');
+        cursor.classList.add('hidden');
+        return;
+      }
+      cursor.classList.remove('hidden');
+      if (el.closest && el.closest(INTERACTIVE)) cursor.classList.add('busy');
+      else cursor.classList.remove('busy');
+    };
+
+    const onMove = (e) => {
+      TARGET.x = e.clientX;
+      TARGET.y = e.clientY;
+      if (!shown) {
+        CUR.x = TARGET.x; CUR.y = TARGET.y;
+        RING.x = TARGET.x; RING.y = TARGET.y;
+        GLOW.x = TARGET.x; GLOW.y = TARGET.y;
+        shown = true;
+        cursor.style.opacity = '1';
+      }
+      updateHover();
+    };
+    const hide = () => { cursor.style.opacity = '0'; shown = false; };
+    const press = () => cursor.classList.add('press');
+    const release = () => cursor.classList.remove('press');
+
+    let raf;
+    const loop = () => {
+      CUR.x += (TARGET.x - CUR.x) * 0.5;
+      CUR.y += (TARGET.y - CUR.y) * 0.5;
+      RING.x += (CUR.x - RING.x) * 0.12;
+      RING.y += (CUR.y - RING.y) * 0.12;
+      GLOW.x += (CUR.x - GLOW.x) * 0.05;
+      GLOW.y += (CUR.y - GLOW.y) * 0.05;
+      wrap.style.transform = `translate3d(${CUR.x - 22}px, ${CUR.y - 22}px, 0)`;
+      ring.style.transform = `translate3d(${RING.x - 23}px, ${RING.y - 23}px, 0)`;
+      glow.style.transform = `translate3d(${GLOW.x - 37}px, ${GLOW.y - 37}px, 0)`;
+      raf = requestAnimationFrame(loop);
+    };
+
+    document.addEventListener('mousemove', onMove, { passive: true });
+    document.addEventListener('mouseleave', hide);
+    document.addEventListener('mousedown', press);
+    document.addEventListener('mouseup', release);
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseleave', hide);
+      document.removeEventListener('mousedown', press);
+      document.removeEventListener('mouseup', release);
+      document.documentElement.classList.remove('nc-cursor-on');
+      if (cursor.parentNode === document.body) cursor.remove();
+    };
+  }, []);
+
   const skyPreset = tab === 'sky' && target ? target.id : null;
   const blinkPreset = tab === 'blink' && target ? target.id : null;
   const cataloguePreset = tab === 'catalogue' && target ? target.id : null;
