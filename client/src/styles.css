@@ -1912,7 +1912,7 @@ html.nc-cursor-on [contenteditable="true"] {
   z-index: 2147483000;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.18s ease-out;
+  transition: opacity 0.12s ease-out;
 }
 
 .nc-cursor .nc-cross-wrap {
@@ -1948,7 +1948,7 @@ html.nc-cursor-on [contenteditable="true"] {
   border-radius: 50%;
   box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
   filter: drop-shadow(0 0 5px rgba(0, 240, 255, 0.6));
-  transition: transform var(--trans-slow), border-color var(--trans-fast), box-shadow var(--trans-fast);
+  transition: border-color var(--trans-fast), box-shadow var(--trans-fast);
   will-change: transform;
 }
 .nc-cursor .nc-glow {
@@ -1960,7 +1960,7 @@ html.nc-cursor-on [contenteditable="true"] {
   border-radius: 50%;
   background:
     radial-gradient(circle, rgba(255, 77, 0, 0.16) 0%, rgba(0, 240, 255, 0.08) 45%, transparent 72%);
-  transition: transform var(--trans-slow), background var(--trans-norm);
+  transition: background var(--trans-norm);
   will-change: transform;
 }
 

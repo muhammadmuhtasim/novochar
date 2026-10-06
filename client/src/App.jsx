@@ -188,12 +188,12 @@ export default function App() {
 
     let raf;
     const loop = () => {
-      CUR.x += (TARGET.x - CUR.x) * 0.5;
-      CUR.y += (TARGET.y - CUR.y) * 0.5;
-      RING.x += (CUR.x - RING.x) * 0.12;
-      RING.y += (CUR.y - RING.y) * 0.12;
-      GLOW.x += (CUR.x - GLOW.x) * 0.05;
-      GLOW.y += (CUR.y - GLOW.y) * 0.05;
+      CUR.x += (TARGET.x - CUR.x) * 0.9;
+      CUR.y += (TARGET.y - CUR.y) * 0.9;
+      RING.x += (CUR.x - RING.x) * 0.55;
+      RING.y += (CUR.y - RING.y) * 0.55;
+      GLOW.x += (CUR.x - GLOW.x) * 0.35;
+      GLOW.y += (CUR.y - GLOW.y) * 0.35;
       wrap.style.transform = `translate3d(${CUR.x - 22}px, ${CUR.y - 22}px, 0)`;
       ring.style.transform = `translate3d(${RING.x - 23}px, ${RING.y - 23}px, 0)`;
       glow.style.transform = `translate3d(${GLOW.x - 37}px, ${GLOW.y - 37}px, 0)`;
