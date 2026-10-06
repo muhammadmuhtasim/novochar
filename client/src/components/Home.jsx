@@ -145,21 +145,6 @@ export default function Home({ stats, health, onNavigate, objects = [], onTarget
           telemetry; wire it to real SPHEREx/GBOT streams by editing the data layer.
         </p>
       </section>
-
-      <section className="panel wide cold-start">
-        <div className="panel-head">
-          <h2>QUICK INTEGRATION</h2>
-          <span className="tag">CUSTOMIZE</span>
-        </div>
-        <p className="muted">
-          Real NASA data hooks are already stubbed in. Set a free NASA API key as
-          <code>NASA_API_KEY</code> on the server to unlock the live NEO endpoint, and point the
-          data generators in <code>server/data.js</code> at your target telemetry feed.
-        </p>
-        <div className="code-block">
-          NASA_API_KEY=your_key_here npm run dev
-        </div>
-      </section>
     </div>
   );
 }
