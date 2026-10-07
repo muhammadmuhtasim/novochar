@@ -15,11 +15,15 @@ export function spectrumTransform(spectrums, { xScale = 'linear', w = 740, h = 3
   const fMin = Math.log10(Math.max(Math.min(...ys), 1e-6));
   const logWMin = Math.log10(Math.max(wMin, 1e-3));
   const logWMax = Math.log10(wMax);
+  // Guard against a flat spectrum (zero flux range) producing NaN coordinates.
+  const wSpan = wMax - wMin || 1e-9;
+  const logWSpan = logWMax - logWMin || 1e-9;
+  const fSpan = fMax - fMin || 1e-9;
   const spanW = w - pad.l - pad.r;
   const spanH = h - pad.t - pad.b;
   const X = (lambda) =>
-    pad.l + (xScale === 'log' ? (Math.log10(lambda) - logWMin) / (logWMax - logWMin) : (lambda - wMin) / (wMax - wMin)) * spanW;
-  const Y = (flux) => h - pad.b - ((Math.log10(flux) - fMin) / (fMax - fMin)) * spanH;
+    pad.l + (xScale === 'log' ? (Math.log10(lambda) - logWMin) / logWSpan : (lambda - wMin) / wSpan) * spanW;
+  const Y = (flux) => h - pad.b - ((Math.log10(flux) - fMin) / fSpan) * spanH;
   return { X, Y, w, h, pad, wMin, wMax, fMin, fMax, xScale };
 }
 

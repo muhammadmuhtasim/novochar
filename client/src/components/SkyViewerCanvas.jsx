@@ -68,6 +68,7 @@ export default function SkyViewerCanvas({
     cx: 0.5, cy: 0.5, zoom: Math.max(1, initialZoom || 1), drag: null,
     v3: null, // { raC, decC } — 3D sphere view centre
     _mode: null, // last mode this effect ran in (for seamless toggling)
+    _stack: null, // { key, list, ptr } — click-cycle through overlapping markers
   });
 
   useEffect(() => {
@@ -425,6 +426,40 @@ export default function SkyViewerCanvas({
         const size = (3.5 + Math.min(10, (o.motion || 0) / 28)) * (0.72 + zoom * 0.24);
         drawMarker(o, p, size);
       }
+      // Stack indicator: when several beacons land on ~the same screen point,
+      // draw a small "×N" chip so users know more markers are hidden underneath
+      // (clicking there cycles through them instead of "blocking" the others).
+      const cell = 20; // px bucket (≈ marker size at mid zoom)
+      const stacks = new Map();
+      for (const o of objects) {
+        const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
+        const p = toScreen(nx, ny);
+        if (p.x < -24 || p.x > w + 24 || p.y < -24 || p.y > h + 24) continue;
+        const k = `${Math.round(p.x / cell)},${Math.round(p.y / cell)}`;
+        const s = stacks.get(k);
+        if (s) { s.count++; s.x = (s.x + p.x) / 2; s.y = (s.y + p.y) / 2; }
+        else stacks.set(k, { count: 1, x: p.x, y: p.y });
+      }
+      for (const s of stacks.values()) {
+        if (s.count < 2) continue;
+        ctx.save();
+        ctx.font = '9px "Share Tech Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const label = `×${s.count}`;
+        const tw = ctx.measureText ? ctx.measureText(label) : 22;
+        const bx = Math.min(w - 6, s.x + 12);
+        const by = Math.max(12, s.y - 10);
+        ctx.fillStyle = 'rgba(6,7,10,0.9)';
+        if (ctx.roundRect) ctx.beginPath(), ctx.roundRect(bx, by - 7, tw + 8, 14, 4), ctx.fill();
+        else ctx.fillRect(bx, by - 7, tw + 8, 14);
+        ctx.strokeStyle = 'rgba(255,170,0,0.8)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by - 6.5, tw + 7, 13);
+        ctx.fillStyle = '#FFC436';
+        ctx.fillText(label, bx + (tw + 8) / 2, by);
+        ctx.restore();
+      }
     };
     // Wide zoom: hexbin density layer instead of individual dots.
     const drawDensity = (w, h) => {
@@ -635,7 +670,10 @@ export default function SkyViewerCanvas({
       const r = wrap.getBoundingClientRect();
       return { x: e.clientX - r.left, y: e.clientY - r.top };
     };
-    const hitTest = (mx, my) => {
+    // All objects under the cursor, nearest/topmost first. Lets the user cycle
+    // through markers that stack on top of each other when the sky is dense.
+    const hitTestAll = (mx, my) => {
+      const out = [];
       if (MODE === '3d') {
         const s = sphereGeom();
         const zoom = state.current.zoom;
@@ -647,20 +685,22 @@ export default function SkyViewerCanvas({
           if (rr > s.R * s.R) continue;
           const near = 0.35 + 0.65 * p.z;
           const size = (3.2 + Math.min(10, o.motion / 28)) * (0.7 + zoom * 0.16) * near;
-          if (mx > p.x - size - 4 && mx < p.x + size + 4 && my > p.y - size - 4 && my < p.y + size + 4) return o;
+          if (mx > p.x - size - 4 && mx < p.x + size + 4 && my > p.y - size - 4 && my < p.y + size + 4) out.push(o);
         }
-        return null;
+        return out;
       }
-      if (state.current.zoom < DENSITY_ZOOM) return null; // density layer has no discrete markers
+      if (state.current.zoom < DENSITY_ZOOM) return out; // density layer has no discrete markers
+      const zoom = state.current.zoom;
       for (let i = objects.length - 1; i >= 0; i--) {
         const o = objects[i];
         const { nx, ny } = raDecToNormalized(o.ra, o.dec, field);
         const p = toScreen(nx, ny);
-        const size = (3.5 + Math.min(10, o.motion / 28)) * (0.72 + state.current.zoom * 0.24);
-        if (mx > p.x - size - 4 && mx < p.x + size + 4 && my > p.y - size - 4 && my < p.y + size + 4) return o;
+        const size = (3.5 + Math.min(10, o.motion / 28)) * (0.72 + zoom * 0.24);
+        if (mx > p.x - size - 4 && mx < p.x + size + 4 && my > p.y - size - 4 && my < p.y + size + 4) out.push(o);
       }
-      return null;
+      return out;
     };
+    const hitTest = (mx, my) => hitTestAll(mx, my)[0];
 
     const onDown = (e) => {
       state.current.drag = {
@@ -713,8 +753,18 @@ export default function SkyViewerCanvas({
     };
     const onClick = (e) => {
       const { mx, my } = toCanvas(e);
-      const obj = hitTest(mx, my);
-      if (obj) onSelect(obj);
+      const stack = hitTestAll(mx, my);
+      if (!stack.length) return;
+      const key = `${Math.round(mx)},${Math.round(my)}`;
+      const st = state.current._stack || (state.current._stack = { key: '', list: [], ptr: -1 });
+      // If the cursor moved to a different stack (or the stack changed), restart.
+      if (st.key !== key || st.list.length !== stack.length || stack.some((o, i) => (st.list[i] || {}).id !== o.id)) {
+        st.key = key;
+        st.list = stack;
+        st.ptr = -1;
+      }
+      st.ptr = (st.ptr + 1) % st.list.length;
+      onSelect(st.list[st.ptr]);
     };
     const onLeave = () => setHover(null);
     const clamp = () => {

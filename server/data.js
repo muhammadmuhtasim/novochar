@@ -238,12 +238,19 @@ export function buildFrames(object, passes, count = 18) {
   const rand = mulberry32(idx * 7919 + 13);
   const frames = [];
   const total = Math.min(count, passes.length);
+  // Apparent motion is in milli-arcseconds/day. Convert to degrees of drift over
+  // the elapsed time, then amplify so the blink strain is visible, and CAP it so
+  // a fast star (HPM, ~900 mas/day) never "flies" tens of degrees across the
+  // field — which previously spat out absurd ~70°-span frames.
+  const DRIFT_EXAG = 60; // display amplification for the comparator
+  const DRIFT_MAX_DEG = 3.0;
   for (let i = 0; i < total; i++) {
     const p = passes[i];
     const dtDays = i * 8.5;
-    const dRA = (object.motion / 1000) * dtDays * 0.55;
-    const dDec = (object.motion / 1000) * dtDays * 0.31;
-    const noise = (rand() - 0.5) * object.motion * 0.18;
+    const drift = Math.min((object.motion * dtDays) / 3600000 * DRIFT_EXAG, DRIFT_MAX_DEG);
+    const dRA = drift * 0.55;
+    const dDec = drift * 0.31;
+    const noise = (rand() - 0.5) * Math.max(1e-4, drift * 0.18); // deg
 
     frames.push({
       pass: p.id,
