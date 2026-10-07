@@ -12,83 +12,67 @@ export default function Logo({ size = 36, className = '' }) {
       aria-hidden="true"
     >
       <defs>
-        {/* Core Starflare Radial Glow */}
-        <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-          <stop offset="25%" stopColor="#FFB700" stopOpacity="0.9" />
-          <stop offset="60%" stopColor="#FF4400" stopOpacity="0.45" />
+        {/* Accretion disk — Doppler beaming: the approaching side burns white-hot,
+            the receding side cools to ember red. Declared in user space so every
+            fragment of the disk reads as one continuous sweep of light. */}
+        <linearGradient id="bhDisk" gradientUnits="userSpaceOnUse" x1="5" y1="32" x2="59" y2="32">
+          <stop offset="0%" stopColor="#FFFDF6" />
+          <stop offset="15%" stopColor="#FFDE9B" />
+          <stop offset="38%" stopColor="#FFA23C" />
+          <stop offset="62%" stopColor="#F26210" />
+          <stop offset="84%" stopColor="#9E2A00" />
+          <stop offset="100%" stopColor="#4A0F00" />
+        </linearGradient>
+
+        {/* Photon ring — light that orbits the horizon a few times before escaping */}
+        <linearGradient id="bhRing" gradientUnits="userSpaceOnUse" x1="18" y1="32" x2="46" y2="32">
+          <stop offset="0%" stopColor="#FFFFFF" />
+          <stop offset="34%" stopColor="#FFE7B4" />
+          <stop offset="68%" stopColor="#FF9A2E" />
+          <stop offset="100%" stopColor="#B83600" />
+        </linearGradient>
+
+        {/* Ambient glow of superheated infalling matter */}
+        <radialGradient id="bhHalo" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#FF8A1E" stopOpacity="0.40" />
+          <stop offset="45%" stopColor="#FF4400" stopOpacity="0.15" />
           <stop offset="100%" stopColor="#FF1100" stopOpacity="0" />
         </radialGradient>
 
-        {/* Deep Space Cosmic Arc Gradient */}
-        <linearGradient id="cosmicArcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#FF9900" stopOpacity="0.95" />
-          <stop offset="50%" stopColor="#FF4400" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#FF1100" stopOpacity="0.2" />
-        </linearGradient>
-
-        {/* Astrometric Vector Gradient */}
-        <linearGradient id="vectorGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#FF3300" stopOpacity="0.15" />
-          <stop offset="50%" stopColor="#FF8800" stopOpacity="0.7" />
-          <stop offset="100%" stopColor="#FFC800" stopOpacity="1" />
-        </linearGradient>
+        {/* Event horizon — the shadow itself */}
+        <radialGradient id="bhCore" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#000000" />
+          <stop offset="70%" stopColor="#04050A" />
+          <stop offset="100%" stopColor="#0B0D18" />
+        </radialGradient>
       </defs>
 
-      {/* Celestial Coordinate Grid Arc (Astrolabe / Sky Viewer Arc) */}
-      <path
-        d="M 8 32 A 24 24 0 0 1 56 32"
-        fill="none"
-        stroke="#FF5500"
-        strokeWidth="1.2"
-        strokeDasharray="2 4"
-        opacity="0.5"
-      />
+      {/* Ambient accretion glow */}
+      <circle cx="32" cy="32" r="31" fill="url(#bhHalo)" />
 
-      {/* Cosmic Horizon Sweep / SPHEREx Sky Pass Arc */}
+      {/* Accretion disk — far half, rising up and around behind the horizon */}
+      <path d="M 59 32 A 27 8.5 0 0 0 5 32" stroke="url(#bhDisk)" strokeWidth="8" opacity="0.16" />
+      <path d="M 59 32 A 27 8.5 0 0 0 5 32" stroke="url(#bhDisk)" strokeWidth="3.6" />
+
+      {/* Gravitationally lensed image of the far disk, bent into an arc over the shadow */}
       <path
-        d="M 10 46 C 16 18, 48 18, 54 46"
-        fill="none"
-        stroke="url(#cosmicArcGrad)"
-        strokeWidth="2.4"
+        d="M 19.7 21.7 A 16 16 0 0 1 44.3 21.7"
+        stroke="url(#bhDisk)"
+        strokeWidth="3"
         strokeLinecap="round"
-      />
-
-      {/* Blink Comparator Proper Motion Vector Line (connects binary star positions) */}
-      <line
-        x1="18"
-        y1="40"
-        x2="46"
-        y2="22"
-        stroke="url(#vectorGrad)"
-        strokeWidth="1.5"
-        strokeDasharray="3 3"
-      />
-
-      {/* Primary Deep-Space Starburst (Telescope Diffraction Spike Optics) */}
-      <path
-        d="M 32 10 Q 32 32 10 32 Q 32 32 32 54 Q 32 32 54 32 Q 32 32 32 10 Z"
-        fill="url(#starGlow)"
         opacity="0.95"
       />
 
-      {/* Secondary Diagonal Flare Rays */}
-      <path
-        d="M 32 20 Q 32 32 20 32 Q 32 32 32 44 Q 32 32 44 32 Q 32 32 32 20 Z"
-        fill="#FFBB00"
-        opacity="0.4"
-        transform="rotate(45 32 32)"
-      />
+      {/* Event horizon */}
+      <circle cx="32" cy="32" r="13" fill="url(#bhCore)" />
 
-      {/* Crisp Central Stellar Core */}
-      <circle cx="32" cy="32" r="3.5" fill="#FFFFFF" />
+      {/* Photon ring — soft bloom, then a razor-thin orbit of light */}
+      <circle cx="32" cy="32" r="14.3" stroke="url(#bhRing)" strokeWidth="3.4" opacity="0.3" />
+      <circle cx="32" cy="32" r="14.3" stroke="url(#bhRing)" strokeWidth="1.2" />
 
-      {/* Blink Target: Displaced Candidate Star (High Proper Motion / Moving Object) */}
-      <circle cx="46" cy="22" r="3" fill="#FFCC00" />
-      <circle cx="46" cy="22" r="1.4" fill="#FFFFFF" />
-
-      {/* Celestial Focal Point Rings (Astrometric Scope Mark) */}
-      <circle cx="32" cy="32" r="15" fill="none" stroke="#FF6600" strokeWidth="1" strokeDasharray="12 6" opacity="0.6" />
+      {/* Accretion disk — near half, sweeping in front of the shadow */}
+      <path d="M 5 32 A 27 8.5 0 0 0 59 32" stroke="url(#bhDisk)" strokeWidth="8" opacity="0.16" />
+      <path d="M 5 32 A 27 8.5 0 0 0 59 32" stroke="url(#bhDisk)" strokeWidth="3.6" />
     </svg>
   );
 }
