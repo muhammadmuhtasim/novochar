@@ -8,9 +8,11 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import app from './index.js';
+import { generateSurvey } from './data.js';
 
 let server;
 let base;
+const OBJECTS_N = generateSurvey().objects.length;
 
 before(async () => {
   await new Promise((resolve) => {
@@ -23,10 +25,10 @@ before(async () => {
 after(() => server.close());
 
 test('GET /api/spectra/:id returns a complete SED', async () => {
-  const res = await fetch(`${base}/api/spectra/NC-001`);
+  const res = await fetch(`${base}/api/spectra/NC-0001`);
   assert.equal(res.status, 200);
   const { sed } = await res.json();
-  assert.equal(sed.object.id, 'NC-001');
+  assert.equal(sed.object.id, 'NC-0001');
   assert.ok(sed.photometry.length === 9);
   assert.ok(sed.spectrum.length > 100);
   assert.ok(sed.object.teff > 0);
@@ -42,7 +44,7 @@ test('GET /api/field/heatmap bins the field', async () => {
   assert.equal(res.status, 200);
   const hm = await res.json();
   assert.equal(hm.nside, 16);
-  assert.equal(hm.bins.reduce((s, b) => s + b.count, 0), 40);
+  assert.equal(hm.bins.reduce((s, b) => s + b.count, 0), OBJECTS_N);
   assert.ok(hm.bins.length > 0);
 });
 
@@ -53,10 +55,10 @@ test('GET /api/field/heatmap clamps nside', async () => {
 });
 
 test('GET /api/objects/:id/blink returns frames for the selected object', async () => {
-  const res = await fetch(`${base}/api/objects/NC-001/blink?count=6`);
+  const res = await fetch(`${base}/api/objects/NC-0001/blink?count=6`);
   assert.equal(res.status, 200);
   const data = await res.json();
-  assert.equal(data.object.id, 'NC-001');
+  assert.equal(data.object.id, 'NC-0001');
   assert.equal(data.frames.length, 6);
   assert.ok(data.frames[0].epochISO);
 });

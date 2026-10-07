@@ -845,6 +845,20 @@ main.view {
   box-shadow: var(--glow-sm);
 }
 
+.seg-view {
+  display: inline-flex;
+  gap: 6px;
+}
+.seg-view .seg {
+  padding: 5px 11px;
+}
+.seg-view .seg.on {
+  color: #FFFFFF;
+  background: rgba(255, 106, 0, 0.32);
+  border-color: var(--neon-bright);
+  box-shadow: var(--glow-sm);
+}
+
 /* ==========================================================================
    INPUTS & SELECTS
    ========================================================================== */
@@ -1229,6 +1243,48 @@ main.view {
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 0.12em;
+}
+
+/* On-canvas legend (MAP 2D + SPHERE 3D) — warm HUD chips */
+.sky-legend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: center;
+  max-width: 64%;
+  background: rgba(4, 5, 8, 0.82);
+  border: 1px solid rgba(255, 77, 0, 0.22);
+  padding: 6px 10px;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
+  pointer-events: none;
+}
+.sky-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.sky-legend-glyph {
+  font-size: 11px;
+  line-height: 1;
+}
+.sky-legend-note {
+  display: block;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+.sky-legend.sphere .sky-legend-note {
+  color: rgba(255, 196, 54, 0.72);
 }
 
 .preset-row {

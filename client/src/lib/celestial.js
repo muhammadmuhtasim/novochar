@@ -48,6 +48,62 @@ export function starField(seed = 7, count = 900) {
   return stars;
 }
 
+// --- 3D celestial-sphere helpers (used by the SPHERE·3D globe) ------------
+
+const DEG = Math.PI / 180;
+
+// Unit vector on the celestial sphere from equatorial (ra, dec) in degrees.
+export function raDecToVector(ra, dec) {
+  const r = ra * DEG;
+  const d = dec * DEG;
+  const cd = Math.cos(d);
+  return { x: cd * Math.cos(r), y: cd * Math.sin(r), z: Math.sin(d) };
+}
+
+// Rotate a unit vector so the point at (raC, decC) moves to the +Z axis,
+// returning { cosA, sinA, cosB, sinB } precomputed for rotating many points.
+// Applied as Rz(-raC) then Ry(-theta) where theta = 90 - decC (colatitude).
+export function viewRotation(raC, decC) {
+  const th = (90 - decC) * DEG;
+  const phi = raC * DEG;
+  const cosT = Math.cos(th); const sinT = Math.sin(th);
+  const cosP = Math.cos(phi); const sinP = Math.sin(phi);
+  return { cosT, sinT, cosP, sinP };
+}
+
+// Apply the precomputed view rotation to a unit vector. Returns the rotated
+// point; points with z > 0 face the camera (+Z) in an orthographic projection.
+export function applyViewRotation(p, r) {
+  // Rz(-phi)
+  const x1 = p.x * r.cosP + p.y * r.sinP;
+  const y1 = -p.x * r.sinP + p.y * r.cosP;
+  const z1 = p.z;
+  // Ry(-theta): bring the view centre to +Z (toward the camera).
+  const x2 = x1 * r.cosT - z1 * r.sinT;
+  const z2 = x1 * r.sinT + z1 * r.cosT;
+  return { x: x2, y: y1, z: z2 };
+}
+
+// Deterministic set of background stars distributed uniformly on the sphere
+// (cos-dec sampling so poles aren't denser). Each is { ra, dec, mag, tw }.
+export function celestialSphereStars(seed = 11, count = 1400) {
+  const stars = [];
+  let a = seed;
+  const rnd = () => {
+    a = (a * 1664525 + 1013904223) & 0xffffffff;
+    return a / 4294967296;
+  };
+  for (let i = 0; i < count; i++) {
+    const ra = rnd() * 360;
+    const dec = Math.asin(2 * rnd() - 1) / DEG;
+    const mag = 3 + Math.pow(rnd(), 2.6) * 16;
+    const tw = rnd() > 0.9;
+    stars.push({ ra, dec, mag, tw });
+  }
+  return stars;
+}
+
+
 // SPHEREx six-band accessors for the co-ordinated analysis views.
 // `o.mags` is the per-band apparent-magnitude array (index 0 = Band 1).
 export function bandMag(o, b) {

@@ -1,169 +1,144 @@
-import React from 'react';
+import React, { useId } from 'react';
 
-export default function Logo({ size = 36, className = '' }) {
+export default function BlackHole({ size = 240, tilt = -11, className = '' }) {
+  // unique ids so multiple instances on a page don't clash
+  const uid = useId().replace(/:/g, '');
+  const id = (name) => `${name}-${uid}`;
+
   return (
     <svg
-      className={`logo ${className}`.trim()}
+      className={`black-hole ${className}`.trim()}
       width={size}
-      height={size}
-      viewBox="-20 -20 160 160"
+      height={size * (140 / 240)}
+      viewBox="0 0 240 140"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
-      style={{ overflow: 'visible' }}
+      style={{ overflow: 'visible', background: 'transparent' }}
     >
       <defs>
-        {/* Glow Filters */}
-        <filter id="heavyBlur" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="8" result="blur" />
+        <filter id={id('blurHeavy')} x="-50%" y="-100%" width="200%" height="300%">
+          <feGaussianBlur stdDeviation="7" />
         </filter>
-        <filter id="mediumBlur" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="4" result="blur" />
+        <filter id={id('blurMed')} x="-50%" y="-100%" width="200%" height="300%">
+          <feGaussianBlur stdDeviation="3.5" />
         </filter>
-        <filter id="lightBlur" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="1.5" result="blur" />
+        <filter id={id('blurLight')} x="-50%" y="-100%" width="200%" height="300%">
+          <feGaussianBlur stdDeviation="1.2" />
         </filter>
 
-        {/* Doppler Beamed Front Disk Gradient */}
-        <linearGradient id="frontDiskGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.8" />
-          <stop offset="15%" stopColor="#FFFFFF" stopOpacity="1" />
-          <stop offset="40%" stopColor="#FFDDAA" stopOpacity="0.9" />
-          <stop offset="70%" stopColor="#FF6600" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#660000" stopOpacity="0" />
+        {/* Lensed halo over the top: orange outside, pale cream inside */}
+        <radialGradient id={id('halo')} cx="50%" cy="75%" r="75%">
+          <stop offset="0%" stopColor="#FFF1DC" stopOpacity="1" />
+          <stop offset="35%" stopColor="#FFC27A" stopOpacity="0.95" />
+          <stop offset="70%" stopColor="#E8581C" stopOpacity="0.6" />
+          <stop offset="100%" stopColor="#7A1500" stopOpacity="0" />
+        </radialGradient>
+
+        {/* Flat disk, fades out toward both tips */}
+        <linearGradient id={id('disk')} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#FF7A33" stopOpacity="0" />
+          <stop offset="12%" stopColor="#FFA060" stopOpacity="0.7" />
+          <stop offset="35%" stopColor="#FFE2BC" stopOpacity="1" />
+          <stop offset="50%" stopColor="#FFFFFF" stopOpacity="1" />
+          <stop offset="65%" stopColor="#FFE2BC" stopOpacity="1" />
+          <stop offset="88%" stopColor="#FF9A55" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="#FF6A2A" stopOpacity="0" />
         </linearGradient>
 
-        <linearGradient id="frontDiskCoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.8" />
-          <stop offset="20%" stopColor="#FFFFFF" stopOpacity="1" />
-          <stop offset="50%" stopColor="#FFCC88" stopOpacity="1" />
-          <stop offset="85%" stopColor="#FF3300" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="#330000" stopOpacity="0" />
+        {/* Thin lensed arc under the shadow */}
+        <linearGradient id={id('under')} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#FF8A3D" stopOpacity="0" />
+          <stop offset="50%" stopColor="#FFD3A0" stopOpacity="0.95" />
+          <stop offset="100%" stopColor="#FF8A3D" stopOpacity="0" />
         </linearGradient>
-
-        {/* Top Lensed Arc Gradients */}
-        <radialGradient id="topArcGrad" cx="50%" cy="80%" r="80%">
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
-          <stop offset="30%" stopColor="#FFB344" stopOpacity="0.9" />
-          <stop offset="70%" stopColor="#CC3300" stopOpacity="0.6" />
-          <stop offset="100%" stopColor="#110000" stopOpacity="0" />
-        </radialGradient>
-
-        {/* Bottom Lensed Arc Gradients */}
-        <radialGradient id="bottomArcGrad" cx="50%" cy="20%" r="80%">
-          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.8" />
-          <stop offset="40%" stopColor="#FF8800" stopOpacity="0.6" />
-          <stop offset="80%" stopColor="#991100" stopOpacity="0.2" />
-          <stop offset="100%" stopColor="#000000" stopOpacity="0" />
-        </radialGradient>
-
-        {/* Ambient Cosmic Background Glow */}
-        <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#FF6600" stopOpacity="0.3" />
-          <stop offset="30%" stopColor="#FF1100" stopOpacity="0.1" />
-          <stop offset="100%" stopColor="#000000" stopOpacity="0" />
-        </radialGradient>
       </defs>
 
-      {/* Transparent bounding circle */}
-      <circle cx="60" cy="60" r="60" fill="transparent" />
-      
-      {/* Ambient outer glow */}
-      <circle cx="60" cy="60" r="55" fill="url(#bgGlow)" filter="url(#heavyBlur)" />
+      <g transform={`rotate(${tilt} 120 70)`}>
+        {/* 1. Soft outer glow of the flat disk */}
+        <path
+          d="M 0 72 Q 120 50 240 72 Q 120 94 0 72 Z"
+          fill={`url(#${id('disk')})`}
+          filter={`url(#${id('blurHeavy')})`}
+          opacity="0.55"
+        />
 
-      {/* Subtle Starfield */}
-      <g fill="#FFFFFF" opacity="0.5">
-        <circle cx="15" cy="20" r="0.8" />
-        <circle cx="105" cy="15" r="1.2" />
-        <circle cx="20" cy="90" r="0.6" />
-        <circle cx="95" cy="100" r="0.9" />
-        <circle cx="10" cy="60" r="0.7" />
-        <circle cx="112" cy="55" r="0.8" />
+        {/* 2. Top lensed arc (back of the disk bent over the shadow) */}
+        <path
+          d="M 14 74 C 55 72, 62 14, 120 14 C 178 14, 185 72, 226 74
+             C 196 64, 178 36, 120 36 C 62 36, 44 64, 14 74 Z"
+          fill={`url(#${id('halo')})`}
+          filter={`url(#${id('blurHeavy')})`}
+          opacity="0.85"
+        />
+        <path
+          d="M 22 74 C 60 72, 68 22, 120 22 C 172 22, 180 72, 218 74
+             C 192 64, 176 38, 120 38 C 64 38, 48 64, 22 74 Z"
+          fill={`url(#${id('halo')})`}
+          filter={`url(#${id('blurMed')})`}
+        />
+        {/* thin bright rim hugging the shadow */}
+        <path
+          d="M 40 70 C 66 66, 74 30, 120 30 C 166 30, 174 66, 200 70"
+          stroke="#FFF4E4"
+          strokeWidth="2"
+          strokeLinecap="round"
+          filter={`url(#${id('blurLight')})`}
+          opacity="0.9"
+        />
+
+        {/* 3. Thin lensed arc below the shadow */}
+        <path
+          d="M 84 98 Q 120 116 156 98"
+          stroke={`url(#${id('under')})`}
+          strokeWidth="6"
+          strokeLinecap="round"
+          filter={`url(#${id('blurMed')})`}
+          opacity="0.8"
+        />
+        <path
+          d="M 90 99 Q 120 112 150 99"
+          stroke={`url(#${id('under')})`}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          filter={`url(#${id('blurLight')})`}
+        />
+
+        {/* 4. Event horizon */}
+        <circle cx="120" cy="70" r="26" fill="#000" />
+        <circle
+          cx="120"
+          cy="70"
+          r="26"
+          stroke="#FFD9A8"
+          strokeWidth="1.2"
+          filter={`url(#${id('blurLight')})`}
+          opacity="0.7"
+        />
+        <circle cx="120" cy="70" r="26" stroke="#FFFFFF" strokeWidth="0.4" opacity="0.8" />
+
+        {/* 5. Front accretion disk crossing the shadow */}
+        <path
+          d="M 4 74 C 50 88, 90 94, 120 92 C 165 90, 205 80, 236 68
+             C 205 74, 165 78, 120 78 C 80 78, 45 76, 4 74 Z"
+          fill={`url(#${id('disk')})`}
+          filter={`url(#${id('blurMed')})`}
+          opacity="0.9"
+        />
+        <path
+          d="M 10 75 C 55 86, 92 90, 120 88 C 160 86, 200 78, 230 70
+             C 200 75, 162 79, 120 79 C 82 79, 50 77, 10 75 Z"
+          fill={`url(#${id('disk')})`}
+          filter={`url(#${id('blurLight')})`}
+        />
+        {/* white-hot core of the band */}
+        <path
+          d="M 70 78 C 95 84, 125 85, 160 80 C 130 79, 100 79, 70 78 Z"
+          fill="#FFFFFF"
+          filter={`url(#${id('blurLight')})`}
+          opacity="0.95"
+        />
       </g>
-
-      {/* 1. TOP LENSED ARC (Filled shape for natural tapering) */}
-      <path
-        d="M -5 62 C -5 -5, 125 -5, 125 62 C 90 30, 30 30, -5 62 Z"
-        fill="url(#topArcGrad)"
-        filter="url(#heavyBlur)"
-        opacity="0.8"
-      />
-      <path
-        d="M 8 62 C 8 10, 112 10, 112 62 C 85 36, 35 36, 8 62 Z"
-        fill="url(#topArcGrad)"
-        filter="url(#mediumBlur)"
-      />
-      <path
-        d="M 18 62 C 18 20, 102 20, 102 62 C 80 40, 40 40, 18 62 Z"
-        fill="#FFE0B2"
-        filter="url(#lightBlur)"
-        opacity="0.9"
-      />
-
-      {/* 2. BOTTOM LENSED ARC */}
-      <path
-        d="M 10 60 C 10 110, 110 110, 110 60 C 85 80, 35 80, 10 60 Z"
-        fill="url(#bottomArcGrad)"
-        filter="url(#heavyBlur)"
-        opacity="0.7"
-      />
-      <path
-        d="M 18 60 C 18 95, 102 95, 102 60 C 80 75, 40 75, 18 60 Z"
-        fill="url(#bottomArcGrad)"
-        filter="url(#mediumBlur)"
-        opacity="0.8"
-      />
-
-      {/* 3. EVENT HORIZON (The black shadow) */}
-      <circle cx="60" cy="60" r="24" fill="#000000" />
-
-      {/* Photon Ring (Sharp bright ring) */}
-      <circle
-        cx="60"
-        cy="60"
-        r="24"
-        fill="none"
-        stroke="#FFCC88"
-        strokeWidth="1.5"
-        filter="url(#lightBlur)"
-        opacity="0.8"
-      />
-      <circle
-        cx="60"
-        cy="60"
-        r="24"
-        fill="none"
-        stroke="#FFFFFF"
-        strokeWidth="0.5"
-        opacity="0.9"
-      />
-
-      {/* 4. FRONT ACCRETION DISK (Filled shape for natural tapering) */}
-      {/* Heavy Blur Outer Glow */}
-      <path
-        d="M -10 62 Q 60 90 130 62 Q 60 50 -10 62 Z"
-        fill="url(#frontDiskGrad)"
-        filter="url(#heavyBlur)"
-      />
-      {/* Medium Blur Inner Glow */}
-      <path
-        d="M -5 62 Q 60 82 125 62 Q 60 55 -5 62 Z"
-        fill="url(#frontDiskCoreGrad)"
-        filter="url(#mediumBlur)"
-      />
-      {/* Intense bright core */}
-      <path
-        d="M 0 62 Q 60 76 120 62 Q 60 58 0 62 Z"
-        fill="url(#frontDiskCoreGrad)"
-        filter="url(#lightBlur)"
-      />
-      {/* Piercing white hot center for Doppler beaming */}
-      <path
-        d="M 2 62 Q 40 72 80 64 Q 40 60 2 62 Z"
-        fill="#FFFFFF"
-        filter="url(#lightBlur)"
-        opacity="0.9"
-      />
     </svg>
   );
 }

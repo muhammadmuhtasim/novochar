@@ -6,11 +6,12 @@ import TargetInfo from './TargetInfo.jsx';
 import { api, fmtRA, fmtDec } from '../lib/api.js';
 import { parseCoordInput } from '../lib/celestial.js';
 
-export const FIELD = { raCenter: 84.0, decCenter: -58.0, raHalf: 14.0, decHalf: 9.0 };
+export const FIELD = { raCenter: 0.0, decCenter: 0.0, raHalf: 180.0, decHalf: 90.0 };
 
-// Default overview zoom for the interactive sky map (real sky now lives in the
-// separate synced REAL SKY mosaic, not the main map).
-export const SKY_INITIAL_ZOOM = 5;
+// Default overview zoom for the interactive sky map (a planetarium-style view of
+// a wide tract of the whole celestial sphere; the real sky lives in the separate
+// synced REAL SKY mosaic).
+export const SKY_INITIAL_ZOOM = 4;
 // Zoom used to jump to / inspect a single target (markers + trails).
 export const TARGET_ZOOM = 18;
 
@@ -31,6 +32,7 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
   const selRef = useRef(null);
   const [band, setBand] = useState('ALL');
   const [q, setQ] = useState('');
+  const [viewMode, setViewMode] = useState('map'); // 'map' (2D) | '3d' (celestial sphere)
   const [presets, setPresets] = useState([]);
   const [searchNote, setSearchNote] = useState('');
   const viewRef = useRef(null);   // latest { ra, dec, raW, decH, zoom } from the sky map
@@ -135,6 +137,25 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
               </select>
             </div>
             <div className="tb-group">
+              <span className="tb-label">VIEW</span>
+              <div className="seg-view" role="group" aria-label="Sky view mode">
+                <button
+                  className={`seg${viewMode === 'map' ? ' on' : ''}`}
+                  onClick={() => setViewMode('map')}
+                  title="Flat 2D map of the sky (pan + zoom)"
+                >
+                  MAP · 2D
+                </button>
+                <button
+                  className={`seg${viewMode === '3d' ? ' on' : ''}`}
+                  onClick={() => setViewMode('3d')}
+                  title="Rotatable 3D celestial sphere — drag to spin the sky"
+                >
+                  SPHERE · 3D
+                </button>
+              </div>
+            </div>
+            <div className="tb-group">
               <span className="tb-label">IMAGERY</span>
               <span className="tag" title="Real sky now lives in the synced REAL SKY mosaic below">REAL ↴</span>
             </div>
@@ -178,27 +199,38 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
             onView={onView}
             initialZoom={SKY_INITIAL_ZOOM}
             highlight={highlight}
+            mode={viewMode}
+            onModeChange={setViewMode}
           />
           <p className="muted caption">
-            Field centered at {fmtRA(field.raCenter)} / {fmtDec(field.decCenter)} · coverage{' '}
-            {field.raHalf * 2}° × {field.decHalf * 2}°.
+            {viewMode === 'map'
+              ? `Whole-sky map · RA 0–360° × Dec −90°..+90°. Drag to roam any patch of sky, scroll to zoom.`
+              : `3D celestial sphere · drag to spin the sky, scroll to zoom, click a marker to inspect it.`}
           </p>
 
           <details className="sky-help">
             <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>
             <p>
-              The dark background is a synthetic star field — the real patch of night
-              sky lives in the <strong>REAL SKY · SYNCED MOSAIC</strong> panel below,
-              which mirrors exactly where you're looking and streams live{' '}
-              <strong>Digitized Sky Survey</strong> tiles as you pan and zoom. The
-              colored markers are the <em>moving objects</em> this survey flagged: a
-              candidate <strong>Distant Icy Body (TNO)</strong>,{' '}
-              <strong>Nearby Asteroid (AST)</strong> or a <strong>Fast-moving Star (HPM)</strong>{' '}
-              gliding across the field.
+              This is the <strong>night sky</strong> — the ancient horizon of stars you'd
+              see from Earth. It covers the <strong>whole globe of the sky</strong>: every
+              hour of Right Ascension and every degree of declination. Switch between the
+              flat <strong>MAP · 2D</strong> and the spinning <strong>SPHERE · 3D</strong> —
+              a rotatable model of the sky you can tilt and turn like a globe.
+
+              The glowing markers are the <em>moving objects</em> the survey flagged by
+              comparing passes of the same sky over time: a candidate{' '}
+              <strong>Distant Icy Body (TNO)</strong>, a <strong>Nearby Asteroid (AST)</strong>{' '}
+              or a <strong>Fast-moving Star (HPM)</strong> gliding across the stars. The
+              small tail behind a marker shows <em>which way it's travelling</em>.
+              The real patch of night sky lives in the{' '}
+              <strong>REAL SKY · SYNCED MOSAIC</strong> below, which mirrors exactly where
+              you're looking and streams live <strong>Digitized Sky Survey</strong> tiles as
+              you pan and zoom.
             </p>
             <ul>
-              <li><strong>Marker shapes:</strong> Ring = Icy Body, Diamond = Asteroid, Arrow = Fast-moving Star. <strong>Ring size</strong> scales with how fast the object is moving.</li>
-              <li><strong>Drag</strong> to pan, <strong>scroll / pinch</strong> to zoom, <strong>click a marker</strong> to inspect a candidate.</li>
+              <li><strong>Marker shapes:</strong> a filled disc = Icy Body, a pointed rock = Asteroid, a streaking comet = Fast-moving Star. <strong>Size &amp; tail length</strong> scale with how fast the object is moving.</li>
+              <li><strong>MAP · 2D:</strong> drag to pan across any patch of sky, scroll / pinch to zoom.</li>
+              <li><strong>SPHERE · 3D:</strong> drag to spin the celestial globe, scroll to zoom, click a marker to inspect a candidate.</li>
               <li><strong>Coordinated Views:</strong> The scatter plots below the sky map are linked! Drag to select a group of dots in a plot (like the icy rocks in the color-color plot), and they will highlight here on the main map.</li>
             </ul>
           </details>

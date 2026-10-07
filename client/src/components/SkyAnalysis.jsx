@@ -3,11 +3,11 @@ import ScatterPlot from './ScatterPlot.jsx';
 import { colourIndex } from '../lib/celestial.js';
 
 const TYPE_COLORS = {
-  TNO: '#ff8c1a',
-  AST: '#27d4e6',
-  HPM: '#ff5fc2',
+  TNO: '#FFB84D',
+  AST: '#FF6A1F',
+  HPM: '#FFE08A',
 };
-const color = (o) => TYPE_COLORS[o.type] || '#ff8c1a';
+const color = (o) => TYPE_COLORS[o.type] || '#FFB84D';
 
 const TABLE_COLS = [
   { key: 'id', label: 'ID', sort: (o) => o.id },

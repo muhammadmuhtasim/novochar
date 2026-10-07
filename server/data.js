@@ -40,11 +40,24 @@ const PASS_NAMES = [
   'SPX-ORBIT-06',
 ];
 
-const TYPE_FONT = ['TNO', 'AST', 'HPM'];
+// SPHEREx observes broad swaths of the ecliptic, but Novochar is an *all-sky*
+// utility, so the survey field now covers the whole celestial sphere (RA 0–360°,
+// Dec −90°..+90°). Because `raDecToNormalized` folds RA differences around the
+// centre (wrap at ±180°), this one field lets the viewer roam the entire sky.
+const FIELD = { raCenter: 0.0, decCenter: 0.0, raHalf: 180.0, decHalf: 90.0 };
 
-// SPHEREx observes broad swaths of the ecliptic plane. We place our simulated
-// survey field around a tract of sky so the sky viewer has a coherent region.
-const FIELD = { raCenter: 84.0, decCenter: -58.0, raHalf: 14.0, decHalf: 9.0 };
+// Population model so the sky reads like a real survey:
+//   - TNO (distant icy bodies) -> a wide band around the ecliptic (± scattered-disk)
+//   - AST (asteroids)          -> a tight band hugging the ecliptic
+//   - HPM (fast-moving stars)  -> distributed across the whole sphere
+const POPULATION = {
+  TNO: { count: 440, decSpread: 18 },
+  AST: { count: 540, decSpread: 8 },
+  HPM: { count: 680, decSpread: 86 },
+};
+// Total tracked candidates across the whole sky (feels "limitless" vs. a handful).
+const TOTAL_OBJECTS = POPULATION.TNO.count + POPULATION.AST.count + POPULATION.HPM.count;
+
 
 export function generateSurvey() {
   const rand = mulberry32(0x53505845); // "SPX"
@@ -73,94 +86,101 @@ export function generateSurvey() {
     });
   }
 
-  // --- Candidate objects ---
+  // --- Candidate objects (all-sky population, deterministic) ---
   const objects = [];
-  const names = [
-    '2026 SX1', '2026 DB71', '2026 HM2', '2002 TC302 b', '2026 QJ5',
-    '2026 AR13', '2025 VB9', '2026 LP4', '2004 XR190 c', '2026 MB3',
-    '2026 KK1', '2007 OR10 a', '2026 ZD7', '2026 NT2', '2026 FG8',
-    '2026 YX4', '2005 RM43', '2026 WA6', '2026 CJ9', '2026 BV5',
-  ];
+
+  // Sample a declination roughly on the ecliptic band with a (triangular) spread
+  // so clusters read as real belts but the sky still feels distributed.
+  const bandDec = (spread) => {
+    const d = (rand() + rand() - 1) * spread; // triangular, mean 0
+    return Math.max(-90, Math.min(90, d));
+  };
+
+  // Deterministic, readable designations (year + running catalogue code).
+  const YEARS = ['2024', '2025', '2026'];
+  const RX = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const designation = () => {
+    const y = YEARS[Math.floor(rand() * YEARS.length)];
+    const l1 = RX[Math.floor(rand() * RX.length)];
+    const l2 = RX[Math.floor(rand() * RX.length)];
+    const n = 10 + Math.floor(rand() * 90);
+    return `${y} ${l1}${l2}${n}`;
+  };
 
   const motionType = { TNO: [0.2, 2.5], AST: [8, 60], HPM: [60, 900] };
 
-  for (let i = 0; i < 40; i++) {
-    const type = TYPE_FONT[Math.floor(rand() * TYPE_FONT.length)];
-    const id = `NC-${String(i + 1).padStart(3, '0')}`;
-    const ra = FIELD.raCenter + (rand() - 0.5) * FIELD.raHalf * 2;
-    const dec = FIELD.decCenter + (rand() - 0.5) * FIELD.decHalf * 2;
-    const [mLo, mHi] = motionType[type];
-    const motion = mLo + Math.pow(rand(), 1.6) * (mHi - mLo);
-    const baseMag =
-      type === 'TNO' ? 19 + rand() * 3.5 : type === 'AST' ? 15 + rand() * 4 : 4.5 + rand() * 10;
-    const name = names[i % names.length];
-    const discoveryPass = passes[Math.floor(rand() * passes.length)];
+  let i = 0;
+  for (const type of ['TNO', 'AST', 'HPM']) {
+    const { count, decSpread } = POPULATION[type];
+    for (let k = 0; k < count; k++) {
+      i += 1;
+      const id = `NC-${String(i).padStart(4, '0')}`;
+      const ra = rand() * 360;
+      const dec = bandDec(decSpread);
+      const [mLo, mHi] = motionType[type];
+      const motion = mLo + Math.pow(rand(), 1.6) * (mHi - mLo);
+      const baseMag =
+        type === 'TNO' ? 19 + rand() * 3.5 : type === 'AST' ? 15 + rand() * 4 : 4.5 + rand() * 10;
+      const name = designation();
+      const discoveryPass = passes[Math.floor(rand() * passes.length)];
 
-    // Dominant detection band. Cooler/browner sources (HPM dwarfs, distant TNOs)
-    // tend to peak redder, so we bias later bands for them.
-    const bandBias = type === 'TNO' ? 1 : type === 'HPM' ? 1.5 : 0;
-    const bandIndex = 1 + Math.floor(Math.min(5, Math.max(0, rand() * 4 + bandBias)));
-    const band = SPHEREX_BANDS[bandIndex - 1];
+      // Dominant detection band. Cooler/browner sources (HPM dwarfs, distant TNOs)
+      // tend to peak redder, so we bias later bands for them.
+      const bandBias = type === 'TNO' ? 1 : type === 'HPM' ? 1.5 : 0;
+      const bandIndex = 1 + Math.floor(Math.min(5, Math.max(0, rand() * 4 + bandBias)));
+      const band = SPHEREX_BANDS[bandIndex - 1];
 
-    // --- Extra encoding channels for the sky viewer (RFC: richer markers) ---
-    // Position angle of the apparent motion (degrees, 0..360, measured east of
-    // north), so the client can draw a velocity *vector* per marker instead of
-    // relying on ring size alone. Deterministic like every other field here.
-    const pa = Math.round(rand() * 3600) / 10;
-    // Detection confidence (SNR-like, ~3..20): drives marker opacity, dimming
-    // marginal detections without hiding them.
-    const snr = Math.round((3 + Math.pow(rand(), 1.3) * 17) * 10) / 10;
-    // Number of SPHEREx bands with a strong detection (1..6): encodes the
-    // multi-band channel as concentric marker rings, so a source bright in many
-    // bands is distinguishable from a single-band blip at a glance.
-    const nBands = 1 + Math.floor(rand() * 6);
-    // Per-band apparent magnitudes (all six). The spectral slope is class-aware
-    // (cold TNOs and brown-dwarf HPMs are redder -> relatively brighter in the
-    // longer-wavelength bands), so colour-colour diagrams separate the classes.
-    const spectralSlope = type === 'TNO' ? -0.55 : type === 'HPM' ? -0.34 : -0.08;
-    const mags = SPHEREX_BANDS.map((b, bi) => {
-      const k = bi + 1 - bandIndex; // 0 at the dominant band
-      const off = spectralSlope * k + (rand() - 0.5) * 0.55;
-      return Math.round((baseMag + off) * 10) / 10;
-    });
+      // Position angle of the apparent motion (degrees, east of north), so the
+      // client can draw a velocity vector/wake per marker deterministically.
+      const pa = Math.round(rand() * 3600) / 10;
+      // Detection confidence (SNR-like, ~3..20): drives marker opacity/glow.
+      const snr = Math.round((3 + Math.pow(rand(), 1.3) * 17) * 10) / 10;
+      // Number of SPHEREx bands with a strong detection (1..6).
+      const nBands = 1 + Math.floor(rand() * 6);
+      const spectralSlope = type === 'TNO' ? -0.55 : type === 'HPM' ? -0.34 : -0.08;
+      const mags = SPHEREX_BANDS.map((b, bi) => {
+        const k = bi + 1 - bandIndex;
+        const off = spectralSlope * k + (rand() - 0.5) * 0.55;
+        return Math.round((baseMag + off) * 10) / 10;
+      });
 
-    objects.push({
-      id,
-      name,
-      type,
-      typeLabel: TYPES[type],
-      bandIndex,
-      band: band.label,
-      ra,
-      dec,
-      mag: Math.round(baseMag * 10) / 10,
-      motion: Math.round(motion * 100) / 100,
-      motionUnits: 'mas/day',
-      // RFC: richer marker channels
-      pa,           // position angle of motion (deg, east of north)
-      snr,          // detection confidence -> marker opacity
-      nBands,       // detected bands -> concentric marker rings
-      mags,         // per-band apparent magnitude array (index 0 = Band 1)
-      discovered: discoveryPass.code,
-      epochOfDiscovery: discoveryPass.epochJD,
-      flags: [
-        ...(type === 'HPM' ? ['HPM'] : []),
-        ...(motion > 40 ? ['FAST'] : []),
-        ...(baseMag < 18 ? ['BRIGHT'] : []),
-        ...(type === 'TNO' ? ['TNO'] : []),
-      ],
-      orbit: {
-        a: Math.round((type === 'TNO' ? 34 + rand() * 60 : type === 'AST' ? 2.2 + rand() * 1.5 : 0) * 10) / 10,
-        e: Math.round(rand() * 0.75 * 100) / 100,
-        i: Math.round(rand() * 45 * 10) / 10,
-      },
-      note:
-        type === 'TNO' ? 'Candidate detached TNO; blended flux across adjacent bands.' :
-        type === 'AST' ? 'Main-belt candidate with measurable parallax between passes.' :
-        'High proper-motion field star; constant flux, large angular drift.',
-      status: rand() > 0.65 ? 'confirmed' : 'candidate',
-      color: type === 'TNO' ? '#ff6a00' : type === 'AST' ? '#ff8618' : '#ffb454',
-    });
+      objects.push({
+        id,
+        name,
+        type,
+        typeLabel: TYPES[type],
+        bandIndex,
+        band: band.label,
+        ra: Math.round(ra * 10000) / 10000,
+        dec: Math.round(dec * 10000) / 10000,
+        mag: Math.round(baseMag * 10) / 10,
+        motion: Math.round(motion * 100) / 100,
+        motionUnits: 'mas/day',
+        pa,
+        snr,
+        nBands,
+        mags,
+        discovered: discoveryPass.code,
+        epochOfDiscovery: discoveryPass.epochJD,
+        flags: [
+          ...(type === 'HPM' ? ['HPM'] : []),
+          ...(motion > 40 ? ['FAST'] : []),
+          ...(baseMag < 18 ? ['BRIGHT'] : []),
+          ...(type === 'TNO' ? ['TNO'] : []),
+        ],
+        orbit: {
+          a: Math.round((type === 'TNO' ? 34 + rand() * 60 : type === 'AST' ? 2.2 + rand() * 1.5 : 0) * 10) / 10,
+          e: Math.round(rand() * 0.75 * 100) / 100,
+          i: Math.round(rand() * 45 * 10) / 10,
+        },
+        note:
+          type === 'TNO' ? 'Candidate detached TNO; blended flux across adjacent bands.' :
+          type === 'AST' ? 'Main-belt candidate with measurable parallax between passes.' :
+          'High proper-motion field star; constant flux, large angular drift.',
+        status: rand() > 0.65 ? 'confirmed' : 'candidate',
+        color: type === 'TNO' ? '#FFB84D' : type === 'AST' ? '#FF6A1F' : '#FFE08A',
+      });
+    }
   }
 
   return { survey: { field: FIELD, mission: 'SPHEREx' }, passes, objects, presets: buildPresets(objects) };
