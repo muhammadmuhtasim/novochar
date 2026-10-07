@@ -14,8 +14,8 @@ const TABLE_COLS = [
   { key: 'type', label: 'TYPE', sort: (o) => o.type },
   { key: 'mag', label: 'MAG', sort: (o) => o.mag },
   { key: 'motion', label: 'MOTION', sort: (o) => o.motion },
-  { key: 'snr', label: 'SNR', sort: (o) => o.snr },
-  { key: 'nBands', label: 'BANDS', sort: (o) => o.nBands },
+  { key: 'snr', label: 'SIGNAL QUALITY (SNR)', sort: (o) => o.snr },
+  { key: 'nBands', label: 'DETECTED BANDS', sort: (o) => o.nBands },
   { key: 'band', label: 'DOMINANT BAND', sort: (o) => o.bandIndex },
   { key: 'status', label: 'STATUS', sort: (o) => o.status },
 ];
@@ -78,8 +78,8 @@ export default function SkyAnalysis({ objects, selectedId, onSelect, highlight, 
     <section className="analysis-grid">
       <ScatterPlot
         title="COLOUR–COLOUR · SPHEREx BAND RATIOS"
-        xLabel="B1 − B3 (mag)"
-        yLabel="B4 − B6 (mag)"
+        xLabel="Color Profile (Blue → Red)"
+        yLabel="Heat Profile (Warm → Cold)"
         points={ccPoints}
         selectedId={selectedId}
         highlightIds={highlight}
@@ -88,8 +88,8 @@ export default function SkyAnalysis({ objects, selectedId, onSelect, highlight, 
       />
       <ScatterPlot
         title="MAGNITUDE vs MOTION · REDUCED PROPER MOTION"
-        xLabel="log₁₀ motion (mas/day)"
-        yLabel="Apparent magnitude"
+        xLabel="Apparent Speed (log scale)"
+        yLabel="Brightness (Magnitude)"
         points={mmPoints}
         selectedId={selectedId}
         highlightIds={highlight}

@@ -192,14 +192,14 @@ export default function SkyViewer({ objects, field = FIELD, presetId = null, onT
               which mirrors exactly where you're looking and streams live{' '}
               <strong>Digitized Sky Survey</strong> tiles as you pan and zoom. The
               colored markers are the <em>moving objects</em> this survey flagged: a
-              candidate <strong>TNO</strong> (remote icy body beyond Neptune),{' '}
-              <strong>AST</strong> (nearby asteroid) or <strong>HPM</strong> (a star
-              gliding across the field).
+              candidate <strong>Distant Icy Body (TNO)</strong>,{' '}
+              <strong>Nearby Asteroid (AST)</strong> or a <strong>Fast-moving Star (HPM)</strong>{' '}
+              gliding across the field.
             </p>
             <ul>
-              <li><strong>Ring size</strong> scales with how fast the object is moving.</li>
-              <li><strong>Drag</strong> to pan, <strong>scroll / pinch</strong> to zoom, <strong>click a ring</strong> to inspect a candidate.</li>
-              <li>Use <strong>BAND</strong> to filter SPHEREx near-infrared channels, or <strong>search</strong> by RA/Dec or target name.</li>
+              <li><strong>Marker shapes:</strong> Ring = Icy Body, Diamond = Asteroid, Arrow = Fast-moving Star. <strong>Ring size</strong> scales with how fast the object is moving.</li>
+              <li><strong>Drag</strong> to pan, <strong>scroll / pinch</strong> to zoom, <strong>click a marker</strong> to inspect a candidate.</li>
+              <li><strong>Coordinated Views:</strong> The scatter plots below the sky map are linked! Drag to select a group of dots in a plot (like the icy rocks in the color-color plot), and they will highlight here on the main map.</li>
             </ul>
           </details>
         </section>

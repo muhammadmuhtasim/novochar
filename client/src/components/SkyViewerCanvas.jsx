@@ -23,6 +23,12 @@ const TYPE_COLORS = {
 const typeColor = (o) => TYPE_COLORS[o.type] || o.color || '#ff8c1a';
 // Legend glyphs (Unicode) mirror the shapes drawn on the canvas.
 const TYPE_GLYPHS = { TNO: '◎', AST: '◇', HPM: '›' };
+// Plain-English names for general users
+const TYPE_NAMES = {
+  TNO: 'Distant Icy Body (TNO)',
+  AST: 'Nearby Asteroid (AST)',
+  HPM: 'Fast-moving Star (HPM)',
+};
 
 /**
  * Interactive sky map (synthetic star field + candidate markers, no live sky
@@ -548,14 +554,14 @@ export default function SkyViewerCanvas({
         {Object.entries(TYPE_COLORS).map(([t, c]) => (
           <span className="sky-legend-item" key={t}>
             <span className="sky-legend-glyph" style={{ color: c, textShadow: `0 0 6px ${c}` }}>{TYPE_GLYPHS[t]}</span>
-            {t}
+            {TYPE_NAMES[t] || t}
           </span>
         ))}
         <span className="sky-legend-note">shape = class · ring count = bands · arrow = motion</span>
       </div>
       {hover && (
         <div className="hover-tip" style={{ left: Math.min(hover.x + 18, (wrapRef.current ? wrapRef.current.clientWidth : 200) - 140), top: hover.y - 6 }}>
-          <strong>{hover.name}</strong> · {hover.type}
+          <strong>{hover.name}</strong> · {TYPE_NAMES[hover.type] || hover.type}
         </div>
       )}
       <div className="readout">{readout}</div>
