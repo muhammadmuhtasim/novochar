@@ -12,75 +12,83 @@ export default function Logo({ size = 36, className = '' }) {
       aria-hidden="true"
     >
       <defs>
-        {/* Core Starburst Radial Glow */}
-        <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#FFF2E6" stopOpacity="1" />
-          <stop offset="30%" stopColor="#FF7700" stopOpacity="0.95" />
-          <stop offset="70%" stopColor="#FF3300" stopOpacity="0.4" />
-          <stop offset="100%" stopColor="#FF1A00" stopOpacity="0" />
+        {/* Core Starflare Radial Glow */}
+        <radialGradient id="starGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#FFFFFF" stopOpacity="1" />
+          <stop offset="25%" stopColor="#FFB700" stopOpacity="0.9" />
+          <stop offset="60%" stopColor="#FF4400" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#FF1100" stopOpacity="0" />
         </radialGradient>
 
-        {/* Orbit Gradient 1 */}
-        <linearGradient id="orbitGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#FFB700" />
-          <stop offset="50%" stopColor="#FF5500" />
-          <stop offset="100%" stopColor="#FF1100" />
+        {/* Deep Space Cosmic Arc Gradient */}
+        <linearGradient id="cosmicArcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FF9900" stopOpacity="0.95" />
+          <stop offset="50%" stopColor="#FF4400" stopOpacity="0.8" />
+          <stop offset="100%" stopColor="#FF1100" stopOpacity="0.2" />
         </linearGradient>
 
-        {/* Orbit Gradient 2 */}
-        <linearGradient id="orbitGrad2" x1="100%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#FF3300" />
-          <stop offset="60%" stopColor="#FF9900" />
-          <stop offset="100%" stopColor="#FFE680" />
+        {/* Astrometric Vector Gradient */}
+        <linearGradient id="vectorGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#FF3300" stopOpacity="0.15" />
+          <stop offset="50%" stopColor="#FF8800" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="#FFC800" stopOpacity="1" />
         </linearGradient>
       </defs>
 
-      {/* Floating Optical Axis Crosshair Ticks (Borderless, pure precision alignment marks) */}
-      <line x1="32" y1="4" x2="32" y2="11" stroke="#FF5500" strokeWidth="1.8" strokeLinecap="round" opacity="0.75" />
-      <line x1="32" y1="53" x2="32" y2="60" stroke="#FF5500" strokeWidth="1.8" strokeLinecap="round" opacity="0.75" />
-      <line x1="4" y1="32" x2="11" y2="32" stroke="#FF5500" strokeWidth="1.8" strokeLinecap="round" opacity="0.75" />
-      <line x1="53" y1="32" x2="60" y2="32" stroke="#FF5500" strokeWidth="1.8" strokeLinecap="round" opacity="0.75" />
-
-      {/* Primary Celestial Orbit Ellipse */}
-      <ellipse
-        cx="32"
-        cy="32"
-        rx="24"
-        ry="10"
+      {/* Celestial Coordinate Grid Arc (Astrolabe / Sky Viewer Arc) */}
+      <path
+        d="M 8 32 A 24 24 0 0 1 56 32"
         fill="none"
-        stroke="url(#orbitGrad1)"
-        strokeWidth="2.2"
-        transform="rotate(-28 32 32)"
+        stroke="#FF5500"
+        strokeWidth="1.2"
+        strokeDasharray="2 4"
+        opacity="0.5"
       />
 
-      {/* Counter Orbital Sweep (Forms aperture / lens overlap) */}
-      <ellipse
-        cx="32"
-        cy="32"
-        rx="24"
-        ry="10"
+      {/* Cosmic Horizon Sweep / SPHEREx Sky Pass Arc */}
+      <path
+        d="M 10 46 C 16 18, 48 18, 54 46"
         fill="none"
-        stroke="url(#orbitGrad2)"
-        strokeWidth="1.6"
-        strokeDasharray="40 12 10 8"
-        transform="rotate(32 32 32)"
-        opacity="0.85"
+        stroke="url(#cosmicArcGrad)"
+        strokeWidth="2.4"
+        strokeLinecap="round"
       />
 
-      {/* Core Celestial Focal Ring */}
-      <circle cx="32" cy="32" r="10" fill="none" stroke="#FF7700" strokeWidth="1.5" opacity="0.9" />
+      {/* Blink Comparator Proper Motion Vector Line (connects binary star positions) */}
+      <line
+        x1="18"
+        y1="40"
+        x2="46"
+        y2="22"
+        stroke="url(#vectorGrad)"
+        strokeWidth="1.5"
+        strokeDasharray="3 3"
+      />
 
-      {/* Core Star / Transient Source Glow */}
-      <circle cx="32" cy="32" r="9" fill="url(#coreGlow)" />
-      <circle cx="32" cy="32" r="3.2" fill="#FFFFFF" />
+      {/* Primary Deep-Space Starburst (Telescope Diffraction Spike Optics) */}
+      <path
+        d="M 32 10 Q 32 32 10 32 Q 32 32 32 54 Q 32 32 54 32 Q 32 32 32 10 Z"
+        fill="url(#starGlow)"
+        opacity="0.95"
+      />
 
-      {/* Orbiting Satellite / Transient Object Nodes */}
-      {/* Node 1: Top-right transient object */}
-      <circle cx="49" cy="18" r="2.8" fill="#FFC800" />
-      <circle cx="49" cy="18" r="1.2" fill="#FFFFFF" />
+      {/* Secondary Diagonal Flare Rays */}
+      <path
+        d="M 32 20 Q 32 32 20 32 Q 32 32 32 44 Q 32 32 44 32 Q 32 32 32 20 Z"
+        fill="#FFBB00"
+        opacity="0.4"
+        transform="rotate(45 32 32)"
+      />
 
-      {/* Node 2: Bottom-left reference object */}
-      <circle cx="15" cy="46" r="2.2" fill="#FF4400" />
+      {/* Crisp Central Stellar Core */}
+      <circle cx="32" cy="32" r="3.5" fill="#FFFFFF" />
+
+      {/* Blink Target: Displaced Candidate Star (High Proper Motion / Moving Object) */}
+      <circle cx="46" cy="22" r="3" fill="#FFCC00" />
+      <circle cx="46" cy="22" r="1.4" fill="#FFFFFF" />
+
+      {/* Celestial Focal Point Rings (Astrometric Scope Mark) */}
+      <circle cx="32" cy="32" r="15" fill="none" stroke="#FF6600" strokeWidth="1" strokeDasharray="12 6" opacity="0.6" />
     </svg>
   );
 }
