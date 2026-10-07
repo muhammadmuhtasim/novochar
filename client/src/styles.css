@@ -631,7 +631,7 @@ main.view {
   position: relative;
   background: linear-gradient(145deg, rgba(14, 15, 22, 0.92) 0%, rgba(8, 8, 12, 0.95) 100%);
   border: 1px solid var(--border-subtle);
-  padding: 20px 22px;
+  padding: 22px 26px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   /* Top-Right & Bottom-Left Asymmetrical Chamfers from reference image */
   clip-path: polygon(
@@ -710,7 +710,7 @@ main.view {
   color: var(--neon-bright);
   border: 1px solid var(--border-bright);
   background: rgba(255, 77, 0, 0.1);
-  padding: 3px 9px;
+  padding: 4px 12px;
   clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px));
 }
 
@@ -1069,7 +1069,7 @@ main.view {
 .obj-card {
   background: rgba(10, 11, 16, 0.85);
   border: 1px solid var(--border-subtle);
-  padding: 14px;
+  padding: 16px 18px;
   clip-path: polygon(0 4px, 4px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 10px 100%, 0 calc(100% - 10px));
   transition: all var(--trans-fast);
 }
@@ -1103,11 +1103,40 @@ main.view {
   margin-top: 12px;
   background: #040508;
   border: 1px solid var(--border-bright);
-  padding: 12px 16px;
+  padding: 14px 20px;
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--neon-amber);
   clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
+}
+
+/* Coordinate Chips (Survey Field) */
+.coord-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  background: rgba(10, 11, 16, 0.9);
+  border: 1px solid var(--border-subtle);
+  padding: 10px 14px;
+}
+.chip-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.chip strong {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--neon-bright);
 }
 
 /* ==========================================================================
@@ -1242,7 +1271,7 @@ main.view {
   color: var(--neon-amber);
   letter-spacing: 0.1em;
   text-align: left;
-  padding: 10px 14px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-bright);
   font-weight: 700;
   user-select: none;
@@ -1255,7 +1284,7 @@ main.view {
 .catalogue-table th.sorted.desc::after { content: ' ▼'; }
 
 .catalogue-table td, .frame-table td, .neo-table td {
-  padding: 9px 14px;
+  padding: 10px 16px;
   color: var(--text-primary);
   border-bottom: 1px solid rgba(255, 77, 0, 0.1);
 }
@@ -1338,7 +1367,7 @@ main.view {
   height: auto;
   background: rgba(6, 7, 10, 0.8);
   border: 1px solid var(--border-subtle);
-  padding: 8px;
+  padding: 14px 16px;
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
 
@@ -1511,7 +1540,7 @@ main.view {
 .panel-sub {
   background: rgba(8, 9, 14, 0.7);
   border: 1px solid var(--border-subtle);
-  padding: 14px 16px;
+  padding: 16px 18px;
   clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
 }
 
@@ -1551,7 +1580,7 @@ main.view {
 .source-card {
   background: rgba(10, 11, 16, 0.9);
   border: 1px solid var(--border-subtle);
-  padding: 16px;
+  padding: 18px 22px;
   clip-path: polygon(0 4px, 4px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 10px 100%, 0 calc(100% - 10px));
   transition: all var(--trans-norm);
 }
@@ -1919,8 +1948,8 @@ html.nc-cursor-on [contenteditable="true"] {
   position: absolute;
   left: 0;
   top: 0;
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   will-change: transform;
 }
 .nc-cursor .nc-cross {
@@ -1942,8 +1971,8 @@ html.nc-cursor-on [contenteditable="true"] {
   position: absolute;
   left: 0;
   top: 0;
-  width: 46px;
-  height: 46px;
+  width: 38px;
+  height: 38px;
   border: 1px solid rgba(0, 240, 255, 0.85);
   border-radius: 50%;
   box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
@@ -1955,8 +1984,8 @@ html.nc-cursor-on [contenteditable="true"] {
   position: absolute;
   left: 0;
   top: 0;
-  width: 74px;
-  height: 74px;
+  width: 62px;
+  height: 62px;
   border-radius: 50%;
   background:
     radial-gradient(circle, rgba(255, 77, 0, 0.16) 0%, rgba(0, 240, 255, 0.08) 45%, transparent 72%);

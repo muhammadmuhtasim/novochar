@@ -212,9 +212,9 @@ export default function App() {
       RING.y += (CUR.y - RING.y) * 0.55;
       GLOW.x += (CUR.x - GLOW.x) * 0.35;
       GLOW.y += (CUR.y - GLOW.y) * 0.35;
-      wrap.style.transform = `translate3d(${CUR.x - 22}px, ${CUR.y - 22}px, 0)`;
-      ring.style.transform = `translate3d(${RING.x - 23}px, ${RING.y - 23}px, 0)`;
-      glow.style.transform = `translate3d(${GLOW.x - 37}px, ${GLOW.y - 37}px, 0)`;
+      wrap.style.transform = `translate3d(${CUR.x - 18}px, ${CUR.y - 18}px, 0)`;
+      ring.style.transform = `translate3d(${RING.x - 19}px, ${RING.y - 19}px, 0)`;
+      glow.style.transform = `translate3d(${GLOW.x - 31}px, ${GLOW.y - 31}px, 0)`;
       // Stop re-rendering once settled so idle pages don't burn CPU.
       const settled =
         Math.abs(TARGET.x - CUR.x) < 0.4 && Math.abs(TARGET.y - CUR.y) < 0.4 &&
@@ -289,7 +289,7 @@ function Navbar({ tab, setTab, stats, menuOpen, onToggleMenu }) {
   return (
     <header className="nav">
       <div className="nav-brand" onClick={() => setTab('home')}>
-        <Logo />
+        <Logo size={52} />
         <div className="nav-title">
           <span className="brand-name">NOVOCHAR</span>
           <span className="brand-sub">নভোচার · SPHEREx BLINK COMPARATOR</span>
