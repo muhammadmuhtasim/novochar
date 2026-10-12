@@ -6,11 +6,13 @@ import { FreeFlightControls } from '../lib/controls3d.js';
 const fmt = (n) => (n < 0 ? '−' : '') + Math.abs(n).toFixed(1).padStart(5, '0');
 
 /**
- * Immersive 3D wireframe space view, embedded in the SkyViewer panel.
- * Uses Three.js (CDN), ProceduralWorld for infinite sectors, and
- * FreeFlightControls for 6DoF pointer-locked flight.
+ * Immersive 3D wireframe space view, ported from the standalone `3d/` module.
+ * Uses Three.js, ProceduralWorld for infinite procedural sectors, and
+ * FreeFlightControls for 6DoF pointer-locked flight. Renders its own HUD
+ * overlay; pass `headerSlot` to inject a control (e.g. an exit button) into
+ * the top bar.
  */
-export default function Space3DCanvas() {
+export default function Space3DCanvas({ headerSlot = null }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const stateRef = useRef(null); // holds renderer/scene/world/controls for cleanup
@@ -143,6 +145,7 @@ export default function Space3DCanvas() {
             <span>VOID<span className="s3d-brand-sub"> / FREE SPACE</span></span>
           </div>
           <div className="s3d-meta">
+            {headerSlot}
             <span className="s3d-live-dot" />
             <span>{status}</span>
             <span className="s3d-sep">/</span>

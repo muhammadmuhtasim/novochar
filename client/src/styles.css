@@ -1164,39 +1164,48 @@ main.view {
   align-items: start;
 }
 
-.viewer-grid:fullscreen {
-  display: block;
-  width: 100vw;
-  height: 100vh;
-  padding: 0;
-  background: #030201;
+/* FULL DISPLAY — reproduces the standalone `3d/` module: a full-bleed canvas
+   with only the HUD on top, covering the app chrome (nav + ticker). Rendered
+   through a portal into <body> so `position: fixed` is relative to the viewport. */
+.space3d-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: #050505;
 }
 
-.viewer-grid:fullscreen .viewer-main-col {
-  min-height: 100vh;
-}
-
-.viewer-grid:fullscreen .viewer-panel {
-  min-height: 100vh;
+.space3d-fullscreen .space3d-wrap {
+  width: 100%;
+  height: 100%;
   border: 0;
   border-radius: 0;
 }
 
-.viewer-grid:fullscreen .viewer-panel .canvas-wrap,
-.viewer-grid:fullscreen .viewer-panel .space3d-wrap {
-  height: calc(100vh - 94px);
-}
+/* Roomier HUD spacing, closer to the standalone module. */
+.space3d-fullscreen .s3d-topbar { height: 64px; padding: 0 28px; }
+.space3d-fullscreen .s3d-readout { top: 92px; left: 28px; }
+.space3d-fullscreen .s3d-coords { font-size: 19px; }
+.space3d-fullscreen .s3d-controls-card,
+.space3d-fullscreen .s3d-show-help { top: 84px; right: 28px; }
+.space3d-fullscreen .s3d-bottombar { height: 48px; padding: 0 28px; }
+.space3d-fullscreen .s3d-toast { bottom: 68px; }
 
-.viewer-grid:fullscreen .viewer-panel .panel-head,
-.viewer-grid:fullscreen .viewer-panel .sky-toolbar,
-.viewer-grid:fullscreen .viewer-panel .preset-row,
-.viewer-grid:fullscreen .viewer-panel .sky-help,
-.viewer-grid:fullscreen .viewer-panel > .muted.caption {
-  display: none;
+/* Exit control injected into the 3D HUD top bar. */
+.s3d-exit {
+  margin-right: 4px;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 77, 0, 0.35);
+  border-radius: 2px;
+  background: rgba(255, 77, 0, 0.08);
+  color: var(--neon-amber);
+  font: 9px var(--font-mono);
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: border-color var(--trans-fast), background var(--trans-fast);
 }
-
-.viewer-grid:fullscreen .space3d-wrap {
-  height: 100vh;
+.s3d-exit:hover {
+  border-color: var(--neon-orange);
+  background: rgba(255, 77, 0, 0.18);
 }
 
 .canvas-wrap, .blink-canvas-wrap {
@@ -2495,4 +2504,12 @@ html.nc-cursor-on [contenteditable="true"] {
   .s3d-bottom-right { display: none; }
   .s3d-bottom-left { font-size: 8px; }
   .s3d-reticle-label { font-size: 7px; }
+
+  /* Keep the full-display HUD compact on small screens. */
+  .space3d-fullscreen .s3d-topbar { height: 46px; padding: 0 12px; }
+  .space3d-fullscreen .s3d-readout { top: 60px; left: 14px; }
+  .space3d-fullscreen .s3d-coords { font-size: 14px; }
+  .space3d-fullscreen .s3d-controls-card,
+  .space3d-fullscreen .s3d-show-help { top: auto; right: 10px; bottom: 52px; }
+  .space3d-fullscreen .s3d-bottombar { height: 38px; padding: 0 12px; }
 }
