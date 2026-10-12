@@ -41,15 +41,6 @@ const SURVEY_FEEDS = [
     cols: ['spkid, designation, e/a/i/node/peri/epoch, H, G, close_approach: date, distance (lunar/AU), velocity'],
   },
 ];
-const IMAGE_ARCHIVES = [
-  {
-    code: 'DSS', tag: 'STScI / MAST / IRSA', status: 'LIVE',
-    name: 'Digitized Sky Survey (real sky pixels)',
-    domain: 'Genuine survey plates served by IRSA/STScI/MAST; fetched as FITS and rendered to a browser-safe grayscale PNG.',
-    rows: 'One image cutout per view (≤ 2° / 120 arcmin side), already WCS-registered to the viewer projection.',
-    cols: ['Returns: image PNG + WCS corners (raLeft, raRight, decTop, decBottom), survey, band, size, aspect'],
-  },
-];
 
 const REFERENCE_SERVICES = [
   {
@@ -204,11 +195,10 @@ export default function DataSources() {
 
       <section className="panel">
         <div className="panel-head">
-          <h2>REAL SKY IMAGERY & REFERENCE</h2>
-          <span className="tag">PIXELS + RESOLVERS</span>
+          <h2>REFERENCE SERVICES</h2>
+          <span className="tag">NAME RESOLVERS</span>
         </div>
         <div className="source-cards">
-          {IMAGE_ARCHIVES.map((s) => <Card key={s.code} s={s} />)}
           {REFERENCE_SERVICES.map((s) => <Card key={s.code} s={s} />)}
         </div>
       </section>

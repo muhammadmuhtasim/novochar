@@ -1,282 +1,54 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import SkyViewerCanvas from './SkyViewerCanvas.jsx';
-import SkyAnalysis from './SkyAnalysis.jsx';
-import RealSkyMosaic from './RealSkyMosaic.jsx';
-import TargetInfo from './TargetInfo.jsx';
-import { api, fmtRA, fmtDec } from '../lib/api.js';
-import { parseCoordInput } from '../lib/celestial.js';
+import React, { useEffect, useRef, useState } from 'react';
+import Space3DCanvas from './Space3DCanvas.jsx';
 
-export const FIELD = { raCenter: 0.0, decCenter: 0.0, raHalf: 180.0, decHalf: 90.0 };
+export default function SkyViewer() {
+  const viewerRef = useRef(null);
+  const [fullscreen, setFullscreen] = useState(false);
 
-// Default overview zoom for the interactive sky map (a planetarium-style view of
-// a wide tract of the whole celestial sphere; the real sky lives in the separate
-// synced REAL SKY mosaic).
-export const SKY_INITIAL_ZOOM = 4;
-// Zoom used to jump to / inspect a single target (markers + trails).
-export const TARGET_ZOOM = 18;
-
-export const BAND_OPTIONS = [
-  { value: 'ALL', label: 'ALL BANDS' },
-  { value: '1', label: 'Band 1 · 0.75–1.11 µm' },
-  { value: '2', label: 'Band 2 · 1.11–1.64 µm' },
-  { value: '3', label: 'Band 3 · 1.64–2.42 µm' },
-  { value: '4', label: 'Band 4 · 2.42–3.82 µm' },
-  { value: '5', label: 'Band 5 · 3.82–4.42 µm' },
-  { value: '6', label: 'Band 6 · 4.42–5.00 µm' },
-];
-
-export default function SkyViewer({ objects, field = FIELD, presetId = null, onTarget = () => {} }) {
-  const canvasRef = useRef(null);
-  const wrapRef = useRef(null);
-  const [selected, setSelected] = useState(null);
-  const selRef = useRef(null);
-  const [band, setBand] = useState('ALL');
-  const [q, setQ] = useState('');
-  const [viewMode, setViewMode] = useState('map'); // 'map' (2D) | '3d' (celestial sphere)
-  const [presets, setPresets] = useState([]);
-  const [searchNote, setSearchNote] = useState('');
-  const viewRef = useRef(null);   // latest { ra, dec, raW, decH, zoom } from the sky map
-  const [highlight, setHighlight] = useState(null); // Set of ids from brushing
-
-  // Fed by SkyViewerCanvas on every pan/zoom so the synced REAL SKY mosaic can
-  // mirror the exact patch of sky on screen without re-rendering this component.
-  const onView = useCallback((v) => { viewRef.current = v; }, []);
-
-  useEffect(() => { api.presets().then((d) => setPresets(d.list || [])).catch(() => {}); }, []);
-
-  const select = (obj) => {
-    selRef.current = obj ? obj.id : null;
-    setSelected(obj);
-  };
-
-  // Focus the canvas on a target object (from a preset or direct link).
-  const focusTarget = (obj, zoom) => {
-    if (!obj) return;
-    select(obj);
-    if (canvasRef.current) {
-      canvasRef.current.action({ mode: 'focus', ra: obj.ra, dec: obj.dec, zoom });
-    }
-  };
-
-  // Deep-link support: honour a presetId passed from the Home hero / App.
-  const prevPreset = useRef(null);
   useEffect(() => {
-    if (!presetId || presetId === prevPreset.current) return;
-    prevPreset.current = presetId;
-    const obj = objects.find((o) => o.id === presetId);
-    if (obj) { setBand('ALL'); setQ(''); focusTarget(obj, TARGET_ZOOM); }
-  }, [presetId, objects]);
+    const onChange = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
 
-  // Filter pipeline: band first, then free-text name/coordinate search.
-  let visible = band === 'ALL' ? objects : objects.filter((o) => o.bandIndex === Number(band));
-  const coords = parseCoordInput(q.trim());
-  if (q.trim() && !coords) {
-    const t = q.trim().toLowerCase();
-    visible = visible.filter(
-      (o) => o.id.toLowerCase().includes(t) || o.name.toLowerCase().includes(t) || o.type.toLowerCase().includes(t)
-    );
-  }
-
-  const applyPreset = (p) => {
-    const obj = objects.find((o) => o.id === (p && p.target && p.target.id));
-    if (!obj) { setSearchNote(`Preset target ${p.target.id} not in this catalogue.`); return; }
-    setBand('ALL');
-    setQ('');
-    setSearchNote(`${p.label} → ${obj.id} ${obj.name}`);
-    focusTarget(obj, TARGET_ZOOM);
-  };
-
-  const gotoBlink = () => {
-    if (selected) onTarget('blink', selected.id);
-  };
-
-  const gotoSpectra = () => {
-    if (selected) onTarget('spectra', selected.id);
-  };
-
-  const gotoCatalog = () => {
-    if (selected) onTarget('catalogue', selected.id);
-  };
-
-  const submitSearch = () => {
-    const c = parseCoordInput(q.trim());
-    if (c) {
-      const near = nearestObject(visible.length ? visible : objects, c);
-      setSearchNote(`Centred at ${fmtRA(c.ra)} / ${fmtDec(c.dec)} — nearest ${near ? near.id : 'none'}`);
-      if (canvasRef.current) canvasRef.current.action({ mode: 'focus', ra: c.ra, dec: c.dec, zoom: TARGET_ZOOM });
-      if (near) select(near);
-      return;
-    }
-    if (visible.length === 1 && visible[0]) {
-      select(visible[0]);
-      setSearchNote(`Matched ${visible[0].id} ${visible[0].name}`);
-    }
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await viewerRef.current?.requestFullscreen();
+    } catch (_) {}
   };
 
   return (
-    <div className="viewer-grid">
+    <div className="viewer-grid" ref={viewerRef}>
       <div className="viewer-main-col">
         <section className="panel viewer-panel">
           <div className="panel-head">
             <h2>SKY VIEWER</h2>
             <div className="viewer-tools">
-              <span className="tag">DRAG</span>
-              <span className="tag">SCROLL</span>
-            </div>
-          </div>
-
-          <div className="sky-toolbar">
-            <div className="tb-group">
-              <span className="tb-label">BAND</span>
-              <select
-                className="select band-select"
-                value={band}
-                onChange={(e) => { setBand(e.target.value); setSearchNote(''); }}
-              >
-                {BAND_OPTIONS.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-              </select>
-            </div>
-            <div className="tb-group">
-              <span className="tb-label">VIEW</span>
-              <div className="seg-view" role="group" aria-label="Sky view mode">
-                <button
-                  className={`seg${viewMode === 'map' ? ' on' : ''}`}
-                  onClick={() => setViewMode('map')}
-                  title="Flat 2D map of the sky (pan + zoom)"
-                >
-                  MAP · 2D
-                </button>
-                <button
-                  className={`seg${viewMode === '3d' ? ' on' : ''}`}
-                  onClick={() => setViewMode('3d')}
-                  title="Rotatable 3D celestial sphere — drag to spin the sky"
-                >
-                  SPHERE · 3D
-                </button>
-              </div>
-            </div>
-            <div className="tb-group">
-              <span className="tb-label">IMAGERY</span>
-              <span className="tag" title="Real sky now lives in the synced REAL SKY mosaic below">REAL ↴</span>
-            </div>
-            <div className="tb-group grow">
-              <span className="tb-label">{coords ? 'COORDS' : 'TARGET'}</span>
-              <input
-                className="search sky-search"
-                placeholder="RA / Dec or name — e.g. 6h 3m −58° 12′ 30″  or  NC-012"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') submitSearch(); }}
-              />
-              <button className="btn sm" onClick={submitSearch}>LOCATE</button>
-            </div>
-          </div>
-
-          <div className="preset-row">
-            <span className="tb-label">PRESETS</span>
-            {presets.map((p) => (
-              <button key={p.key} className="seg preset-chip" onClick={() => applyPreset(p)}>
-                {p.label}
+              <span className="tag">3D SPACE</span>
+              <button className="btn sm" onClick={toggleFullscreen} title="Toggle fullscreen">
+                {fullscreen ? 'EXIT FULLSCREEN' : 'FULLSCREEN'}
               </button>
-            ))}
-            {selected && (
-              <>
-                <button className="btn sm primary go-blink" onClick={gotoBlink}>OPEN IN BLINK ⧗</button>
-                <button className="btn sm" onClick={gotoSpectra}>OPEN SPECTRA ∿</button>
-              </>
-            )}
+            </div>
           </div>
-
-          {searchNote && <p className="muted caption">{searchNote}</p>}
-
-          <SkyViewerCanvas
-            canvasRef={canvasRef}
-            wrapRef={wrapRef}
-            objects={visible}
-            field={field}
-            selRef={selRef}
-            onSelect={select}
-            onView={onView}
-            initialZoom={SKY_INITIAL_ZOOM}
-            highlight={highlight}
-            mode={viewMode}
-            onModeChange={setViewMode}
-          />
+          <Space3DCanvas />
           <p className="muted caption">
-            {viewMode === 'map'
-              ? `Whole-sky map · RA 0–360° × Dec −90°..+90°. Drag to roam any patch of sky, scroll to zoom.`
-              : `3D celestial sphere · drag to spin the sky, scroll to zoom, click a marker to inspect it.`}
+            Immersive 3D wireframe space · Click to capture pointer, fly with WASD + Mouse. Press ESC to release.
           </p>
 
           <details className="sky-help">
             <summary>What am I looking at? <span className="muted">(a quick plain-English guide)</span></summary>
             <p>
-              This is the <strong>night sky</strong> — the ancient horizon of stars you'd
-              see from Earth. It covers the <strong>whole globe of the sky</strong>: every
-              hour of Right Ascension and every degree of declination. Switch between the
-              flat <strong>MAP · 2D</strong> and the spinning <strong>SPHERE · 3D</strong> —
-              a rotatable model of the sky you can tilt and turn like a globe.
-
-              The glowing markers are the <em>moving objects</em> the survey flagged by
-              comparing passes of the same sky over time: a candidate{' '}
-              <strong>Distant Icy Body (TNO)</strong>, a <strong>Nearby Asteroid (AST)</strong>{' '}
-              or a <strong>Fast-moving Star (HPM)</strong> gliding across the stars. The
-              small tail behind a marker shows <em>which way it's travelling</em>.
-              The real patch of night sky lives in the{' '}
-              <strong>REAL SKY · SYNCED MOSAIC</strong> below, which mirrors exactly where
-              you're looking and streams live <strong>Digitized Sky Survey</strong> tiles as
-              you pan and zoom.
+              This is an <strong>immersive 3D wireframe space</strong> rendered in real time with Three.js.
             </p>
             <ul>
-              <li><strong>Marker shapes:</strong> a filled disc = Icy Body, a pointed rock = Asteroid, a streaking comet = Fast-moving Star. <strong>Size &amp; tail length</strong> scale with how fast the object is moving.</li>
-              <li><strong>MAP · 2D:</strong> drag to pan across any patch of sky, scroll / pinch to zoom.</li>
-              <li><strong>SPHERE · 3D:</strong> drag to spin the celestial globe, scroll to zoom, click a marker to inspect a candidate.</li>
-              <li><strong>Coordinated Views:</strong> The scatter plots below the sky map are linked! Drag to select a group of dots in a plot (like the icy rocks in the color-color plot), and they will highlight here on the main map.</li>
+              <li><strong>FLIGHT:</strong> Click the scene to capture your pointer, then use WASD to translate, Mouse to look, Space/Ctrl for vertical movement, Q/E to roll, and Shift to boost.</li>
+              <li><strong>SECTORS:</strong> The world is divided into 72-unit cubic sectors that generate procedurally as you fly. Revisiting a sector always regenerates the same geometry.</li>
+              <li><strong>NO LIMITS:</strong> There are no boundaries, no gravity, and no collision — just infinite free flight.</li>
             </ul>
           </details>
         </section>
-
-        <RealSkyMosaic field={field} viewRef={viewRef} />
-
-        <SkyAnalysis
-          objects={visible}
-          selectedId={selected ? selected.id : null}
-          onSelect={select}
-          highlight={highlight}
-          onBrush={setHighlight}
-        />
       </div>
-
-      <aside className="panel side">
-        <div className="panel-head">
-          <h2>SELECTED TARGET</h2>
-          <span className="tag">{selected ? selected.id : 'NONE'}</span>
-        </div>
-        {selected ? (
-          <>
-            <TargetInfo o={selected} />
-            <div className="side-actions">
-              <button className="btn primary sm" onClick={gotoBlink}>LAUNCH BLINK COMPARATOR</button>
-              <button className="btn sm" onClick={gotoSpectra}>OPEN SPECTRA</button>
-              <button className="btn sm" onClick={gotoCatalog}>OPEN CATALOGUE</button>
-            </div>
-          </>
-        ) : (
-          <p className="muted empty">Click a colored marker on the field, use a preset, or search coordinates to inspect a candidate.</p>
-        )}
-      </aside>
     </div>
   );
-}
-
-function nearestObject(list, { ra, dec }) {
-  let best = null;
-  let bestD = Infinity;
-  for (const o of list) {
-    const dRA = Math.abs(o.ra - ra);
-    const dd = Math.abs(o.dec - dec);
-    const d = Math.hypot(Math.min(dRA, 360 - dRA), dd);
-    if (d < bestD) { bestD = d; best = o; }
-  }
-  return best;
 }

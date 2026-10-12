@@ -119,6 +119,11 @@ export function generateSurvey() {
       const dec = bandDec(decSpread);
       const [mLo, mHi] = motionType[type];
       const motion = mLo + Math.pow(rand(), 1.6) * (mHi - mLo);
+      const distanceLy = type === 'TNO'
+        ? 35 + rand() * 600
+        : type === 'AST'
+          ? 1.5 + rand() * 8.5
+          : 7 + rand() * 300;
       const baseMag =
         type === 'TNO' ? 19 + rand() * 3.5 : type === 'AST' ? 15 + rand() * 4 : 4.5 + rand() * 10;
       const name = designation();
@@ -153,6 +158,7 @@ export function generateSurvey() {
         band: band.label,
         ra: Math.round(ra * 10000) / 10000,
         dec: Math.round(dec * 10000) / 10000,
+        distanceLy: Math.round(distanceLy * 10) / 10,
         mag: Math.round(baseMag * 10) / 10,
         motion: Math.round(motion * 100) / 100,
         motionUnits: 'mas/day',

@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { api, fmtRA, fmtDec } from '../lib/api.js';
-import HeroSky from './HeroSky.jsx';
-import { FIELD } from './SkyViewer.jsx';
 
 const OBJECT_TYPES = [
   { key: 'TNO', countKey: 'tno', label: 'Trans-Neptunian Objects', blurb: 'Kuiper Belt & scattered disk members of the distant Solar System.' },
@@ -9,7 +7,7 @@ const OBJECT_TYPES = [
   { key: 'HPM', countKey: 'hpm', label: 'High Proper-Motion Stars', blurb: 'Local stellar movers crossing the field at high angular rate.' },
 ];
 
-export default function Home({ stats, health, onNavigate, objects = [], onTarget = () => {} }) {
+export default function Home({ stats, health, onNavigate }) {
   const [field, setField] = useState(null);
   useEffect(() => {
     api
@@ -41,11 +39,6 @@ export default function Home({ stats, health, onNavigate, objects = [], onTarget
           <button className="btn" onClick={() => onNavigate('blink')}>
             LAUNCH BLINK COMPARATOR
           </button>
-        </div>
-        <div className="hero-split">
-          <div className="hero-sky-box">
-            <HeroSky objects={objects} field={field || FIELD} onTarget={onTarget} />
-          </div>
         </div>
       </section>
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#050811" />
+  <title>3D Space</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main id="app">
+    <canvas id="scene" aria-label="Interactive 3D wireframe space"></canvas>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">◇</span><span>VOID<span class="brand-sub"> / FREE SPACE</span></span></div>
+      <div class="top-meta"><span class="live-dot"></span><span id="status">WORLD ONLINE</span><span class="separator">/</span><span id="fps">-- FPS</span></div>
+    </header>
+
+    <section class="readout" aria-live="polite">
+      <div class="eyebrow">COORDINATES <span>·</span> FLOATING ORIGIN</div>
+      <div class="coordinates"><span id="posX">000.0</span><span class="coord-sep">/</span><span id="posY">000.0</span><span class="coord-sep">/</span><span id="posZ">000.0</span></div>
+      <div class="readout-foot"><span class="pulse"></span><span id="chunks">27 ACTIVE SECTORS</span></div>
+    </section>
+
+    <aside class="controls-card" id="controlsCard">
+      <div class="card-head"><span>FLIGHT SYSTEM</span><button id="hideHelp" aria-label="Hide controls">×</button></div>
+      <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>Translate</span></div>
+      <div class="control-row"><kbd>SPACE</kbd><kbd>CTRL</kbd><span>Vertical axis</span></div>
+      <div class="control-row"><kbd>MOUSE</kbd><span>Look / pitch / yaw</span></div>
+      <div class="control-row"><kbd>Q</kbd><kbd>E</kbd><span>Roll</span></div>
+      <div class="control-row"><kbd>SHIFT</kbd><span>Boost velocity</span></div>
+      <div class="card-foot">CLICK SCENE TO CAPTURE POINTER</div>
+    </aside>
+
+    <button id="showHelp" class="help-tab" hidden>CONTROLS <span>＋</span></button>
+
+    <div class="center-reticle" aria-hidden="true"><span></span><i></i></div>
+    <div class="crosshair-label">FREE FLIGHT <span>·</span> NO GRAVITY</div>
+
+    <footer class="bottom-bar">
+      <div class="bottom-left"><span class="key-hint">CLICK</span> TO ENTER FLIGHT <span class="separator">/</span> <span class="key-hint">ESC</span> TO RELEASE</div>
+      <div class="bottom-right"><span class="tiny-grid">▦</span> PROCEDURAL GEOMETRY <span class="separator">/</span> BUILD 001</div>
+    </footer>
+    <div id="toast" class="toast" role="status"></div>
+  </main>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

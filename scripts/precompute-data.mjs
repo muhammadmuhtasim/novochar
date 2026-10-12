@@ -3,8 +3,8 @@
 // The survey / passes / objects / stats / presets are 100% deterministic (they
 // are seeded in server/data.js), so there is no reason to generate them inside
 // a Vercel serverless function on every cold start. Baking them into static
-// JSON under client/dist/data lets Vercel's edge CDN serve them instantly and
-// keeps the first paint off the slow, cold-start-prone /api/* path.
+// JSON under client/public/data lets Vite serve them during development and
+// copies them into client/dist/data for the production edge CDN.
 //
 // Determinism guarantee: data.js uses a fixed seed (mulberry32(0x53505845)),
 // so the output here is identical across runs/builds. If you change the
@@ -17,8 +17,8 @@ import { generateSurvey } from '../server/data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// client/dist is produced by `vite build` (runs first); we fill dist/data/.
-const outDir = path.resolve(__dirname, '..', 'client', 'dist', 'data');
+// Vite serves client/public directly; the build copies these files into dist.
+const outDir = path.resolve(__dirname, '..', 'client', 'public', 'data');
 mkdirSync(outDir, { recursive: true });
 
 const { survey, passes, objects } = generateSurvey();

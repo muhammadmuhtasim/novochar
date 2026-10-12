@@ -13,6 +13,9 @@ const { survey, passes, objects } = generateSurvey();
 test('every object ships the richer marker channels', () => {
   assert.ok(objects.length > 0);
   for (const o of objects) {
+    // physical distance from the observer, measured in light-years
+    assert.equal(typeof o.distanceLy, 'number');
+    assert.ok(Number.isFinite(o.distanceLy) && o.distanceLy > 0, `distanceLy positive for ${o.id}`);
     // position angle of motion (deg, east of north)
     assert.equal(typeof o.pa, 'number');
     assert.ok(o.pa >= 0 && o.pa <= 360, `pa in range for ${o.id}`);
@@ -43,6 +46,7 @@ test('generation is deterministic (same fields on repeat)', () => {
   const again = generateSurvey();
   const a = objects[0];
   const b = again.objects[0];
+  assert.equal(a.distanceLy, b.distanceLy);
   assert.equal(a.pa, b.pa);
   assert.equal(a.snr, b.snr);
   assert.equal(a.nBands, b.nBands);
