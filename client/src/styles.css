@@ -2114,10 +2114,11 @@ html.nc-cursor-on [contenteditable="true"] {
   width: 100%;
   height: 100%;
   color: #f5fbff;
-  filter: drop-shadow(0 0 3px rgba(91, 218, 255, 0.52)) drop-shadow(1px 0 1px rgba(255, 96, 160, 0.28));
+  filter: drop-shadow(0 0 5px rgba(91, 218, 255, 0.7)) drop-shadow(1px 0 2px rgba(255, 96, 160, 0.38));
   transform: rotate(var(--cursor-tilt, 0deg));
-  animation: nc-cursor-idle 3s ease-in-out infinite;
-  transition: color var(--trans-fast);
+  scale: 1;
+  animation: nc-cursor-idle 2.2s ease-in-out infinite;
+  transition: color var(--trans-fast), scale 120ms ease-out;
   will-change: transform;
 }
 .nc-cursor .nc-cross svg {
@@ -2129,32 +2130,37 @@ html.nc-cursor-on [contenteditable="true"] {
 /* Hovering an interactive control = "target locked" (cyan, enlarged) */
 .nc-cursor.busy .nc-cross {
   color: var(--accent-cyan);
-  transform: rotate(var(--cursor-tilt, 0deg)) scale(1.12);
-  animation: nc-cursor-lock 0.8s ease-in-out infinite;
+  transform: rotate(var(--cursor-tilt, 0deg));
+  animation: nc-cursor-lock 0.68s ease-in-out infinite;
 }
 
 /* Click feedback */
 .nc-cursor.press .nc-cross {
   color: #FFFFFF;
-  transform: rotate(var(--cursor-tilt, 0deg)) scale(0.9);
+  transform: rotate(var(--cursor-tilt, 0deg));
+  scale: 0.82;
   animation: none;
 }
 
 @keyframes nc-cursor-idle {
   0%, 100% {
-    filter: drop-shadow(0 0 3px rgba(91, 218, 255, 0.42)) drop-shadow(1px 0 1px rgba(255, 96, 160, 0.22));
+    filter: drop-shadow(0 0 4px rgba(91, 218, 255, 0.58)) drop-shadow(1px 0 2px rgba(255, 96, 160, 0.32));
+    scale: 0.96;
   }
   50% {
-    filter: drop-shadow(0 0 6px rgba(91, 218, 255, 0.76)) drop-shadow(1px 0 2px rgba(255, 96, 160, 0.38));
+    filter: drop-shadow(0 0 10px rgba(91, 218, 255, 0.96)) drop-shadow(1px 0 3px rgba(255, 96, 160, 0.55));
+    scale: 1.12;
   }
 }
 
 @keyframes nc-cursor-lock {
   0%, 100% {
-    filter: drop-shadow(0 0 4px rgba(87, 232, 255, 0.56));
+    filter: drop-shadow(0 0 6px rgba(87, 232, 255, 0.74));
+    scale: 1.06;
   }
   50% {
-    filter: drop-shadow(0 0 9px rgba(87, 232, 255, 0.94));
+    filter: drop-shadow(0 0 14px rgba(87, 232, 255, 1));
+    scale: 1.22;
   }
 }
 

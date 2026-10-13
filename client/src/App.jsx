@@ -179,7 +179,8 @@ export default function App() {
       TARGET.x = e.clientX;
       TARGET.y = e.clientY;
       if (!shown) {
-        CUR.x = TARGET.x; CUR.y = TARGET.y;
+        CUR.x = TARGET.x;
+        CUR.y = TARGET.y;
         shown = true;
         cursor.style.opacity = '1';
       }
@@ -194,9 +195,9 @@ export default function App() {
     let running = false;
     const start = () => { if (!running) { running = true; raf = requestAnimationFrame(loop); } };
     const loop = () => {
-      CUR.x += (TARGET.x - CUR.x) * 0.9;
-      CUR.y += (TARGET.y - CUR.y) * 0.9;
-      const tiltTarget = Math.max(-6, Math.min(6, (TARGET.x - CUR.x) * 0.15));
+      CUR.x += (TARGET.x - CUR.x) * 0.62;
+      CUR.y += (TARGET.y - CUR.y) * 0.62;
+      const tiltTarget = Math.max(-14, Math.min(14, (TARGET.x - CUR.x) * 0.24));
       cursorTilt += (tiltTarget - cursorTilt) * 0.22;
       wrap.style.transform = `translate3d(${CUR.x - 20}px, ${CUR.y - 16}px, 0)`;
       cross.style.setProperty('--cursor-tilt', `${cursorTilt}deg`);
