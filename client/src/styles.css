@@ -2105,17 +2105,19 @@ html.nc-cursor-on [contenteditable="true"] {
   position: absolute;
   left: 0;
   top: 0;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 32px;
   will-change: transform;
 }
 .nc-cursor .nc-cross {
   display: block;
   width: 100%;
   height: 100%;
-  color: var(--neon-orange);
-  filter: drop-shadow(0 0 5px rgba(255, 77, 0, 0.7)) drop-shadow(0 0 14px rgba(255, 77, 0, 0.35));
-  transition: transform var(--trans-fast), color var(--trans-fast);
+  color: #f5fbff;
+  filter: drop-shadow(0 0 3px rgba(91, 218, 255, 0.52)) drop-shadow(1px 0 1px rgba(255, 96, 160, 0.28));
+  transform: rotate(var(--cursor-tilt, 0deg));
+  animation: nc-cursor-idle 3s ease-in-out infinite;
+  transition: color var(--trans-fast);
   will-change: transform;
 }
 .nc-cursor .nc-cross svg {
@@ -2124,53 +2126,43 @@ html.nc-cursor-on [contenteditable="true"] {
   display: block;
 }
 
-.nc-cursor .nc-ring {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(0, 240, 255, 0.85);
-  border-radius: 50%;
-  box-shadow: 0 0 10px rgba(0, 240, 255, 0.5);
-  filter: drop-shadow(0 0 5px rgba(0, 240, 255, 0.6));
-  transition: border-color var(--trans-fast), box-shadow var(--trans-fast);
-  will-change: transform;
-}
-.nc-cursor .nc-glow {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, rgba(255, 77, 0, 0.16) 0%, rgba(0, 240, 255, 0.08) 45%, transparent 72%);
-  transition: background var(--trans-norm);
-  will-change: transform;
-}
-
 /* Hovering an interactive control = "target locked" (cyan, enlarged) */
 .nc-cursor.busy .nc-cross {
   color: var(--accent-cyan);
-  transform: scale(1.35);
-}
-.nc-cursor.busy .nc-ring {
-  border-color: #10E6FF;
-  box-shadow: 0 0 14px rgba(0, 240, 255, 0.7);
-}
-.nc-cursor.busy .nc-glow {
-  background:
-    radial-gradient(circle, rgba(0, 240, 255, 0.2) 0%, rgba(255, 255, 255, 0.12) 40%, transparent 72%);
+  transform: rotate(var(--cursor-tilt, 0deg)) scale(1.12);
+  animation: nc-cursor-lock 0.8s ease-in-out infinite;
 }
 
 /* Click feedback */
 .nc-cursor.press .nc-cross {
   color: #FFFFFF;
-  transform: scale(1.55);
+  transform: rotate(var(--cursor-tilt, 0deg)) scale(0.9);
+  animation: none;
 }
-.nc-cursor.press .nc-ring {
-  border-color: #FFFFFF;
+
+@keyframes nc-cursor-idle {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgba(91, 218, 255, 0.42)) drop-shadow(1px 0 1px rgba(255, 96, 160, 0.22));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(91, 218, 255, 0.76)) drop-shadow(1px 0 2px rgba(255, 96, 160, 0.38));
+  }
+}
+
+@keyframes nc-cursor-lock {
+  0%, 100% {
+    filter: drop-shadow(0 0 4px rgba(87, 232, 255, 0.56));
+  }
+  50% {
+    filter: drop-shadow(0 0 9px rgba(87, 232, 255, 0.94));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nc-cursor .nc-cross,
+  .nc-cursor.busy .nc-cross {
+    animation: none;
+  }
 }
 
 /* Hidden over text-entry fields so the native caret shows */

@@ -117,52 +117,42 @@ export default function App() {
     const wrap = make('span', 'nc-cross-wrap');
     const cross = make('span', 'nc-cross');
     const svg = make('svg', null, SVGNS);
-    svg.setAttribute('viewBox', '-24 -24 48 48');
-    svg.setAttribute('width', '44');
-    svg.setAttribute('height', '44');
+    svg.setAttribute('viewBox', '0 0 40 32');
+    svg.setAttribute('width', '40');
+    svg.setAttribute('height', '32');
     svg.setAttribute('aria-hidden', 'true');
 
-    const g = make('g', null, SVGNS);
-    g.setAttribute('stroke', 'currentColor');
-    g.setAttribute('stroke-width', '1.2');
-    g.setAttribute('stroke-linecap', 'square');
-    g.setAttribute('fill', 'none');
-    [
-      'M-18-18 L-9-18 L-18-11',   // top-left bracket
-      'M18-18 L9-18 L18-11',      // top-right
-      'M-18 18 L-9 18 L-18 11',   // bottom-left
-      'M18 18 L9 18 L18 11',      // bottom-right
-      'M0-15 L0-9',               // N tick
-      'M0 15 L0 9',               // S tick
-      'M-15 0 L-9 0',             // W tick
-      'M15 0 L9 0',               // E tick
-    ].forEach((d) => {
-      const p = make('path', null, SVGNS);
-      p.setAttribute('d', d);
-      g.appendChild(p);
-    });
-    svg.appendChild(g);
+    const outline = make('path', null, SVGNS);
+    outline.setAttribute('d', 'M10 5 H30 M7 10 L17 28 M33 10 L23 28');
+    outline.setAttribute('fill', 'none');
+    outline.setAttribute('stroke', 'currentColor');
+    outline.setAttribute('stroke-width', '2');
+    outline.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(outline);
 
-    const dot = make('circle', null, SVGNS);
-    dot.setAttribute('r', '1.5');
-    dot.setAttribute('fill', 'currentColor');
-    svg.appendChild(dot);
+    const inner = make('path', null, SVGNS);
+    inner.setAttribute('d', 'M13 13 H27 L20 21 Z');
+    inner.setAttribute('fill', 'none');
+    inner.setAttribute('stroke', 'currentColor');
+    inner.setAttribute('stroke-opacity', '0.56');
+    inner.setAttribute('stroke-width', '1');
+    svg.appendChild(inner);
+
+    const tip = make('path', null, SVGNS);
+    tip.setAttribute('d', 'M18 16 L20 12 L22 16 Z');
+    tip.setAttribute('fill', 'currentColor');
+    svg.appendChild(tip);
 
     cross.appendChild(svg);
     wrap.appendChild(cross);
-    const ring = make('span', 'nc-ring');
-    const glow = make('span', 'nc-glow');
     cursor.appendChild(wrap);
-    cursor.appendChild(ring);
-    cursor.appendChild(glow);
     document.body.appendChild(cursor);
     document.documentElement.classList.add('nc-cursor-on');
     cursor.style.opacity = '0';
 
     const TARGET = { x: -100, y: -100 };
     const CUR = { x: -100, y: -100 };
-    const RING = { x: -100, y: -100 };
-    const GLOW = { x: -100, y: -100 };
+    let cursorTilt = 0;
     let shown = false;
 
     const INTERACTIVE =
@@ -190,8 +180,6 @@ export default function App() {
       TARGET.y = e.clientY;
       if (!shown) {
         CUR.x = TARGET.x; CUR.y = TARGET.y;
-        RING.x = TARGET.x; RING.y = TARGET.y;
-        GLOW.x = TARGET.x; GLOW.y = TARGET.y;
         shown = true;
         cursor.style.opacity = '1';
       }
@@ -208,17 +196,14 @@ export default function App() {
     const loop = () => {
       CUR.x += (TARGET.x - CUR.x) * 0.9;
       CUR.y += (TARGET.y - CUR.y) * 0.9;
-      RING.x += (CUR.x - RING.x) * 0.55;
-      RING.y += (CUR.y - RING.y) * 0.55;
-      GLOW.x += (CUR.x - GLOW.x) * 0.35;
-      GLOW.y += (CUR.y - GLOW.y) * 0.35;
-      wrap.style.transform = `translate3d(${CUR.x - 18}px, ${CUR.y - 18}px, 0)`;
-      ring.style.transform = `translate3d(${RING.x - 19}px, ${RING.y - 19}px, 0)`;
-      glow.style.transform = `translate3d(${GLOW.x - 31}px, ${GLOW.y - 31}px, 0)`;
+      const tiltTarget = Math.max(-6, Math.min(6, (TARGET.x - CUR.x) * 0.15));
+      cursorTilt += (tiltTarget - cursorTilt) * 0.22;
+      wrap.style.transform = `translate3d(${CUR.x - 20}px, ${CUR.y - 16}px, 0)`;
+      cross.style.setProperty('--cursor-tilt', `${cursorTilt}deg`);
       // Stop re-rendering once settled so idle pages don't burn CPU.
       const settled =
         Math.abs(TARGET.x - CUR.x) < 0.4 && Math.abs(TARGET.y - CUR.y) < 0.4 &&
-        Math.abs(CUR.x - RING.x) < 0.4 && Math.abs(CUR.y - RING.y) < 0.4;
+        Math.abs(cursorTilt) < 0.1;
       if (settled) { running = false; return; }
       raf = requestAnimationFrame(loop);
     };
