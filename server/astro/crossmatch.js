@@ -6,24 +6,27 @@
 //   - coneSearch(catalog, center, {radiusArcsec}) -> indices in a disc
 //   - nearestNeighbor(source, target, {...})      -> k nearest within radius
 //
-// A target within `radius` of a source is guaranteed to be considered: the
-// source's neighbourhood is sampled on a grid fine enough (step = half the
-// pixel side length) that every HEALPix pixel touching the search disc is
-// probed. Exact great-circle separations then filter the candidate set, so
-// there are never false positives and, by construction of the index + probe
-// geometry, no false negatives.
+// Candidate pixels are probed with a conservative tangent-plane grid: the step
+// is half the estimated HEALPix pixel scale and the probed region extends a
+// full two pixel-scales beyond the search radius, so every HEALPix pixel that
+// the search disc (plus margin) touches is sampled many times over. Exact
+// great-circle separations then filter the candidate set, so results never
+// contain false positives. Exactness of *recall* (no false negatives) is not
+// proven formally; it is exercised by large randomized differential tests
+// against the brute-force O(n·m) reference (see server/astro/crossmatch.test.js).
 
-import { ORDERING, ang2pixLonLat, nside2resol } from './healpix.js';
+import { ORDERING, ang2pixLonLat, nside2resol, MAX_NSIDE_RING } from './healpix.js';
 import { angularSeparationArcsec } from './coords.js';
 
 const DEG2RAD = Math.PI / 180;
 const ARCSEC = 3600; // arcsec per degree
 const SQRT_4PI_OVER_12 = Math.sqrt((4 * Math.PI) / 12);
-const MAX_NSIDE = 1 << 20;
+const MAX_NSIDE = MAX_NSIDE_RING;
 
 /**
  * Choose an nside whose pixel side length is at most the search radius, so the
- * probe-neighbourhood of any source stays small while remaining exact.
+ * probe-neighbourhood of any source stays small while remaining dense enough
+ * for the conservative pixel probe.
  */
 export function chooseNside(radiusArcsec) {
   const radiusRad = (radiusArcsec * DEG2RAD) / ARCSEC;
@@ -82,7 +85,11 @@ function offsetPoint(raDeg, decDeg, u, v) {
 }
 
 // Returns the set of HEALPix pixel indices that the search disc overlaps, by
-// sampling a local tangent-plane grid around `center`.
+// sampling a local tangent-plane grid around `center`. Conservative by design:
+// the step is half the estimated pixel scale and the grid extends two pixel
+// scales beyond the radius, so overlapping pixels are sampled many times over.
+// This is a robust candidate generator, not a formal proof of full coverage;
+// recall is verified empirically by randomized differential tests.
 function probePixels(nside, raDeg, decDeg, radiusRad) {
   const pixSize = nside2resol(nside);
   const halfw = radiusRad + 2.0 * pixSize;

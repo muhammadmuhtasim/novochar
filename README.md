@@ -95,11 +95,14 @@ server/astro/
 Validated against Healpy / astropy reference values (ring/polar anchors, nest
 pixel-centre oracles, `pix2ang(16,1440)`, `ring2nest(16,1504)=1130`) and an
 exhaustive `ang2pix(pix2ang(p)) == p` round-trip on every pixel for
-nside ≤ 32. Run the suite (Node built-in test runner, no extra deps):
+nside ≤ 32. Run the full suite (Node built-in test runner, no extra deps) —
+server tests plus client-side math/export/3D tests:
 
 ```bash
-npm test -w server
+npm test
 ```
+
+(per-workspace: `npm test -w server`, `npm test -w client`.)
 
 Example:
 

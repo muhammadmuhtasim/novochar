@@ -106,121 +106,100 @@ export default function App() {
     const mm = (q) => window.matchMedia && window.matchMedia(q).matches;
     if (mm('(any-pointer: coarse)') || mm('(prefers-reduced-motion: reduce)')) return undefined;
 
-    const SVGNS = 'http://www.w3.org/2000/svg';
-    const make = (tag, cls, ns) => {
-      const el = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+    const make = (tag, cls) => {
+      const el = document.createElement(tag);
       if (cls) el.setAttribute('class', cls);
       return el;
     };
 
     const cursor = make('div', 'nc-cursor');
-    const wrap = make('span', 'nc-cross-wrap');
-    const cross = make('span', 'nc-cross');
-    const svg = make('svg', null, SVGNS);
-    svg.setAttribute('viewBox', '0 0 40 32');
-    svg.setAttribute('width', '40');
-    svg.setAttribute('height', '32');
-    svg.setAttribute('aria-hidden', 'true');
-
-    const outline = make('path', null, SVGNS);
-    outline.setAttribute('d', 'M10 5 H30 M7 10 L17 28 M33 10 L23 28');
-    outline.setAttribute('fill', 'none');
-    outline.setAttribute('stroke', 'currentColor');
-    outline.setAttribute('stroke-width', '2');
-    outline.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(outline);
-
-    const inner = make('path', null, SVGNS);
-    inner.setAttribute('d', 'M13 13 H27 L20 21 Z');
-    inner.setAttribute('fill', 'none');
-    inner.setAttribute('stroke', 'currentColor');
-    inner.setAttribute('stroke-opacity', '0.56');
-    inner.setAttribute('stroke-width', '1');
-    svg.appendChild(inner);
-
-    const tip = make('path', null, SVGNS);
-    tip.setAttribute('d', 'M18 16 L20 12 L22 16 Z');
-    tip.setAttribute('fill', 'currentColor');
-    svg.appendChild(tip);
-
-    cross.appendChild(svg);
-    wrap.appendChild(cross);
-    cursor.appendChild(wrap);
+    const dot = make('span', 'nc-cursor-dot');
+    cursor.appendChild(dot);
     document.body.appendChild(cursor);
     document.documentElement.classList.add('nc-cursor-on');
     cursor.style.opacity = '0';
 
-    const TARGET = { x: -100, y: -100 };
-    const CUR = { x: -100, y: -100 };
-    let cursorTilt = 0;
     let shown = false;
+    let movementTimer = null;
+    let clickTimer = null;
 
     const INTERACTIVE =
-      'a, button:not(:disabled), [role="button"], .tab, .btn, .seg, .chip, .tag, summary, label, ' +
-      '.obj-card, .source-card, select, input[type="checkbox"], input[type="radio"], [onclick]';
+      'a[href], button:not(:disabled), [role="button"], [role="link"], [tabindex]:not([tabindex="-1"]), ' +
+      '.tab, .btn, .seg, .chip, .tag, summary, label, .obj-card, .source-card, select, ' +
+      'input[type="checkbox"], input[type="radio"], [onclick], [data-clickable="true"]';
+    const NONINTERACTIVE = 'body, main, section, article, header, footer, nav, div, p, h1, h2, h3, span';
     const TEXTISH =
       'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]), select, [contenteditable="true"]';
 
     const updateHover = () => {
       if (!shown) return;
-      const el = document.elementFromPoint(TARGET.x, TARGET.y);
+      const el = document.elementFromPoint(pointer.x, pointer.y);
       if (!el) return;
       if (el.closest && (el.closest(TEXTISH) || el.closest('[contenteditable]'))) {
         cursor.classList.remove('busy');
+        cursor.classList.remove('over-content');
         cursor.classList.add('hidden');
         return;
       }
       cursor.classList.remove('hidden');
-      if (el.closest && el.closest(INTERACTIVE)) cursor.classList.add('busy');
-      else cursor.classList.remove('busy');
+      const clickable = el.closest && el.closest(INTERACTIVE);
+      cursor.classList.toggle('busy', Boolean(clickable));
+      cursor.classList.toggle('over-content', !clickable && Boolean(el.closest && el.closest(NONINTERACTIVE)));
     };
+    const pointer = { x: -100, y: -100 };
 
     const onMove = (e) => {
-      TARGET.x = e.clientX;
-      TARGET.y = e.clientY;
+      if (document.pointerLockElement) {
+        hide();
+        return;
+      }
+      pointer.x = e.clientX;
+      pointer.y = e.clientY;
+      cursor.style.transform = `translate3d(${pointer.x}px, ${pointer.y}px, 0)`;
       if (!shown) {
-        CUR.x = TARGET.x;
-        CUR.y = TARGET.y;
         shown = true;
         cursor.style.opacity = '1';
       }
+      cursor.classList.add('moving');
+      clearTimeout(movementTimer);
+      movementTimer = setTimeout(() => cursor.classList.remove('moving'), 110);
       updateHover();
-      start();
     };
-    const hide = () => { cursor.style.opacity = '0'; shown = false; };
+    const hide = () => {
+      cursor.style.opacity = '0';
+      shown = false;
+      clearTimeout(movementTimer);
+      clearTimeout(clickTimer);
+      cursor.classList.remove('moving', 'busy', 'over-content', 'press', 'clicked', 'hidden');
+    };
     const press = () => cursor.classList.add('press');
-    const release = () => cursor.classList.remove('press');
-
-    let raf = null;
-    let running = false;
-    const start = () => { if (!running) { running = true; raf = requestAnimationFrame(loop); } };
-    const loop = () => {
-      CUR.x += (TARGET.x - CUR.x) * 0.62;
-      CUR.y += (TARGET.y - CUR.y) * 0.62;
-      const tiltTarget = Math.max(-14, Math.min(14, (TARGET.x - CUR.x) * 0.24));
-      cursorTilt += (tiltTarget - cursorTilt) * 0.22;
-      wrap.style.transform = `translate3d(${CUR.x - 20}px, ${CUR.y - 16}px, 0)`;
-      cross.style.setProperty('--cursor-tilt', `${cursorTilt}deg`);
-      // Stop re-rendering once settled so idle pages don't burn CPU.
-      const settled =
-        Math.abs(TARGET.x - CUR.x) < 0.4 && Math.abs(TARGET.y - CUR.y) < 0.4 &&
-        Math.abs(cursorTilt) < 0.1;
-      if (settled) { running = false; return; }
-      raf = requestAnimationFrame(loop);
+    const release = (e) => {
+      cursor.classList.remove('press');
+      if (e.button !== 0) return;
+      cursor.classList.remove('clicked');
+      void dot.offsetWidth;
+      cursor.classList.add('clicked');
+      clearTimeout(clickTimer);
+      clickTimer = setTimeout(() => cursor.classList.remove('clicked'), 420);
+    };
+    const onPointerLockChange = () => {
+      if (document.pointerLockElement) hide();
     };
 
     document.addEventListener('mousemove', onMove, { passive: true });
     document.addEventListener('mouseleave', hide);
     document.addEventListener('mousedown', press);
     document.addEventListener('mouseup', release);
-    start();
-
+    document.addEventListener('pointerlockchange', onPointerLockChange);
     return () => {
-      cancelAnimationFrame(raf);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseleave', hide);
       document.removeEventListener('mousedown', press);
       document.removeEventListener('mouseup', release);
+      document.removeEventListener('pointerlockchange', onPointerLockChange);
+      clearTimeout(movementTimer);
+      clearTimeout(clickTimer);
+      cursor.classList.remove('moving', 'busy', 'over-content', 'press', 'clicked', 'hidden');
       document.documentElement.classList.remove('nc-cursor-on');
       if (cursor.parentNode === document.body) cursor.remove();
     };
@@ -246,12 +225,6 @@ export default function App() {
         <NavMenu tab={tab} setTab={setTab} open={menuOpen} />
       </div>
       <main className="view" key={tab}>
-        <div className="view-scanline-sweep" />
-        <div className="view-tear" />
-        <div className="hud-tab-banner">
-          <span className="hud-banner-dot" />
-          <span className="hud-banner-text">SYS.INIT // MODULE: {tab.toUpperCase()} // NOVOCHAR HUD OPERATIONAL</span>
-        </div>
         {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
         {tab === 'sky' && <SkyViewer />}
         {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} onTarget={goToTarget} />}

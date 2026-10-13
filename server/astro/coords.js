@@ -1,11 +1,25 @@
 // Coordinate conversion utilities for the Processing/Matching layer.
 //
-// Implements the equatorial (RA/Dec, ICRS/equinox J2000) <-> Galactic (l, b)
-// transformation using the exact rotation matrix and constants that Astropy
-// uses for the `FK5(J2000) <-> Galactic` transform (astropy
-// galactic_transforms.py), so results match Astropy / reputable catalogs.
+// Implements the equatorial (RA/Dec) <-> Galactic (l, b) transformation using
+// the exact rotation matrix and constants that Astropy uses for its
+// `FK5(J2000) <-> Galactic` transform (astropy galactic_transforms.py), so the
+// results match Astropy / reputable catalogs.
 //
-// Byte-compatible conventions:
+// Frame contract: the input coordinates are treated as ICRS/J2000. ICRS and
+// FK5(J2000) coincide at J2000 to well under 0.1 milli-arcsecond (the ICRS was
+// aligned to FK5 with an offset < 0.02 mas), so the two frames are treated as
+// identical here for all achievable precision.
+//
+// Rotation convention (IMPORTANT): the matrices below are the *coordinate-frame*
+// rotation matrices used by Astropy (`astropy.coordinates.matrix_utilities.
+// rotation_matrix`), i.e. the transpose of the usual active, right-handed
+// rotation operator on column vectors. A positive angle rotates the *axes* by
+// +a, which transforms a vector's coordinates as the conventional active
+// rotation by -a. Matrix multiplication order therefore matters; the
+// equatorial->Galactic composition below already accounts for it. Do NOT change
+// signs or ordering without independent reference tests.
+//
+// Reference matrices (Astropy byte-compatible conventions):
 //   rotation_matrix(a, axis='z') = [[cos a, sin a, 0],
 //                                   [-sin a, cos a, 0],
 //                                   [0,      0,     1]]
@@ -22,7 +36,8 @@ const RA_NGP = 192.8594812065348; // galactic north pole, RA (deg)
 const DEC_NGP = 27.12825118085622; // galactic north pole, Dec (deg)
 const L_NCP = 122.9319185680026; // galactic longitude of the NCP (deg)
 
-// Rotation matrices (as active column-vector rotations, matching Astropy).
+// Rotation matrices (coordinate-frame rotations, matching Astropy's
+// `rotation_matrix`; see the module header for the exact convention).
 export function rotZ(deg) {
   const a = deg * DEG2RAD;
   const c = Math.cos(a);
@@ -134,7 +149,11 @@ export function angularSeparationDeg(ra1, dec1, ra2, dec2) {
   const sinLon = Math.sin(dLon / 2);
   const h =
     sinLat * sinLat + Math.cos(d1) * Math.cos(d2) * sinLon * sinLon;
-  return 2 * Math.asin(Math.min(1, Math.sqrt(h))) * RAD2DEG;
+  // h is a sum of squares so it is >= 0 in exact arithmetic, but floating-point
+  // roundoff can produce a tiny negative value; clamp the full interval [0, 1]
+  // so asin(sqrt(h)) never receives NaN / imaginary input.
+  const hSafe = Math.min(1, Math.max(0, h));
+  return 2 * Math.asin(Math.sqrt(hSafe)) * RAD2DEG;
 }
 
 export const ARCSEC_PER_DEG = 3600;

@@ -15,7 +15,7 @@ export function downloadBlob(blob, filename) {
 }
 
 export function spectrumCSV(sed) {
-  const rows = ['lambda_um,flux_Jy'];
+  const rows = ['lambda_um,flux_au']; // synthetic, arbitrary units (not calibrated Jy)
   for (const p of sed.spectrum) rows.push(`${p.lambda},${p.flux}`);
   return rows.join('\n');
 }
@@ -28,14 +28,26 @@ export function spectrumJSON(sed) {
 function padString(s, len) {
   return String(s).padEnd(len, ' ').slice(0, len);
 }
+// Minimal FITS header-card writer: keyword = value (right-justified in a
+// 20-column value field, like professional writers). Strings are single-quoted
+// once (FITS convention), booleans become T/F, and END is a bare keyword card.
 function card(keyword, value, comment = '') {
-  const vStr = typeof value === 'string' ? `'${value}'` : String(value);
-  const line = comment ? `${padString(keyword, 8)}=${padString(vStr, 20)}/ ${comment}` : `${padString(keyword, 8)}=${padString(vStr, 20)}`;
-  return padString(line, 80);
+  if (keyword === 'END') return padString('END', 80);
+  let vStr;
+  if (typeof value === 'boolean') vStr = value ? 'T' : 'F';
+  else if (typeof value === 'string') vStr = `'${value}'`;
+  else vStr = String(value);
+  const prefix = padString(keyword, 8) + '=';
+  const spaces = ' '.repeat(Math.max(1, 20 - vStr.length));
+  const line = comment
+    ? `${prefix}${spaces}${vStr} / ${comment}`
+    : `${prefix}${spaces}${vStr}`;
+  return padString(line.slice(0, 80), 80);
 }
 
 export function spectrumFITS(sed) {
   const n = sed.spectrum.length;
+  if (!(n > 1)) throw new RangeError('spectrumFITS requires at least 2 spectrum samples');
   const l0 = sed.spectrum[0].lambda;
   const l1 = sed.spectrum[n - 1].lambda;
   const dl = (l1 - l0) / (n - 1);
@@ -43,18 +55,21 @@ export function spectrumFITS(sed) {
     card('SIMPLE', true),
     card('BITPIX', -64),
     card('NAXIS', 1),
-    card('NAXIS1', n * 8),
+    // NAXIS1 is an element count (each 64-bit value is 8 bytes), not a byte count.
+    card('NAXIS1', n),
     card('EXTEND', true),
-    card('BUNIT', "'Jy'"),
-    card('CTYPE1', "'WAVE'"),
-    card('CUNIT1', "'um'"),
-    card('CRVAL1', +l0.toFixed(6)),
-    card('CDELT1', +dl.toFixed(6)),
+    card('BUNIT', '--'), // no physical unit: synthetic flux in arbitrary units
+    card('CTYPE1', 'WAVE'),
+    card('CUNIT1', 'um'),
+    // CRVAL1/CDELT1 use the full-precision linear solution so the header WCS
+    // reconstructs the sample wavelengths within ~1e-6 µm.
+    card('CRVAL1', +l0.toFixed(12)),
+    card('CDELT1', +dl.toFixed(12)),
     card('CRPIX1', 1),
-    card('OBJECT', `'${(sed.object.name || sed.object.id || '').slice(0, 28)}'`),
-    card('TELESCOP', "'SPHEREx'"),
+    card('OBJECT', (sed.object.name || sed.object.id || '').slice(0, 28)),
+    card('TELESCOP', 'SPHEREx'),
     card('SNR', sed.meta ? sed.meta.snr : 0),
-    card('COMMENT', "'Novochar synthetic spectrum (1-D)'"),
+    card('COMMENT', 'Novochar synthetic spectrum (1-D, arbitrary units)'),
     card('END', ''),
   ];
   let header = '';
@@ -142,6 +157,6 @@ export function spectrumPNGDataURL(sed, { z = 0, xScale = 'linear', lines = [] }
 
   ctx.fillStyle = '#ff6a00';
   ctx.font = '12px monospace';
-  ctx.fillText(`Flux (Jy, log) vs Wavelength (µm)  ·  z=${Number(z).toFixed(3)}`, px, 16);
+  ctx.fillText(`Synthetic flux (a.u., log) vs Wavelength (µm)  ·  z=${Number(z).toFixed(3)}`, px, 16);
   return cv.toDataURL('image/png');
 }

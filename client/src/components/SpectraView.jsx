@@ -316,9 +316,16 @@ function ExportControls({ sed, z, xScale, svgRef }) {
 
 
 function pathFrom(spectrum, tr) {
-  return (spectrum.spectrum || [])
-    .map((p, i) => (i === 0 ? `M${tr.X(p.lambda)},${tr.Y(p.flux)}` : `L${tr.X(p.lambda)},${tr.Y(p.flux)}`))
-    .join(' ');
+  // Skip samples whose coordinates are not finite (e.g. non-positive flux on a
+  // log axis) so the SVG path never contains NaN/Infinity tokens.
+  const parts = [];
+  for (const p of spectrum.spectrum || []) {
+    const x = tr.X(p.lambda);
+    const y = tr.Y(p.flux);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    parts.push(parts.length === 0 ? `M${x},${y}` : `L${x},${y}`);
+  }
+  return parts.join(' ');
 }
 
 function SedPlot({ primary, overlays, z, xScale, svgRef }) {
@@ -347,7 +354,7 @@ function SedPlot({ primary, overlays, z, xScale, svgRef }) {
         {xticks.map((t) => <text key={'xt' + t} x={tr.X(t)} y={H - 16} textAnchor="middle" className="axis">{fmtW(t)}</text>)}
         {yticks.map((i) => <text key={'yt' + i} x={tr.pad.l - 6} y={tr.Y(Math.pow(10, i)) + 4} textAnchor="end" className="axis">{i === 0 ? '1' : `1e${i}`}</text>)}
         <text x={W / 2} y={H - 2} textAnchor="middle" className="axis-label">Wavelength (µm)</text>
-        <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="axis-label">Flux (Jy, log)</text>
+        <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="axis-label">Synthetic flux (a.u., log)</text>
 
         {overlays.map((o) => (
           <path key={o.label} d={pathFrom(o.sed, tr)} fill="none" stroke={o.color} strokeWidth="1.2" strokeDasharray="4 3" opacity="0.85" />
@@ -599,7 +606,7 @@ function HelpModal({ onClose }) {
         </div>
         <div className="help-body">
           <h3>1-D Spectrum</h3>
-          <p className="muted">Flux (Jy, log scale) against wavelength (µm). The solid neon curve is the target; dashed colored curves are comparison sources. Cyan tick labels are <b>emission</b> lines, amber are <b>absorption</b> lines — move the redshift slider to shift them by (1+z) and match observed features.</p>
+          <p className="muted">Synthetic flux (arbitrary units, log scale) against wavelength (µm). The solid neon curve is the target; dashed colored curves are comparison sources. Cyan tick labels are <b>emission</b> lines, amber are <b>absorption</b> lines — move the redshift slider to shift them by (1+z) and match observed features.</p>
           <h3>Synthetic PSF</h3>
           <p className="muted">A Gaussian point-spread function rendering of the target at its RA/Dec and magnitude — a stand-in for a real image cutout. Larger/fainter PSFs come from brighter objects.</p>
           <h3>HEALPix / NSIDE Resolution</h3>

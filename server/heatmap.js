@@ -5,7 +5,7 @@
 // rendering as a sky-density heatmap in the client. Later this seam also
 // ingests imported-archive counts.
 
-import { ang2pixLonLat, pix2angRaDec, nside2npix, nside2resol, ORDERING } from './astro/healpix.js';
+import { ang2pixLonLat, pix2angRaDec, nside2npix, nside2resol, RESOL_ARCSEC, ORDERING } from './astro/healpix.js';
 
 /**
  * Bin an array of {ra, dec} rows into HEALPix (ring) pixels.
@@ -29,7 +29,7 @@ export function buildHeatmap(rows, nside = 64) {
   return {
     nside,
     npix: nside2npix(nside),
-    resolArcsec: +(nside2resol(nside) * 206264.8).toFixed(1),
+    resolArcsec: +(nside2resol(nside) * RESOL_ARCSEC).toFixed(1),
     pixelCount: bins.length,
     bins,
   };

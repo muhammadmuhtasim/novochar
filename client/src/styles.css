@@ -65,7 +65,7 @@ html {
 }
 
 html, body {
-  height: 100%;
+  min-height: 100%;
   margin: 0;
   padding: 0;
   background-color: var(--bg-void);
@@ -166,164 +166,11 @@ main.view {
   max-width: 1720px;
   width: 100%;
   margin: 0 auto;
-  animation: sci-fi-glitch-enter 1.1s cubic-bezier(0.18, 0.9, 0.2, 1) forwards;
-  will-change: transform, opacity, clip-path;
 }
 
-/* Sci-Fi Shutter Scanning Laser Line Sweep on Tab Switch */
-.view-scanline-sweep {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, transparent 0%, #FF4D00 20%, #00F0FF 50%, #FF6A00 80%, transparent 100%);
-  box-shadow: 0 0 20px #FF6A00, 0 0 40px #FF4D00, 0 0 10px #00F0FF;
-  z-index: 150;
-  pointer-events: none;
-  animation: scanline-sweep-anim 0.95s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
 
-/* Sci-Fi HUD Tab Module Initialization Banner */
-.hud-tab-banner {
-  position: fixed;
-  top: 68px;
-  right: 28px;
-  z-index: 140;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(8, 9, 14, 0.92);
-  border: 1px solid var(--neon-bright);
-  padding: 6px 14px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-  color: var(--neon-amber);
-  box-shadow: var(--glow-md);
-  pointer-events: none;
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
-  animation: hud-banner-flash 2.6s ease-in-out forwards;
-}
 
-.hud-banner-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--neon-bright);
-  box-shadow: 0 0 8px var(--neon-bright);
-  animation: pulse-hud 0.8s infinite;
-}
 
-@keyframes hud-banner-flash {
-  0% { opacity: 0; transform: translateY(-10px) scale(0.9); }
-  10% { opacity: 1; transform: translateY(0) scale(1); filter: brightness(1.5); }
-  82% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-6px); pointer-events: none; }
-}
-
-@keyframes scanline-sweep-anim {
-  0%   { top: -2%; opacity: 1; height: 4px; }
-  16%  { top: 11%; opacity: 1; height: 6px; }
-  24%  { top: 14%; opacity: 0.9; }           /* shutter stutter */
-  30%  { top: 27%; height: 9px; }
-  42%  { top: 39%; }
-  47%  { top: 42%; opacity: 0.95; }          /* second stutter */
-  58%  { top: 54%; height: 6px; }
-  66%  { top: 61%; opacity: 0.8; }
-  77%  { top: 73%; height: 4px; }
-  88%  { top: 85%; opacity: 0.55; height: 3px; }
-  100% { top: 103%; opacity: 0; height: 2px; }
-}
-
-/* Digital Iris Wipe, Chromatic Pulses & multi-slice glitch tears (lightweight —
-   no heavy drop-shadow animation; filter glows are transient) */
-@keyframes sci-fi-glitch-enter {
-  0% {
-    opacity: 0;
-    clip-path: polygon(0 45%, 100% 45%, 100% 55%, 0 55%);
-    transform: translate3d(0, 12px, 0) scale(1.03);
-    filter: brightness(2) contrast(1.3) saturate(1.5) blur(3px);
-  }
-  7% {
-    opacity: 1;
-    clip-path: polygon(0 42%, 100% 40%, 100% 60%, 0 62%);
-    transform: translate3d(-6px, 6px, 0) scale(1.03) skewX(-2deg);
-    filter: brightness(1.65) contrast(1.18) saturate(1.5) blur(1.6px);
-  }
-  14% {
-    clip-path: polygon(0 10%, 100% 6%, 100% 88%, 0 92%);
-    transform: translate3d(5px, -3px, 0) scale(1.025) skewX(1.2deg);
-    filter: brightness(1.5) saturate(1.35);
-  }
-  24% {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-    transform: translate3d(0, 0, 0);
-    filter: brightness(1.28) saturate(1.18);
-  }
-  34% {
-    clip-path: polygon(0 4%, 100% 4%, 100% 30%, 0 34%);
-    transform: translate3d(-4px, 0, 0);
-    filter: brightness(1.55) contrast(1.14) hue-rotate(7deg);
-  }
-  44% {
-    clip-path: polygon(0 58%, 100% 56%, 100% 80%, 0 82%);
-    transform: translate3d(3px, 0, 0) skewX(-1deg);
-    filter: brightness(1.34) saturate(1.3);
-  }
-  54% {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-    transform: translate3d(0, 0, 0);
-    filter: brightness(1.18);
-  }
-  64% {
-    clip-path: polygon(0 26%, 100% 24%, 100% 40%, 0 42%);
-    transform: translate3d(-2px, 0, 0);
-    filter: brightness(1.24) hue-rotate(-6deg);
-  }
-  76% {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-    transform: none;
-    filter: brightness(1.08);
-  }
-  88% {
-    transform: translate3d(0, -1px, 0);
-    filter: brightness(1.02);
-  }
-  100% {
-    opacity: 1;
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-    transform: none;
-    filter: none;
-  }
-}
-
-/* Flickering cyan/orange "data tear" bar that jumps across the transition. */
-.view-tear {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, transparent 0%, #00F0FF 14%, transparent 34%, #FF4D00 62%, transparent 100%);
-  box-shadow: 0 0 14px rgba(0, 240, 255, 0.85), 0 0 6px rgba(255, 77, 0, 0.7);
-  z-index: 149;
-  pointer-events: none;
-  animation: view-tear-anim 1.2s cubic-bezier(0.4, 0, 0.6, 1) forwards;
-}
-
-@keyframes view-tear-anim {
-  0%   { top: 20%; opacity: 0; transform: translateX(0); }
-  7%   { top: 20%; opacity: 1; }
-  18%  { top: 33%; opacity: 0.95; transform: translateX(18px); }
-  25%  { top: 33%; opacity: 0; }
-  36%  { top: 60%; opacity: 1; transform: translateX(-14px); }
-  46%  { top: 49%; opacity: 0.75; }
-  58%  { top: 74%; opacity: 0.95; transform: translateX(8px); }
-  70%  { top: 62%; opacity: 0.7; }
-  84%  { top: 86%; opacity: 0.9; transform: translateX(-6px); }
-  100% { top: 104%; opacity: 0; transform: translateX(0); }
-}
 
 /* ==========================================================================
    SCI-FI CHAMFER IRIS SCROLL-DRIVEN REVEALS
@@ -382,12 +229,7 @@ main.view {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  main.view {
-    animation: none !important;
-  }
-  .view-scanline-sweep {
-    display: none !important;
-  }
+
   .panel, .source-card, .obj-card, .sed-chart, .chip {
     opacity: 1 !important;
     transform: none !important;
@@ -2101,73 +1943,102 @@ html.nc-cursor-on [contenteditable="true"] {
   transition: opacity 0.12s ease-out;
 }
 
-.nc-cursor .nc-cross-wrap {
+.nc-cursor-dot {
   position: absolute;
   left: 0;
   top: 0;
-  width: 40px;
-  height: 32px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #efffff;
+  box-shadow: 0 0 5px 1px rgba(92, 226, 255, 0.9), 0 0 12px rgba(92, 226, 255, 0.48);
   will-change: transform;
+  animation: nc-dot-idle 3.4s ease-in-out infinite;
+  transition: scale 180ms cubic-bezier(.2,.8,.2,1), background 180ms ease, box-shadow 180ms ease;
 }
-.nc-cursor .nc-cross {
-  display: block;
-  width: 100%;
-  height: 100%;
-  color: #f5fbff;
-  filter: drop-shadow(0 0 5px rgba(91, 218, 255, 0.7)) drop-shadow(1px 0 2px rgba(255, 96, 160, 0.38));
-  transform: rotate(var(--cursor-tilt, 0deg));
-  scale: 1;
-  animation: nc-cursor-idle 2.2s ease-in-out infinite;
-  transition: color var(--trans-fast), scale 120ms ease-out;
-  will-change: transform;
+.nc-cursor-dot::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 25px;
+  height: 25px;
+  border: 1px solid rgba(113, 229, 255, 0.44);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(70, 213, 255, 0.14), inset 0 0 7px rgba(70, 213, 255, 0.08);
+  transform: translate(-50%, -50%);
+  animation: nc-dot-halo 3.4s ease-in-out infinite;
+  transition: width 180ms ease, height 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  pointer-events: none;
 }
-.nc-cursor .nc-cross svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-/* Hovering an interactive control = "target locked" (cyan, enlarged) */
-.nc-cursor.busy .nc-cross {
-  color: var(--accent-cyan);
-  transform: rotate(var(--cursor-tilt, 0deg));
-  animation: nc-cursor-lock 0.68s ease-in-out infinite;
+.nc-cursor.moving .nc-cursor-dot {
+  scale: 1.18;
 }
 
-/* Click feedback */
-.nc-cursor.press .nc-cross {
-  color: #FFFFFF;
-  transform: rotate(var(--cursor-tilt, 0deg));
-  scale: 0.82;
-  animation: none;
+/* Regular page content keeps a quiet, small targeting halo. */
+.nc-cursor.over-content .nc-cursor-dot {
+  background: #c7f3f8;
+  box-shadow: 0 0 4px rgba(92, 226, 255, 0.62);
+}
+.nc-cursor.over-content .nc-cursor-dot::before {
+  width: 20px;
+  height: 20px;
+  border-color: rgba(113, 229, 255, 0.28);
 }
 
-@keyframes nc-cursor-idle {
-  0%, 100% {
-    filter: drop-shadow(0 0 4px rgba(91, 218, 255, 0.58)) drop-shadow(1px 0 2px rgba(255, 96, 160, 0.32));
-    scale: 0.96;
-  }
-  50% {
-    filter: drop-shadow(0 0 10px rgba(91, 218, 255, 0.96)) drop-shadow(1px 0 3px rgba(255, 96, 160, 0.55));
-    scale: 1.12;
-  }
+/* Hover over a clickable control: brighten and open the halo. */
+.nc-cursor.busy .nc-cursor-dot {
+  scale: 1.42;
+  background: #ffffff;
+  box-shadow: 0 0 7px 2px rgba(92, 226, 255, 1), 0 0 18px rgba(92, 226, 255, 0.8);
+}
+.nc-cursor.busy .nc-cursor-dot::before {
+  width: 34px;
+  height: 34px;
+  border-color: rgba(148, 245, 255, 0.92);
+  box-shadow: 0 0 12px rgba(70, 213, 255, 0.5), inset 0 0 10px rgba(70, 213, 255, 0.2);
+  animation: nc-dot-target 680ms ease-in-out infinite alternate;
 }
 
-@keyframes nc-cursor-lock {
-  0%, 100% {
-    filter: drop-shadow(0 0 6px rgba(87, 232, 255, 0.74));
-    scale: 1.06;
-  }
-  50% {
-    filter: drop-shadow(0 0 14px rgba(87, 232, 255, 1));
-    scale: 1.22;
-  }
+/* Press compresses the point; release sends one expanding ring. */
+.nc-cursor.press .nc-cursor-dot {
+  scale: 0.72;
+}
+.nc-cursor.clicked .nc-cursor-dot {
+  animation: nc-dot-click 360ms cubic-bezier(.16,1,.3,1) both;
+}
+.nc-cursor.clicked .nc-cursor-dot::before {
+  animation: nc-dot-ripple 420ms cubic-bezier(.16,1,.3,1) both;
+}
+
+@keyframes nc-dot-idle {
+  0%, 100% { box-shadow: 0 0 4px 1px rgba(92, 226, 255, 0.72), 0 0 10px rgba(92, 226, 255, 0.38); }
+  50% { box-shadow: 0 0 7px 2px rgba(92, 226, 255, 0.96), 0 0 16px rgba(92, 226, 255, 0.62); }
+}
+@keyframes nc-dot-halo {
+  0%, 100% { opacity: 0.58; transform: translate(-50%, -50%) scale(0.88); }
+  50% { opacity: 1; transform: translate(-50%, -50%) scale(1.04); }
+}
+@keyframes nc-dot-target {
+  from { transform: translate(-50%, -50%) scale(0.94); }
+  to { transform: translate(-50%, -50%) scale(1.08); }
+}
+@keyframes nc-dot-click {
+  0% { scale: 0.72; }
+  45% { scale: 1.65; }
+  100% { scale: 1; }
+}
+@keyframes nc-dot-ripple {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.72); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.9); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nc-cursor .nc-cross,
-  .nc-cursor.busy .nc-cross {
+  .nc-cursor-dot,
+  .nc-cursor-dot::before {
     animation: none;
+    transition: none;
   }
 }
 

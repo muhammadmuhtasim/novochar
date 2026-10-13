@@ -14,7 +14,7 @@
     "build": "npm run build -w client && npm run precompute:data",
     "precompute:data": "node scripts/precompute-data.mjs",
     "start": "npm run start -w server",
-    "test": "npm test -w server"
+    "test": "npm test -w server && npm test -w client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

@@ -144,7 +144,10 @@ export function decodeBinaryRows(b64, fields, endian = 'le', binary2 = false) {
         }
         else if (dt === 'int') row[(f.name) || `col${i}`] = dv.getInt32(p, !be);
         else if (dt === 'short') row[(f.name) || `col${i}`] = dv.getInt16(p, !be);
-        else if (dt === 'longlong') row[(f.name) || `col${i}`] = Number(dv.getBigInt64 ? dv.getBigInt64(p, !be) : (dv.getUint32(p, !be) + 4294967296 * dv.getUint32(p + 4, !be)));
+        else if (dt === 'longlong') {
+          const value = dv.getBigInt64 ? dv.getBigInt64(p, !be) : BigInt(dv.getUint32(p, !be)) + BigInt(dv.getUint32(p + 4, !be)) * 4294967296n;
+          row[(f.name) || `col${i}`] = value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
+        }
         else if (dt === 'boolean') row[(f.name) || `col${i}`] = raw[p] !== 0;
         else if (dt === 'unsignedByte') row[(f.name) || `col${i}`] = raw[p];
         else {

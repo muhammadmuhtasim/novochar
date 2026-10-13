@@ -8,13 +8,22 @@ export function projectGaiaRow(row, targetEpoch) {
   }
   const ra = Number(row.ra);
   const dec = Number(row.dec);
-  const pmra = Number(row.pmra);
-  const pmdec = Number(row.pmdec);
+  // `row.pmra` may be null / undefined (empty VOTable cell). Number(null) is 0,
+  // so the raw value must be checked before coercion: missing components must
+  // not silently masquerade as measured-zero motion.
+  const pmraRaw = row.pmra;
+  const pmdecRaw = row.pmdec;
+  const pmra = pmraRaw == null ? NaN : Number(pmraRaw);
+  const pmdec = pmdecRaw == null ? NaN : Number(pmdecRaw);
   const referenceEpoch = Number(row.ref_epoch ?? 2016.0);
   if (![ra, dec, targetEpoch, referenceEpoch].every(Number.isFinite) || Math.abs(dec) > 90) {
     throw new TypeError('Gaia row requires finite ra, dec, ref_epoch and target epoch');
   }
 
+  // Distinguish "measured zero motion" from "no data": when either component is
+  // missing we still propagate nothing, but expose hasProperMotion=false so
+  // callers do not mistake an assumed-zero solution for a validated one.
+  const hasProperMotion = Number.isFinite(pmra) || Number.isFinite(pmdec);
   const years = targetEpoch - referenceEpoch;
   const eastMas = Number.isFinite(pmra) ? pmra * years : 0;
   const northMas = Number.isFinite(pmdec) ? pmdec * years : 0;
@@ -40,6 +49,7 @@ export function projectGaiaRow(row, targetEpoch) {
     referenceEpoch,
     targetEpoch,
     displacementMas: Math.hypot(eastMas, northMas),
+    hasProperMotion,
   };
 }
 

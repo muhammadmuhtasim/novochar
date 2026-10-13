@@ -103,3 +103,26 @@ test('buildHeatmap bins all objects into HEALPix cells', () => {
 test('buildHeatmap is deterministic', () => {
   assert.deepEqual(buildHeatmap(objects, 64), buildHeatmap(objects, 64));
 });
+
+test('buildSpectrum wavelengths are monotonic and preserve the linear grid', () => {
+  const s = buildSpectrum(objects[0], { n: 200 });
+  const lams = s.spectrum.map((p) => p.lambda);
+  for (let i = 1; i < lams.length; i++) {
+    assert.ok(lams[i] > lams[i - 1], `wavelengths strictly increasing at ${i}`);
+  }
+  // The stored lambdas must track the unrounded 0.2..5.1 µm ramp closely so the
+  // FITS header WCS (derived from the same values) reconstructs them exactly.
+  const tol = 1e-5;
+  for (let i = 0; i < lams.length; i++) {
+    const expected = 0.2 + (i / (lams.length - 1)) * 4.9;
+    assert.ok(Math.abs(lams[i] - expected) < tol, `i=${i} got ${lams[i]} want ~${expected}`);
+  }
+});
+
+test('buildSpectrum advertises arbitrary units (synthetic, not calibrated Jy)', () => {
+  for (const o of objects) {
+    const s = buildSpectrum(o);
+    assert.equal(s.meta.units.wavelength, 'µm');
+    assert.equal(s.meta.units.flux, 'a.u.');
+  }
+});

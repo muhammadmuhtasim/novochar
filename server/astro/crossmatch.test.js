@@ -84,6 +84,31 @@ test('coneSearch agrees with a brute-force disc filter', () => {
   assert.equal(coneSearch(cat, { ra: 0, dec: -45 }, { radiusArcsec: 0.01 }).length, 0);
 });
 
+test('cone search recall: randomized campaign incl. exact poles, wrap and extreme radii', () => {
+  // Mirrors the audit's required coverage: radii below, comparable to, and well
+  // above a pixel scale; targets at the poles; RA wraparound; RING faces.
+  const radii = [0.5, 1, 5, 40, 300, 2000];
+  const decs = [-90, -89.9999, -45.5, 0, 45.5, 89.9999, 90];
+  for (let t = 0; t < radii.length * decs.length; t++) {
+    const rad = radii[t % radii.length];
+    const dec = decs[Math.floor(t / radii.length)];
+    const center = { ra: (t * 97.3) % 360, dec };
+    const rnd = makeRng(9000 + t);
+    const cat = randomCatalog(rnd, 90, true);
+    const got = coneSearch(cat, center, { radiusArcsec: rad });
+    const want = cat
+      .map((c, i) => ({ i, d: angularSeparationArcsec(center.ra, center.dec, c.ra, c.dec) }))
+      .filter((x) => x.d <= rad + 1e-9)
+      .map((x) => x.i)
+      .sort((a, b) => a - b);
+    assert.deepEqual(
+      [...got].sort((a, b) => a - b),
+      want,
+      `radius ${rad}" center (${center.ra.toFixed(4)}, ${center.dec})`
+    );
+  }
+});
+
 test('nearestNeighbor returns sorted within-radius matches', () => {
   const rnd = makeRng(7);
   const target = [{ ra: 10.0, dec: 10.0 }, { ra: 10.0001, dec: 10.0 }, { ra: 10.0004, dec: 10.0 }];

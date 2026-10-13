@@ -17,6 +17,8 @@ import {
   nside2order,
   order2nside,
   nside2resol,
+  isNsideValid,
+  checkNside,
   ang2pixLonLat,
   ang2pix,
   ang2pixRing,
@@ -158,4 +160,32 @@ test('convenience aliases export the schemes', () => {
     pix2ang(16, 0, ORDERING.RING)
   );
   assert.deepEqual(pix2angNest(16, 0), pix2ang(16, 0, ORDERING.NEST));
+});
+
+test('resolution limits are shared by the validator, indexers and inverses', () => {
+  // NEST is limited by the 16-bit Morton interleaver (2 x 16 bits -> 32 bits).
+  assert.equal(isNsideValid(1 << 16, true), true);
+  assert.equal(isNsideValid((1 << 16) + 1, true), false);
+  assert.equal(isNsideValid(1 << 17, true), false);
+  assert.throws(() => checkNside(1 << 17, true), RangeError);
+  // RING is limited by exact integer pixel arithmetic (12·nside² < 2^53).
+  assert.equal(isNsideValid(1 << 24, false), true);
+  assert.equal(isNsideValid((1 << 24) + 1, false), false);
+  assert.equal(isNsideValid(1 << 30, false), false);
+  assert.throws(() => checkNside(1 << 25, false), RangeError);
+  // npix2nside rejects implied resolutions above the shared cap.
+  assert.equal(npix2nside(12 * (1 << 24) * (1 << 24)), 1 << 24);
+  assert.throws(() => npix2nside(12 * (1 << 25) * (1 << 25)), RangeError);
+});
+
+test('NEST indexing stays exact at the maximum supported nside = 2^16', () => {
+  const ns = 1 << 16;
+  for (const [ra, dec] of [[0, 0], [123.45, 67.89], [359.999, -89.9], [180, -0.001]]) {
+    const p = ang2pixLonLat(ns, ra, dec, ORDERING.NEST);
+    const c = pix2angRaDec(ns, p, ORDERING.NEST);
+    assert.equal(ang2pixLonLat(ns, c.ra, c.dec, ORDERING.NEST), p, `ra=${ra} dec=${dec}`);
+  }
+  // ring <-> nest conversion round-trips at the limit
+  const p = 12345678901 % nside2npix(ns);
+  assert.equal(nest2ring(ns, ring2nest(ns, p)), p);
 });

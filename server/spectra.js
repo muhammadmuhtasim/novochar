@@ -1,5 +1,12 @@
 // Deterministic SED (spectral energy distribution) builder for Layer 4.
 //
+// NOTE ON UNITS: this is a *synthetic, illustrative* spectrum. It combines a
+// Planck-like wavelength term with a power-law reflected-sunlight term,
+// randomized Gaussian line features and continuum modulation, so values are in
+// arbitrary units — NOT calibrated Jy. All UI / CSV / FITS / PNG output is
+// labelled "synthetic (a.u.)" accordingly. A real physical model or measured
+// spectrum would need a calibrated F_nu convention plus true normalization.
+//
 // Builds a physically-motivated, seeded synthetic spectrum + multi-band
 // photometric set for a catalogue object. Deterministic per object id so the
 // client can render stable curves across reloads, mirroring the `data.js`
@@ -124,7 +131,9 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
     // a shallow continuum modulation so the curve isn't perfectly smooth
     flux *= 1 + 0.04 * Math.sin(2 * Math.PI * (w / 0.5) + rand() * 0.2);
     for (const f of features) flux = injectFeature(w, flux, f);
-    spectrum.push({ lambda: +w.toFixed(4), flux: +flux.toFixed(4) });
+    // Keep 6 dp so the linearly-generated wavelengths stay consistent with the
+    // FITS header WCS solution to ~1e-6 µm (see client/src/lib/spectra-export.js).
+    spectrum.push({ lambda: +w.toFixed(6), flux: +flux.toFixed(4) });
   }
 
   const photometry = PHOTOMETRIC_POINTS.map((p) => {
@@ -165,7 +174,7 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
       filter: obj.band || 'SPHEREx 6-band',
       grating: `Prism · R ≈ ${resolution}`,
       resolution,
-      units: { wavelength: 'µm', flux: 'Jy', rend: 'reflected + thermal' },
+      units: { wavelength: 'µm', flux: 'a.u.', rend: 'reflected + thermal' },
     },
     z: 0,
   };

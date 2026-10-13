@@ -16,6 +16,26 @@ test('Gaia motion projection wraps right ascension and handles zero motion', () 
   assert.equal(moved.decAtEpoch, 0);
 });
 
+test('Gaia projection flags missing proper motion instead of faking a zero solution', () => {
+  // complete astrometry
+  const full = projectGaiaRow({ ra: 10, dec: 20, pmra: 1000, pmdec: -500, ref_epoch: 2016 }, 2026);
+  assert.equal(full.hasProperMotion, true);
+  // missing components stay in place but are marked as lacking data
+  const noPm = projectGaiaRow({ ra: 10, dec: 20, pmra: null, pmdec: null, ref_epoch: 2016 }, 2026);
+  assert.equal(noPm.hasProperMotion, false);
+  assert.equal(noPm.displacementMas, 0);
+  assert.equal(noPm.raAtEpoch, 10);
+  assert.equal(noPm.decAtEpoch, 20);
+  // *measured* zero motion is legitimate data, distinct from "no data"
+  const measuredZero = projectGaiaRow({ ra: 10, dec: 20, pmra: 0, pmdec: 0, ref_epoch: 2016 }, 2026);
+  assert.equal(measuredZero.hasProperMotion, true);
+  assert.equal(measuredZero.displacementMas, 0);
+  // a single missing component is still flagged as incomplete
+  const partial = projectGaiaRow({ ra: 10, dec: 20, pmra: 1000, pmdec: null, ref_epoch: 2016 }, 2026);
+  assert.equal(partial.hasProperMotion, true);
+  assert.ok(partial.displacementMas > 0);
+});
+
 test('Gaia motion projection rejects null sky coordinates', () => {
   assert.throws(() => projectGaiaRow({ ra: null, dec: 20 }, 2025), /non-null ra and dec/);
 });

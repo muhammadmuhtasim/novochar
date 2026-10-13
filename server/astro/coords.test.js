@@ -73,3 +73,49 @@ test('raDecToVector / vectorToRaDec round-trip', () => {
     assert.ok(close(back.dec, dec, 1e-9), `dec ${back.dec} vs ${dec}`);
   }
 });
+
+test('angular separation stays finite and matches an independent vector formula', () => {
+  // reference: theta = atan2(|u x v|, u . v) for unit vectors u, v
+  const vec = (ra, dec) => {
+    const a = (ra * Math.PI) / 180;
+    const d = (dec * Math.PI) / 180;
+    return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];
+  };
+  const vecSep = (ra1, dec1, ra2, dec2) => {
+    const u = vec(ra1, dec1);
+    const v = vec(ra2, dec2);
+    const dot = u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    const cross = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    return (Math.atan2(Math.hypot(...cross), dot) * 180) / Math.PI;
+  };
+
+  // identical and near-identical points must not produce NaN (A-06 clamp)
+  assert.equal(angularSeparationDeg(45.123, -12.5, 45.123, -12.5), 0);
+  const near = angularSeparationDeg(45.123, -12.5, 45.1230001, -12.5000001);
+  assert.ok(Number.isFinite(near) && near > 0 && near < 1e-5, `near ${near}`);
+
+  // antipodal points
+  assert.ok(close(angularSeparationDeg(0, 0, 180, 0), 180, 1e-9));
+  assert.ok(close(angularSeparationDeg(90, 0, 270, 0), 180, 1e-9));
+
+  // RA wraparound across 0/360 on the equator: Δα = 2e-6° → 0.0072″ separation
+  const wrap = angularSeparationDeg(359.999999, 0, 0.000001, 0);
+  assert.ok(Number.isFinite(wrap) && close(wrap, 2e-6, 1e-8), `wrap ${wrap}`);
+
+  // high declination: east-west offsets shrink by cos(dec)
+  const polar = angularSeparationDeg(0, 89.5, 1, 89.5);
+  const polarVec = vecSep(0, 89.5, 1, 89.5);
+  assert.ok(close(polar, polarVec, 1e-9), `polar ${polar} vs ${polarVec}`);
+
+  // randomized cross-check against the vector formula, pole- and wrap-inclusive
+  for (let i = 0; i < 600; i++) {
+    const ra1 = (i * 97.3) % 360;
+    const dec1 = -89.99 + ((i * 31) % 179.98) + Math.sin(i) * 0.05;
+    const ra2 = ((i * 53.7) + 120) % 360;
+    const dec2 = -89.99 + ((i * 7) % 179.98) - Math.cos(i) * 0.05;
+    const a = angularSeparationDeg(ra1, dec1, ra2, dec2);
+    const b = vecSep(ra1, dec1, ra2, dec2);
+    assert.ok(Number.isFinite(a), `finite trial ${i}`);
+    assert.ok(close(a, b, 1e-9), `trial ${i}: ${a} vs ${b}`);
+  }
+});

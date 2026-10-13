@@ -22,6 +22,16 @@ export const ORDERING = Object.freeze({ RING: 'RING', NEST: 'NEST' });
 // alias for readability in spatial-index code
 export const Ordering = ORDERING;
 
+// Shared, explicit resolution limits (validator, indexers and documentation
+// must all agree on these):
+//   RING: 12·nside² must stay exactly representable as a JavaScript Number
+//         (integer values are exact below 2^53 => nside <= 2^24).
+//   NEST: the Morton bit-interleaving helper below only spreads 16 coordinate
+//         bits (2×16 bits of ix/iy interleave into a 32-bit word), so nside
+//         must be <= 2^16 for NEST regardless of the RING limit.
+export const MAX_NSIDE_RING = 1 << 24;
+export const MAX_NSIDE_NEST = 1 << 16;
+
 // ---------------------------------------------------------------------------
 // nsides
 // ---------------------------------------------------------------------------
@@ -37,6 +47,9 @@ export function npix2nside(npix) {
   const nside = Math.round(Math.sqrt(npix / 12));
   if (nside * nside * 12 !== npix) {
     throw new RangeError(`npix=${npix} is not 12*nside^2`);
+  }
+  if (nside > MAX_NSIDE_RING) {
+    throw new RangeError(`npix=${npix} implies nside=${nside}, above the supported maximum ${MAX_NSIDE_RING}`);
   }
   return nside;
 }
@@ -56,22 +69,22 @@ export function nside2resol(nside) {
   return Math.sqrt((4 * Math.PI) / nside2npix(nside));
 }
 
-export const RESOL_ARCSEC = 206264.8;
+export const RESOL_ARCSEC = (180 / Math.PI) * 3600; // exact arcsec per radian
 
 export function resolArcsec(nside) {
   return nside2resol(nside) * RESOL_ARCSEC;
 }
 
 export function isNsideValid(nside, nest = false) {
-  if (!Number.isInteger(nside) || nside <= 0 || nside >= 1 << 30) return false;
-  if (nest && (nside & (nside - 1)) !== 0) return false;
-  return true;
+  if (!Number.isInteger(nside) || nside <= 0) return false;
+  if (nest) return (nside & (nside - 1)) === 0 && nside <= MAX_NSIDE_NEST;
+  return nside <= MAX_NSIDE_RING;
 }
 
 export function checkNside(nside, nest = false) {
   if (!isNsideValid(nside, nest)) {
     throw new RangeError(
-      `${nside} is not a valid nside parameter (must be a power of 2 for NEST, less than 2**30)`
+      `${nside} is not a valid nside parameter (must be a power of 2 at most ${MAX_NSIDE_NEST} for NEST, at most ${MAX_NSIDE_RING} for RING)`
     );
   }
   return nside;
