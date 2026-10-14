@@ -88,12 +88,50 @@ export function spectrumFITS(sed) {
 }
 
 // --- SVG (publication-ready vector) ---------------------------------------
+// Styles are inlined so the exported file is self-contained: a standalone SVG
+// cannot see the app's external stylesheet, which previously produced a blank
+// (black-on-black) download.
+const SVG_STYLE = `
+  .plot-box { fill: none; stroke: rgba(255,255,255,0.14); }
+  .grid { stroke: rgba(255,255,255,0.07); stroke-width: 1; }
+  .axis { fill: #a0aab8; font-family: monospace; font-size: 10px; }
+  .axis-label { fill: #5c6675; font-family: monospace; font-size: 10px; }
+  .spec-line { fill: none; stroke: #ff6a00; stroke-width: 1.8; }
+  .cont-line { fill: none; stroke: #5c6675; stroke-width: 1.2; stroke-dasharray: 4 4; }
+  .overlay-line { fill: none; stroke-width: 1.25; opacity: 0.8; }
+  .photo-pt circle { fill: #00ff88; stroke: #030303; stroke-width: 1; }
+  .photo-pt .err-line { stroke: #00ff88; stroke-width: 1; opacity: 0.7; }
+  .line-w { stroke-width: 1; opacity: 0.55; }
+  .line-w.em { stroke: #2bd6ff; }
+  .line-w.abs { stroke: #ff9e00; }
+  .line-lbl { font-family: monospace; font-size: 8px; }
+  .line-lbl.em { fill: #2bd6ff; }
+  .line-lbl.abs { fill: #ff9e00; }
+  .band rect { fill: rgba(255,255,255,0.04); stroke: rgba(255,255,255,0.08); }
+  .band.on rect { fill: rgba(255,106,0,0.16); stroke: #ff6a00; }
+  .band-lbl { fill: #5c6675; font-family: monospace; font-size: 8px; }
+  .band.on .band-lbl { fill: #ff6a00; }
+`;
+
 export function spectraSVG(svgElement) {
   if (!svgElement) return null;
   const clone = svgElement.cloneNode(true);
+  const w = (svgElement.viewBox && svgElement.viewBox.baseVal && svgElement.viewBox.baseVal.width) || svgElement.clientWidth || 760;
+  const h = (svgElement.viewBox && svgElement.viewBox.baseVal && svgElement.viewBox.baseVal.height) || svgElement.clientHeight || 380;
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-  clone.setAttribute('width', svgElement.clientWidth || 740);
-  clone.setAttribute('height', svgElement.clientHeight || 340);
+  clone.setAttribute('width', w);
+  clone.setAttribute('height', h);
+  // Opaque background so the file is legible in any viewer.
+  const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  bg.setAttribute('x', '0');
+  bg.setAttribute('y', '0');
+  bg.setAttribute('width', String(w));
+  bg.setAttribute('height', String(h));
+  bg.setAttribute('fill', '#06070a');
+  clone.insertBefore(bg, clone.firstChild);
+  const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+  style.textContent = SVG_STYLE;
+  clone.insertBefore(style, bg.nextSibling);
   return new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
 }
 

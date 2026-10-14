@@ -205,7 +205,7 @@ main.view {
    SCI-FI CHAMFER IRIS SCROLL-DRIVEN REVEALS
    ========================================================================== */
 
-.panel, .source-card, .obj-card, .sed-chart, .chip {
+.panel, .source-card, .obj-card, .chip {
   opacity: 0;
   clip-path: polygon(0 16px, 16px 0, calc(100% - 16px) 0, 100% 16px, 100% 16px, calc(100% - 16px) 16px, 16px 16px, 0 16px);
   transform: scale(0.985) translateY(18px);
@@ -217,7 +217,7 @@ main.view {
   will-change: opacity, transform;
 }
 
-.panel.in-view, .source-card.in-view, .obj-card.in-view, .sed-chart.in-view, .chip.in-view {
+.panel.in-view, .source-card.in-view, .obj-card.in-view, .chip.in-view {
   opacity: 1;
   transform: scale(1) translateY(0);
   clip-path: polygon(
@@ -1391,6 +1391,7 @@ main.view {
 }
 
 .sed-chart {
+  display: block;
   width: 100%;
   height: auto;
   background: rgba(6, 7, 10, 0.8);
@@ -1398,6 +1399,250 @@ main.view {
   padding: 14px 16px;
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
 }
+
+/* ----- Shared control-bar primitives (used by Spectra, Blink, Catalogue…) --- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.tb-spacer { flex: 1 1 auto; }
+.muted { color: var(--text-muted); }
+.caption { font-size: 11px; line-height: 1.5; margin-top: 8px; }
+.err { color: var(--accent-red); }
+.sm { font-size: 10.5px; }
+
+/* ----- Spectral-analysis readout strip ----------------------------------- */
+.spec-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 2px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-dim);
+  background: rgba(10, 12, 18, 0.5);
+}
+.spec-stat { display: flex; flex-direction: column; gap: 2px; min-width: 88px; }
+.spec-stat-k {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-style: normal;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+.spec-stat-v { font-family: var(--font-mono); font-size: 13px; color: var(--text-primary); }
+.spec-stat-v.red { color: var(--neon-amber); }
+.spec-stat-v.blue { color: var(--accent-cyan); }
+.spec-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.spec-toggle input { accent-color: var(--neon-bright); }
+
+/* ----- 1-D plot internals (SVG) ------------------------------------------ */
+.sed-plot-wrap { position: relative; }
+.sed-chart .plot-box { fill: none; stroke: var(--border-dim); }
+.sed-chart .grid { stroke: rgba(255, 255, 255, 0.06); stroke-width: 1; }
+.sed-chart .axis {
+  fill: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.sed-chart .axis-label {
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.sed-chart .spec-line {
+  fill: none;
+  stroke: var(--neon-bright);
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px rgba(255, 106, 0, 0.5));
+}
+.sed-chart .cont-line {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 4;
+  opacity: 0.85;
+}
+.sed-chart .overlay-line { fill: none; stroke-width: 1.25; opacity: 0.8; }
+.sed-chart .photo-pt circle { fill: var(--accent-green); stroke: #030303; stroke-width: 1; }
+.sed-chart .photo-pt .err-line { stroke: var(--accent-green); stroke-width: 1; opacity: 0.7; }
+.sed-chart .line-w { stroke-width: 1; opacity: 0.55; }
+.sed-chart .line-w.em { stroke: var(--accent-cyan); }
+.sed-chart .line-w.abs { stroke: var(--neon-amber); }
+.sed-chart .line-lbl { font-family: var(--font-mono); font-size: 8px; }
+.sed-chart .line-lbl.em { fill: var(--accent-cyan); }
+.sed-chart .line-lbl.abs { fill: var(--neon-amber); }
+
+/* SPHEREx bandpass guide */
+.band-guide .band rect { fill: rgba(255, 255, 255, 0.04); stroke: var(--border-dim); stroke-width: 1; }
+.band-guide .band.on rect { fill: rgba(255, 106, 0, 0.16); stroke: var(--neon-bright); }
+.band-guide .band-lbl { fill: var(--text-muted); font-family: var(--font-mono); font-size: 8px; }
+.band-guide .band.on .band-lbl { fill: var(--neon-bright); }
+
+/* Crosshair overlay (kept separate from the plot so hover never re-renders it) */
+.sed-crosshair {
+  position: absolute;
+  inset: 15px 17px;
+  pointer-events: none;
+  overflow: visible;
+}
+.sed-crosshair line {
+  stroke: rgba(255, 255, 255, 0.25);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.sed-crosshair .cross-label rect { fill: rgba(6, 7, 10, 0.9); stroke: var(--border-subtle); }
+.sed-crosshair .cross-label text { fill: var(--neon-bright); font-family: var(--font-mono); font-size: 10px; }
+
+/* Residual strip */
+.resid-wrap { margin-top: 8px; }
+.resid-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 0 16px;
+  background: rgba(6, 7, 10, 0.6);
+  border: 1px solid var(--border-dim);
+}
+.resid-chart .resid-zero { stroke: rgba(255, 255, 255, 0.2); stroke-dasharray: 4 4; }
+.resid-chart .resid-line { fill: none; stroke: var(--accent-cyan); stroke-width: 1.2; }
+.resid-chart .axis { fill: var(--text-muted); font-family: var(--font-mono); font-size: 9px; }
+.resid-chart .line-w { stroke-width: 1; opacity: 0.4; }
+.resid-chart .line-w.em { stroke: var(--accent-cyan); }
+.resid-chart .line-w.abs { stroke: var(--neon-amber); }
+
+/* ----- Redshift control --------------------------------------------------- */
+.redshift {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(10, 12, 18, 0.5);
+}
+.rs-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
+.rs-range { flex: 1; min-width: 180px; accent-color: var(--neon-bright); }
+.rs-val { font-size: 11px; color: var(--text-primary); white-space: nowrap; }
+
+/* ----- Legends ------------------------------------------------------------ */
+.spec-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+.key-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+.key-dot.em { background: var(--accent-cyan); }
+.key-dot.abs { background: var(--neon-amber); }
+.key-dot.cont { background: var(--text-muted); }
+.compare-legend { display: flex; flex-wrap: wrap; gap: 8px; }
+.compare-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-dim);
+  background: rgba(10, 12, 18, 0.6);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-secondary);
+}
+.compare-chip i { display: inline-block; width: 10px; height: 10px; }
+.chip-x { padding: 1px 6px; }
+
+/* ----- 2-D dispersion + cutouts ------------------------------------------ */
+.spec2d { display: flex; flex-direction: column; gap: 6px; }
+.spec2d-canvas {
+  width: 100%;
+  height: auto;
+  background: #05060a;
+  border: 1px solid var(--border-subtle);
+}
+.cutout {
+  position: relative;
+  display: inline-block;
+  padding: 8px;
+  border: 1px solid var(--border-dim);
+  background: #05060a;
+}
+.cutout canvas { display: block; width: 100%; max-width: 260px; height: auto; image-rendering: pixelated; }
+.cutout-cap { margin-top: 6px; font-size: 10px; color: var(--text-muted); }
+.cutout .tooltip {
+  position: absolute;
+  z-index: 30;
+  background: rgba(6, 7, 10, 0.96);
+  border: 1px solid var(--neon-bright);
+  padding: 6px 8px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  pointer-events: none;
+  box-shadow: var(--glow-sm);
+  white-space: nowrap;
+}
+
+/* ----- Line identification table ----------------------------------------- */
+.line-table-wrap { max-height: 320px; overflow: auto; border: 1px solid var(--border-subtle); }
+.line-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.line-table th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: rgba(10, 12, 18, 0.96);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.line-table td { padding: 6px 10px; border-bottom: 1px solid var(--border-dim); color: var(--text-secondary); }
+.line-table tr.em:hover, .line-table tr.abs:hover { background: rgba(255, 77, 0, 0.06); }
+.kind-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border: 1px solid currentColor;
+  text-transform: uppercase;
+}
+.kind-tag.em { color: var(--accent-cyan); }
+.kind-tag.abs { color: var(--neon-amber); }
+
+/* ----- IVOA resolver result ---------------------------------------------- */
+.resolve-result {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(10, 12, 18, 0.5);
+}
+.resolve-miss { margin-top: 10px; }
+.kv.inline { display: flex; flex-wrap: wrap; gap: 10px 24px; }
 
 .modal-backdrop {
   position: fixed;

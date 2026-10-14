@@ -126,3 +126,18 @@ test('buildSpectrum advertises arbitrary units (synthetic, not calibrated Jy)', 
     assert.equal(s.meta.units.flux, 'a.u.');
   }
 });
+
+test('buildSpectrum exposes a deterministic hidden redshift and a line-free continuum', () => {
+  for (const o of objects.slice(0, 40)) {
+    const s = buildSpectrum(o);
+    assert.ok(Number.isFinite(s.zInjected) && s.zInjected >= 0 && s.zInjected <= 0.8, `zInjected ${s.zInjected}`);
+    assert.equal(s.z, 0, 'template reference stays at rest');
+    // every sample carries a positive continuum baseline at or below the flux
+    // for emission and above it for absorption — but always finite and > 0
+    for (const p of s.spectrum) {
+      assert.ok(Number.isFinite(p.continuum) && p.continuum > 0, 'continuum finite positive');
+    }
+    // deterministic
+    assert.deepEqual(buildSpectrum(o), s);
+  }
+});

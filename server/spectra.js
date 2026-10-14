@@ -96,14 +96,16 @@ function injectFeature(w, flux, feature) {
   const d = (w - feature.obs) / feature.sigma;
   const g = Math.exp(-0.5 * d * d);
   const factor = feature.kind === 'abs' ? 1 - feature.strength * g : 1 + feature.strength * g;
-  return Math.max(flux * factor, 1e-3);
+  // Keep the product positive without imposing an *absolute* floor — a floor in
+  // raw units would swamp faint (cold, distant) objects whose continuum is tiny.
+  return Math.max(flux * factor, flux * 1e-9, Number.MIN_VALUE);
 }
 
 /**
  * Build a deterministic SED for an object.
  * @param {object} obj  catalogue object with id/type/mag/bandIndex
  * @param {{n?: number}} [opts]
- * @returns {{object, photometry, spectrum, lines, bands, meta, z}}
+ * @returns {{object, photometry, spectrum, lines, bands, meta, z, zInjected}}
  */
 export function buildSpectrum(obj, { n = 200 } = {}) {
   const seed = (parseInt(String(obj.id).replace(/\D/g, ''), 10) || 7) * 7919 + 3;
@@ -114,39 +116,70 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
   const refNorm = magFactor * (0.5 + rand());
   const scale = refNorm * (0.15 + rand() * 0.4);
 
-  // Build the (rest, z=0) features that fall inside the observed window.
+  // A deterministic, per-object *injected* redshift. The line features below are
+  // laid down at rest*(1+zInjected), so the observed curve is genuinely shifted
+  // and the client's redshift slider / auto-estimator has something real to
+  // recover (template cross-correlation). Drawn from an independent generator so
+  // the existing continuum/photometry stream is untouched.
+  const zrand = mulberry32(seed ^ 0x9e3779b9);
+  const zInjected = Math.round((0.03 + zrand() * 0.72) * 1000) / 1000;
+
+  // Build the features that fall inside the observed window, shifted by the
+  // injected redshift (the client shifts a rest-frame template by the user's z).
   const features = SPECTRAL_LINES.filter((l) => l.rest >= 0.2 && l.rest <= 5.1).map((l) => ({
     label: l.label,
     kind: l.kind,
     rest: l.rest,
-    obs: l.rest, // z = 0 reference spectrum
+    obs: l.rest * (1 + zInjected), // observed-frame centre
     sigma: 0.0035 + rand() * 0.004,
     strength: l.kind === 'abs' ? 0.16 + rand() * 0.2 : 0.3 + rand() * 0.45,
   }));
 
-  const spectrum = [];
+  const rawSpectrum = [];
   for (let i = 0; i < n; i++) {
     const w = 0.2 + (i / (n - 1)) * 4.9; // 0.2 -> 5.1 µm
-    let flux = reflectedFlux(w, refNorm) + blackbodyFlux(w, teff, scale);
+    let continuum = reflectedFlux(w, refNorm) + blackbodyFlux(w, teff, scale);
     // a shallow continuum modulation so the curve isn't perfectly smooth
-    flux *= 1 + 0.04 * Math.sin(2 * Math.PI * (w / 0.5) + rand() * 0.2);
+    continuum *= 1 + 0.04 * Math.sin(2 * Math.PI * (w / 0.5) + rand() * 0.2);
+    let flux = continuum;
     for (const f of features) flux = injectFeature(w, flux, f);
     // Keep 6 dp so the linearly-generated wavelengths stay consistent with the
     // FITS header WCS solution to ~1e-6 µm (see client/src/lib/spectra-export.js).
-    spectrum.push({ lambda: +w.toFixed(6), flux: +flux.toFixed(4) });
+    rawSpectrum.push({ lambda: +w.toFixed(6), flux, continuum });
   }
 
-  const photometry = PHOTOMETRIC_POINTS.map((p) => {
+  const rawPhotometry = PHOTOMETRIC_POINTS.map((p) => {
     const exact = reflectedFlux(p.wave, refNorm) + blackbodyFlux(p.wave, teff, scale);
     const err = exact * (0.03 + rand() * 0.05);
-    return {
-      band: p.band,
-      lambda: p.wave,
-      flux: +Math.max(exact, 1e-3).toFixed(4),
-      error: +err.toFixed(4),
-      snr: Math.round((2 + rand() * 9) * 10) / 10,
-    };
+    return { band: p.band, lambda: p.wave, flux: exact, error: err, snr: Math.round((2 + rand() * 9) * 10) / 10 };
   });
+
+  // Normalise the synthetic flux to a common arbitrary scale (peak ≈ 100). The
+  // absolute level is meaningless (a.u.) — only ratios are physical — and this
+  // guarantees the 4-decimal serialisation below never truncates a faint object
+  // (e.g. a distant TNO whose raw flux is ~1e-5) down to 0.0000, which would
+  // otherwise punch holes in the log-scale plot and the 2-D dispersion image.
+  const peak = Math.max(
+    ...rawSpectrum.map((p) => p.flux),
+    ...rawPhotometry.map((p) => p.flux),
+    1e-300
+  );
+  const k = 100 / peak;
+
+  const spectrum = rawSpectrum.map((p) => ({
+    lambda: p.lambda,
+    flux: +(p.flux * k).toFixed(4),
+    // `continuum` is the line-free baseline so the client can form residuals.
+    continuum: +(p.continuum * k).toFixed(4),
+  }));
+
+  const photometry = rawPhotometry.map((p) => ({
+    band: p.band,
+    lambda: p.lambda,
+    flux: +(p.flux * k).toFixed(4),
+    error: +(p.error * k).toFixed(4),
+    snr: p.snr,
+  }));
 
   const snr = +(photometry.reduce((s, p) => s + p.snr, 0) / photometry.length).toFixed(1);
   // SPHEREx uses a low-resolution prism/grism over six NIR bands.
@@ -176,7 +209,11 @@ export function buildSpectrum(obj, { n = 200 } = {}) {
       resolution,
       units: { wavelength: 'µm', flux: 'a.u.', rend: 'reflected + thermal' },
     },
+    // `z` is the rest-frame reference the client template starts from (always 0);
+    // `zInjected` is the hidden simulated redshift of the observed features, used
+    // by the client's auto-estimator and never drawn as truth in the UI.
     z: 0,
+    zInjected,
   };
 }
 
