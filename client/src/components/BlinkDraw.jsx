@@ -95,11 +95,7 @@ export default function BlinkDraw({ canvasRef, wrapRef, frames, idx }) {
     };
     draw();
 
-    const onMove = (e) => {
-      const r = wrap.getBoundingClientRect();
-      const mx = e.clientX - r.left, my = e.clientY - r.top;
-      setHover(null);
-    };
+    const onMove = () => setHover((h) => (h ? null : h));
     const onLeave = () => setHover(null);
     const resize = () => draw();
 

@@ -153,6 +153,9 @@ export default function App() {
     let shown = false;
     let movementTimer = null;
     let clickTimer = null;
+    let hoverRaf = 0;
+    let hoverPending = false;
+    let lastHoverEl = null;
 
     const INTERACTIVE =
       'a[href], button:not(:disabled), [role="button"], [role="link"], [tabindex]:not([tabindex="-1"]), ' +
@@ -162,9 +165,16 @@ export default function App() {
     const TEXTISH =
       'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]), select, [contenteditable="true"]';
 
+    // Hit-testing (elementFromPoint + several closest() calls over long selector
+    // lists) is the single most expensive thing a mousemove can trigger, so it
+    // runs at most once per animation frame and short-circuits when the pointer
+    // is still over the same element. The cursor transform itself is cheap and
+    // stays immediate for zero added latency.
     const updateHover = () => {
       if (!shown) return;
       const el = document.elementFromPoint(pointer.x, pointer.y);
+      if (el === lastHoverEl) return;
+      lastHoverEl = el;
       if (!el) return;
       if (el.closest && (el.closest(TEXTISH) || el.closest('[contenteditable]'))) {
         cursor.classList.remove('busy');
@@ -176,6 +186,15 @@ export default function App() {
       const clickable = el.closest && el.closest(INTERACTIVE);
       cursor.classList.toggle('busy', Boolean(clickable));
       cursor.classList.toggle('over-content', !clickable && Boolean(el.closest && el.closest(NONINTERACTIVE)));
+    };
+    const scheduleHover = () => {
+      if (hoverPending) return;
+      hoverPending = true;
+      hoverRaf = requestAnimationFrame(() => {
+        hoverPending = false;
+        hoverRaf = 0;
+        updateHover();
+      });
     };
     const pointer = { x: -100, y: -100 };
 
@@ -194,11 +213,12 @@ export default function App() {
       cursor.classList.add('moving');
       clearTimeout(movementTimer);
       movementTimer = setTimeout(() => cursor.classList.remove('moving'), 110);
-      updateHover();
+      scheduleHover();
     };
     const hide = () => {
       cursor.style.opacity = '0';
       shown = false;
+      lastHoverEl = null;
       clearTimeout(movementTimer);
       clearTimeout(clickTimer);
       cursor.classList.remove('moving', 'busy', 'over-content', 'press', 'clicked', 'hidden');
@@ -228,6 +248,7 @@ export default function App() {
       document.removeEventListener('mousedown', press);
       document.removeEventListener('mouseup', release);
       document.removeEventListener('pointerlockchange', onPointerLockChange);
+      cancelAnimationFrame(hoverRaf);
       clearTimeout(movementTimer);
       clearTimeout(clickTimer);
       cursor.classList.remove('moving', 'busy', 'over-content', 'press', 'clicked', 'hidden');

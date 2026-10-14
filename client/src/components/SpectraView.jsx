@@ -21,9 +21,9 @@ import {
   spectralIndex,
   residualSpectrum,
   alignmentScore,
-  estimateRedshift,
   nearestLine,
 } from '../lib/spectral-analysis.js';
+import { nearestGrid, autoRedshift } from '../lib/spectra-jobs.js';
 import {
   spectrumCSV,
   spectrumJSON,
@@ -50,6 +50,12 @@ function fmtW(v) {
   return v >= 1 ? v.toFixed(2) : v.toFixed(4);
 }
 
+// Isolated so the ~1.6k <option> nodes are reconciled only when the catalogue
+// itself changes, never on every z-slider tick / re-render of the workbench.
+const ObjectOptions = React.memo(function ObjectOptions({ objects }) {
+  return objects.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.name}</option>);
+});
+
 export default function SpectraView({ objects, presetId, onTarget = () => {} }) {
   const [selectedId, setSelectedId] = useState(presetId || (objects[0] && objects[0].id) || null);
   const [sed, setSed] = useState(null);
@@ -71,7 +77,6 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
   const [ivoErr, setIvoErr] = useState('');
   const [zEstimate, setZEstimate] = useState(null);
   const [autoBusy, setAutoBusy] = useState(false);
-  const [crosshair, setCrosshair] = useState(null);
   const svgRef = useRef(null);
 
   useEffect(() => {
@@ -86,7 +91,6 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
   useEffect(() => {
     if (!selectedId) return;
     setSed(null);
-    setCrosshair(null);
     setZEstimate(null);
     api.spectra(selectedId).then((d) => setSed(d.sed)).catch(() => setSed({ error: 'failed to load spectrum' }));
   }, [selectedId]);
@@ -131,16 +135,15 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
     [compare, compareData]
   );
 
+  // Offloaded to the worker: the cross-correlation scans ~600 redshifts, and
+  // keeping it off the main thread keeps the slider/plot responsive meanwhile.
   const runAutoZ = () => {
     if (!sed || !sed.spectrum) return;
     setAutoBusy(true);
-    try {
-      const result = estimateRedshift(sed, sed.lines || [], { min: 0, max: 1.2, step: 0.002 });
-      setZ(result.z);
-      setZEstimate(result);
-    } finally {
-      setAutoBusy(false);
-    }
+    autoRedshift(sed, sed.lines || [], { min: 0, max: 1.2, step: 0.002 })
+      .then((result) => { setZ(result.z); setZEstimate(result); })
+      .catch(() => {})
+      .finally(() => setAutoBusy(false));
   };
 
   const onResolve = async () => {
@@ -178,7 +181,7 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
         <div className="toolbar">
           <span className="tb-label">TARGET</span>
           <select className="search" value={selectedId || ''} onChange={(e) => { setSelectedId(e.target.value); setZ(0); setZEstimate(null); }}>
-            {objects.map((o) => (<option key={o.id} value={o.id}>{o.id} · {o.name}</option>))}
+            <ObjectOptions objects={objects} />
           </select>
           <span className="tb-spacer" />
           <span className="tb-label">VIEW</span>
@@ -250,8 +253,6 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
               showResidual={showResidual}
               showBands={showBands}
               bandIndex={selected && selected.bandIndex}
-              crosshair={crosshair}
-              onCrosshair={setCrosshair}
             />
             {sed && sed.object && sed.spectrum && (
               <RedshiftControl z={z} setZ={setZ} onAuto={runAutoZ} autoBusy={autoBusy} zEstimate={zEstimate} />
@@ -265,9 +266,6 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
             <span><i className="key-dot abs" /> ABSORPTION</span>
             <span><i className="key-dot cont" /> CONTINUUM</span>
             <span className="muted">λ<sub>obs</sub> = λ<sub>rest</sub>·(1+z)</span>
-            {crosshair && crosshair.line && (
-              <span className="muted">nearest: {crosshair.line.label} ({crosshair.line.kind})</span>
-            )}
           </div>
         )}
       </section>
@@ -396,11 +394,21 @@ function RedshiftControl({ z, setZ, onAuto, autoBusy, zEstimate }) {
   const c = 299792.458; // km/s
   const v = c * z;
   const velTxt = v < 10000 ? `${Math.round(v)} km/s` : `${(v / 1000).toFixed(1)} ×10³ km/s`;
+  // Coalesce slider input to one state update per frame: each update re-renders
+  // the plot + marker table, and pointer streams can arrive faster than rAF.
+  const raf = useRef(0);
+  const latest = useRef(z);
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  const onSlide = (e) => {
+    latest.current = parseFloat(e.target.value);
+    if (raf.current) return;
+    raf.current = requestAnimationFrame(() => { raf.current = 0; setZ(latest.current); });
+  };
   return (
     <div className="redshift">
       <div className="rs-row">
         <span className="tb-label">DOPPLER / REDSHIFT</span>
-        <input type="range" min="0" max="3" step="0.001" value={z} onChange={(e) => setZ(parseFloat(e.target.value))} className="range rs-range" aria-label="Redshift slider" />
+        <input type="range" min="0" max="3" step="0.001" value={z} onChange={onSlide} className="range rs-range" aria-label="Redshift slider" />
         <span className="rs-val mono">z = {z.toFixed(3)}</span>
         <span className="rs-val mono muted">v ≈ {velTxt}</span>
         <button className="btn sm" onClick={onAuto} disabled={autoBusy} title="Cross-correlate the line template against the observed residuals">
@@ -459,7 +467,7 @@ function pathFor(spectrum, tr, key = 'flux') {
   return parts.join(' ');
 }
 
-function SedPlot({ primary, overlays, z, xScale, svgRef, showContinuum, showResidual, showBands, bandIndex, crosshair, onCrosshair }) {
+function SedPlot({ primary, overlays, z, xScale, svgRef, showContinuum, showResidual, showBands, bandIndex }) {
   if (!primary || !primary.spectrum || !primary.spectrum.length) {
     return <div className="empty-table">{primary && primary.error ? primary.error : 'Loading spectrum…'}</div>;
   }
@@ -477,29 +485,6 @@ function SedPlot({ primary, overlays, z, xScale, svgRef, showContinuum, showResi
     .map((l) => ({ ...l, obs: l.rest * (1 + z) }))
     .filter((l) => l.obs >= tr.wMin && l.obs <= tr.wMax);
 
-  // Report the nearest sample to the pointer, but only when the snapped sample
-  // actually changes — this keeps mouse-move from re-rendering the whole view.
-  const lastHit = useRef(null);
-  const onMove = (e) => {
-    if (!onCrosshair) return;
-    const svg = svgRef && svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    const sx = ((e.clientX - rect.left) / rect.width) * W;
-    let best = null;
-    let bd = Infinity;
-    for (const p of primary.spectrum) {
-      const x = tr.X(p.lambda);
-      if (!Number.isFinite(x)) continue;
-      const d = Math.abs(x - sx);
-      if (d < bd) { bd = d; best = p; }
-    }
-    if (!best || lastHit.current === best.lambda) return;
-    lastHit.current = best.lambda;
-    const line = nearestLine(primary.lines || [], best.lambda, z);
-    onCrosshair({ lambda: best.lambda, flux: best.flux, continuum: best.continuum, line, x: tr.X(best.lambda), y: tr.Y(best.flux) });
-  };
-
   return (
     <>
       <div className="sed-plot-wrap">
@@ -509,8 +494,6 @@ function SedPlot({ primary, overlays, z, xScale, svgRef, showContinuum, showResi
         className="sed-chart"
         role="img"
         aria-label="Flux vs wavelength spectrum"
-        onMouseMove={onMove}
-        onMouseLeave={() => onCrosshair && onCrosshair(null)}
       >
         <rect x={tr.pad.l} y={tr.pad.t} width={W - tr.pad.l - tr.pad.r} height={H - tr.pad.t - tr.pad.b} className="plot-box" />
         {xticks.map((t) => <line key={'x' + t} x1={tr.X(t)} y1={tr.pad.t} x2={tr.X(t)} y2={H - tr.pad.b} className="grid" />)}
@@ -567,7 +550,7 @@ function SedPlot({ primary, overlays, z, xScale, svgRef, showContinuum, showResi
           );
         })}
       </svg>
-      {onCrosshair && <CrosshairOverlay svgRef={svgRef} W={W} H={H} data={crosshair} />}
+      <CrosshairOverlay svgRef={svgRef} spectrum={primary.spectrum} lines={primary.lines || []} z={z} tr={tr} W={W} H={H} />
       </div>
       {showResidual && <ResidualStrip sed={primary} z={z} xScale={xScale} tr={tr} W={W} />}
       <p className="muted caption">
@@ -578,37 +561,69 @@ function SedPlot({ primary, overlays, z, xScale, svgRef, showContinuum, showResi
   );
 }
 
-// A crosshair tracker rendered as an absolutely-positioned overlay so it never
-// forces the parent SVG to re-render on every mouse move.
-function CrosshairOverlay({ svgRef, W, H, data }) {
-  const [pos, setPos] = useState(null);
+// A crosshair tracker rendered as an absolutely-positioned overlay so hovering
+// never re-renders the main plot SVG. It owns its readout state and snaps to the
+// nearest spectrum sample, so the parent tree stays untouched while moving.
+function CrosshairOverlay({ svgRef, spectrum, lines, z, tr, W, H }) {
+  const [hit, setHit] = useState(null);
   useEffect(() => {
     const svg = svgRef && svgRef.current;
-    if (!svg) return undefined;
-    const move = (e) => {
+    if (!svg || !spectrum || !spectrum.length) return undefined;
+    let raf = 0;
+    let pending = null;
+    let lastLambda = null;
+
+    // Snap the pointer to the nearest sample; only recompute the (more
+    // expensive) nearest-line lookup when the snapped sample actually changes.
+    const compute = (e) => {
       const r = svg.getBoundingClientRect();
       const x = ((e.clientX - r.left) / r.width) * W;
       const y = ((e.clientY - r.top) / r.height) * H;
-      setPos({ x, y });
+      let best = null;
+      let bd = Infinity;
+      for (const p of spectrum) {
+        const px = tr.X(p.lambda);
+        if (!Number.isFinite(px)) continue;
+        const d = Math.abs(px - x);
+        if (d < bd) { bd = d; best = p; }
+      }
+      if (!best) return;
+      const changed = best.lambda !== lastLambda;
+      lastLambda = best.lambda;
+      setHit((prev) => {
+        const line = changed ? nearestLine(lines || [], best.lambda, z) : (prev && prev.line);
+        if (prev && !changed && prev.x === x && prev.y === y) return prev;
+        return { x, y, lambda: best.lambda, flux: best.flux, line };
+      });
     };
-    const leave = () => setPos(null);
+    const move = (e) => {
+      pending = e;
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (pending) compute(pending);
+      });
+    };
+    const leave = () => { pending = null; lastLambda = null; setHit(null); };
     svg.addEventListener('mousemove', move);
     svg.addEventListener('mouseleave', leave);
-    return () => { svg.removeEventListener('mousemove', move); svg.removeEventListener('mouseleave', leave); };
-  }, [svgRef, W, H]);
-  if (!pos) return null;
-  const label = data ? `λ ${data.lambda.toFixed(4)} µm · ${data.flux.toFixed(2)} a.u.` : '';
-  const lx = Math.min(Math.max(pos.x + 8, 60), W - 170);
+    return () => {
+      cancelAnimationFrame(raf);
+      svg.removeEventListener('mousemove', move);
+      svg.removeEventListener('mouseleave', leave);
+    };
+  }, [svgRef, spectrum, lines, z, tr, W, H]);
+  if (!hit) return null;
+  const label = `λ ${hit.lambda.toFixed(4)} µm · ${hit.flux.toFixed(2)} a.u.${hit.line ? ` · ${hit.line.label}` : ''}`;
+  const lx = Math.min(Math.max(hit.x + 8, 60), W - 220);
   return (
     <svg className="sed-crosshair" viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-      <line x1={pos.x} y1={14} x2={pos.x} y2={H - 44} />
-      <line x1={56} y1={pos.y} x2={W - 16} y2={pos.y} />
-      {data && (
-        <g className="cross-label">
-          <rect x={lx - 5} y={20} width={168} height={16} rx="2" />
-          <text x={lx} y={32}>{label}</text>
-        </g>
-      )}
+      <line x1={hit.x} y1={14} x2={hit.x} y2={H - 44} />
+      <line x1={56} y1={hit.y} x2={W - 16} y2={hit.y} />
+      <g className="cross-label">
+        <rect x={lx - 5} y={20} width={216} height={16} rx="2" />
+        <text x={lx} y={32}>{label}</text>
+      </g>
     </svg>
   );
 }
@@ -783,88 +798,113 @@ function HeatmapPanel({ heat, objects, onPick, compareMode }) {
   const ref = useRef(null);
   const [hover, setHover] = useState(null);
   const COLS = 40;
-  // Map a pointer event to a cell using the *rendered* rect (not the intrinsic
-  // canvas width) so the mapping stays correct under any CSS scaling.
-  const geom = () => {
-    if (!heat || !heat.bins.length || !ref.current) return null;
-    const rect = ref.current.getBoundingClientRect();
-    const ras = heat.bins.map((b) => b.ra);
-    const decs = heat.bins.map((b) => b.dec);
-    return {
-      rect,
-      raMin: Math.min(...ras),
-      raMax: Math.max(...ras),
-      decMin: Math.min(...decs),
-      decMax: Math.max(...decs),
-      maxCount: Math.max(...heat.bins.map((b) => b.count)),
-    };
-  };
-  const nearest = (ra, dec) => {
-    let best = null;
-    let bd = Infinity;
-    for (const o of objects) {
-      const dRA = Math.min(Math.abs(o.ra - ra), 360 - Math.abs(o.ra - ra));
-      const d = Math.hypot(dRA, o.dec - dec);
-      if (d < bd) { bd = d; best = o; }
+  const raf = useRef(0);
+  const pending = useRef(null);
+  const lastCell = useRef(-1);
+
+  // Geometry derived once per dataset. This used to be rebuilt (three full bin
+  // scans) on every single pointer move.
+  const geom = useMemo(() => {
+    if (!heat || !heat.bins.length) return null;
+    let raMin = Infinity, raMax = -Infinity, decMin = Infinity, decMax = -Infinity, maxCount = 1;
+    for (const b of heat.bins) {
+      if (b.ra < raMin) raMin = b.ra;
+      if (b.ra > raMax) raMax = b.ra;
+      if (b.dec < decMin) decMin = b.dec;
+      if (b.dec > decMax) decMax = b.dec;
+      if (b.count > maxCount) maxCount = b.count;
     }
-    return best;
-  };
+    return { raMin, raMax, decMin, decMax, maxCount };
+  }, [heat]);
+
+  // Nearest source per display cell, computed in a Web Worker (falling back to
+  // the main thread when Workers are unavailable). Hover then does an O(1)
+  // lookup instead of scanning all ~1.6k objects.
+  const [grid, setGrid] = useState(null);
+  useEffect(() => {
+    if (!geom || !objects.length) { setGrid(null); return undefined; }
+    let cancelled = false;
+    const ra = new Float64Array(objects.length);
+    const dec = new Float64Array(objects.length);
+    for (let i = 0; i < objects.length; i++) { ra[i] = objects[i].ra; dec[i] = objects[i].dec; }
+    nearestGrid(ra, dec, geom, COLS)
+      .then((g) => { if (!cancelled) setGrid(g); })
+      .catch(() => { if (!cancelled) setGrid(null); });
+    return () => { cancelled = true; };
+  }, [geom, objects]);
+
   useEffect(() => {
     const cv = ref.current;
-    if (!cv || !heat || !heat.bins.length) return;
+    if (!cv || !geom || !heat) return;
     const ctx = cv.getContext('2d');
     const S = cv.width;
     ctx.fillStyle = '#05060a';
     ctx.fillRect(0, 0, S, S);
-    const ras = heat.bins.map((b) => b.ra);
-    const decs = heat.bins.map((b) => b.dec);
-    const raMin = Math.min(...ras);
-    const raMax = Math.max(...ras);
-    const decMin = Math.min(...decs);
-    const decMax = Math.max(...decs);
-    const maxCount = Math.max(...heat.bins.map((b) => b.count));
+    const raSpan = (geom.raMax - geom.raMin) || 1;
+    const decSpan = (geom.decMax - geom.decMin) || 1;
     const cell = S / COLS;
     for (const b of heat.bins) {
-      const gx = Math.floor(((b.ra - raMin) / (raMax - raMin || 1)) * COLS);
-      const gy = Math.floor(((decMax - b.dec) / (decMax - decMin || 1)) * COLS);
-      const t = b.count / maxCount;
+      const gx = Math.floor(((b.ra - geom.raMin) / raSpan) * COLS);
+      const gy = Math.floor(((geom.decMax - b.dec) / decSpan) * COLS);
+      const t = b.count / geom.maxCount;
       ctx.fillStyle = `rgba(255,${Math.round(106 + 110 * t)},${Math.round(60 * t)},${0.14 + 0.85 * t})`;
       ctx.fillRect(gx * cell, gy * cell, cell, cell);
     }
     ctx.strokeStyle = 'rgba(255,106,0,0.6)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0.5, 0.5, S - 1, S - 1);
-  }, [heat]);
+  }, [geom, heat]);
+
+  // Cancel any queued coalesced update on unmount.
+  useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
   if (!heat || !heat.bins.length) {
     return <div className="cutout"><canvas ref={ref} width={260} height={260} /><div className="cutout-cap mono">no data</div></div>;
   }
-  const cellFromEvent = (e) => {
-    const g = geom();
-    if (!g) return null;
-    const mx = e.clientX - g.rect.left;
-    const my = e.clientY - g.rect.top;
-    const gx = Math.floor((mx / g.rect.width) * COLS);
-    const gy = Math.floor((my / g.rect.height) * COLS);
+
+  const cellKey = (gx, gy) => gy * COLS + gx;
+  const cellAt = (clientX, clientY, rect) => {
+    const mx = clientX - rect.left;
+    const my = clientY - rect.top;
+    const gx = Math.floor((mx / rect.width) * COLS);
+    const gy = Math.floor((my / rect.height) * COLS);
     if (gx < 0 || gy < 0 || gx >= COLS || gy >= COLS) return null;
-    const ra = g.raMin + ((gx + 0.5) / COLS) * (g.raMax - g.raMin);
-    const dec = g.decMax - ((gy + 0.5) / COLS) * (g.decMax - g.decMin);
-    return { gx, gy, ra, dec, mx, my, g };
+    return { gx, gy, mx, my };
   };
+  const resolve = (c) => {
+    if (!c) return null;
+    const key = cellKey(c.gx, c.gy);
+    const idx = grid ? grid[key] : -1;
+    const obj = idx >= 0 ? objects[idx] : null;
+    const ra = geom.raMin + ((c.gx + 0.5) / COLS) * (geom.raMax - geom.raMin);
+    const dec = geom.decMax - ((c.gy + 0.5) / COLS) * (geom.decMax - geom.decMin);
+    return { x: c.mx, y: c.my, ra, dec, obj, key };
+  };
+
   const onMove = (e) => {
-    const c = cellFromEvent(e);
-    if (!c) { setHover(null); return; }
-    const obj = nearest(c.ra, c.dec);
-    setHover({ x: c.mx, y: c.my, ra: c.ra, dec: c.dec, obj });
+    pending.current = { x: e.clientX, y: e.clientY };
+    if (raf.current) return;
+    raf.current = requestAnimationFrame(() => {
+      raf.current = 0;
+      const p = pending.current;
+      const el = ref.current;
+      if (!p || !el) return;
+      const c = cellAt(p.x, p.y, el.getBoundingClientRect());
+      const key = c ? cellKey(c.gx, c.gy) : -1;
+      if (key === lastCell.current) return; // same cell → no re-render
+      lastCell.current = key;
+      setHover(resolve(c));
+    });
   };
+  const onLeave = () => { lastCell.current = -1; setHover(null); };
   const onClick = (e) => {
-    const c = cellFromEvent(e);
-    if (!c) return;
-    const obj = nearest(c.ra, c.dec);
-    if (obj) onPick(obj.id);
+    const el = ref.current;
+    if (!el) return;
+    const hit = resolve(cellAt(e.clientX, e.clientY, el.getBoundingClientRect()));
+    if (hit && hit.obj) onPick(hit.obj.id);
   };
   return (
-    <div className="cutout" onMouseMove={onMove} onMouseLeave={() => setHover(null)} onClick={onClick} style={{ cursor: 'pointer' }}>
+    <div className="cutout" onMouseMove={onMove} onMouseLeave={onLeave} onClick={onClick} style={{ cursor: 'pointer' }}>
       <canvas ref={ref} width={260} height={260} />
       <div className="cutout-cap mono">{heat.pixelCount} cells · resol ~{heat.resolArcsec}″ · {compareMode ? 'compare mode' : 'click to load'}</div>
       {hover && (

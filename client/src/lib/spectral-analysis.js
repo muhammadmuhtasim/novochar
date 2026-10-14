@@ -96,8 +96,7 @@ export function spectralIndex(sed, { lambdaMin = 0.45, lambdaMax = 4.5 } = {}) {
  * correct alignment maximises the score. Normalised to the number of in-window
  * lines, giving a mean fractional line contrast (dimensionless).
  */
-export function alignmentScore(sed, z, lines = (sed && sed.lines) || []) {
-  const residual = residualSpectrum(sed);
+function scoreAgainstResidual(residual, lines, z) {
   if (residual.length === 0) return 0;
   const lam0 = residual[0].x;
   const lam1 = residual[residual.length - 1].x;
@@ -114,6 +113,10 @@ export function alignmentScore(sed, z, lines = (sed && sed.lines) || []) {
   return used ? sum / used : 0;
 }
 
+export function alignmentScore(sed, z, lines = (sed && sed.lines) || []) {
+  return scoreAgainstResidual(residualSpectrum(sed), lines, z);
+}
+
 /**
  * Best-fit redshift by scanning `alignmentScore` over a grid, then refining the
  * peak with a 3-point parabolic interpolation for sub-step accuracy.
@@ -121,10 +124,14 @@ export function alignmentScore(sed, z, lines = (sed && sed.lines) || []) {
  * @returns {{z:number, score:number, curve:Array<{z:number,score:number}>}}
  */
 export function estimateRedshift(sed, lines = (sed && sed.lines) || [], { min = 0, max = 1.2, step = 0.002 } = {}) {
+  // Build the residual grid once: the scan evaluates the scorer ~600 times and
+  // rebuilding the residual (and its objects) on every iteration previously
+  // dominated the runtime of the whole fit.
+  const residual = residualSpectrum(sed);
   const curve = [];
   let best = { z: min, score: -Infinity };
   for (let z = min; z <= max + 1e-9; z += step) {
-    const score = alignmentScore(sed, z, lines);
+    const score = scoreAgainstResidual(residual, lines, z);
     const zp = +z.toFixed(6);
     curve.push({ z: zp, score });
     if (score > best.score) best = { z: zp, score };
@@ -140,11 +147,49 @@ export function estimateRedshift(sed, lines = (sed && sed.lines) || [], { min = 
       const delta = (0.5 * (y0 - y2)) / denom;
       if (Math.abs(delta) <= 1) {
         const zRef = best.z + delta * step;
-        best = { z: +zRef.toFixed(4), score: alignmentScore(sed, zRef, lines) };
+        best = { z: +zRef.toFixed(4), score: scoreAgainstResidual(residual, lines, zRef) };
       }
     }
   }
   return { ...best, curve };
+}
+
+/**
+ * Nearest catalogue object for each cell of a `cols × cols` display grid,
+ * returned as indices into the supplied `ra`/`dec` arrays (−1 when empty).
+ * Distances are squared (no `sqrt`) and RA wraps at 180°. This is the O(cells ×
+ * objects) scan behind the HEALPix hover map; it is pure and can therefore run
+ * inside a Web Worker so the scan never blocks the main thread.
+ *
+ * @param {ArrayLike<number>} ra  right ascensions (deg)
+ * @param {ArrayLike<number>} dec declinations (deg)
+ * @param {{raMin:number,raMax:number,decMin:number,decMax:number}} geom
+ * @param {number} cols
+ * @returns {Int32Array}
+ */
+export function nearestGridIndices(ra, dec, geom, cols) {
+  const out = new Int32Array(cols * cols).fill(-1);
+  const n = ra && ra.length;
+  if (!n || !geom) return out;
+  const raSpan = (geom.raMax - geom.raMin) || 1;
+  const decSpan = (geom.decMax - geom.decMin) || 1;
+  for (let gy = 0; gy < cols; gy++) {
+    const cellDec = geom.decMax - ((gy + 0.5) / cols) * decSpan;
+    for (let gx = 0; gx < cols; gx++) {
+      const cellRa = geom.raMin + ((gx + 0.5) / cols) * raSpan;
+      let best = -1;
+      let bd = Infinity;
+      for (let i = 0; i < n; i++) {
+        let dRA = Math.abs(ra[i] - cellRa);
+        if (dRA > 180) dRA = 360 - dRA;
+        const dd = dec[i] - cellDec;
+        const d = dRA * dRA + dd * dd;
+        if (d < bd) { bd = d; best = i; }
+      }
+      out[gy * cols + gx] = best;
+    }
+  }
+  return out;
 }
 
 /**

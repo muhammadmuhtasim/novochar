@@ -13,6 +13,7 @@ import {
   estimateRedshift,
   lineContrast,
   nearestLine,
+  nearestGridIndices,
 } from './spectral-analysis.js';
 
 // Build a synthetic SED: power-law continuum F ∝ λ^slope with Gaussian line
@@ -106,4 +107,29 @@ test('nearestLine finds the closest shifted template line', () => {
   const hit = nearestLine(lines, 1.0 * 1.2 + 0.01, 0.2);
   assert.equal(hit.label, 'B');
   assert.ok(Math.abs(hit.observed - 1.2) < 1e-9);
+});
+
+test('nearestGridIndices picks the object whose cell it falls in', () => {
+  const geom = { raMin: 0, raMax: 40, decMin: 0, decMax: 40 };
+  // Put one object in the (0,0) cell (top-left: high dec, low RA) and one in
+  // the (3,3) cell (bottom-right: low dec, high RA).
+  const ra = [1, 39];
+  const dec = [39, 1];
+  const g = nearestGridIndices(ra, dec, geom, 4);
+  assert.equal(g.length, 16);
+  assert.equal(g[0], 0);
+  assert.equal(g[3 * 4 + 3], 1);
+  // every cell resolves to *some* object when the catalogue is non-empty
+  assert.ok([...g].every((i) => i === 0 || i === 1));
+});
+
+test('nearestGridIndices returns -1s for an empty catalogue and wraps RA at 180°', () => {
+  const geom = { raMin: 0, raMax: 40, decMin: 0, decMax: 40 };
+  const empty = nearestGridIndices([], [], geom, 4);
+  assert.equal(empty.length, 16);
+  assert.ok([...empty].every((i) => i === -1));
+
+  // An object at RA 359° is closest to the RA 0..40 window's low edge via wrap.
+  const g = nearestGridIndices([359], [20], geom, 4);
+  assert.ok([...g].every((i) => i === 0));
 });
