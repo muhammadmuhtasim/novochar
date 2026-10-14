@@ -2382,3 +2382,147 @@ html.nc-cursor-on [contenteditable="true"] {
   .space3d-fullscreen .s3d-show-help { top: auto; right: 10px; bottom: 52px; }
   .space3d-fullscreen .s3d-bottombar { height: 38px; padding: 0 12px; }
 }
+
+/* ── Celestial Explore mode ─────────────────────────────────────────────── */
+.sky-mode-switch {
+  display: flex; gap: 6px; margin: 0 0 12px; padding: 5px;
+  width: fit-content; max-width: 100%; border: 1px solid rgba(255,255,255,.09);
+  background: rgba(7,9,15,.82); border-radius: 10px;
+}
+.sky-mode-switch button {
+  border: 1px solid transparent; border-radius: 7px; padding: 10px 13px;
+  background: transparent; color: #8590a3; font: 600 10px var(--font-mono);
+  letter-spacing: .08em; cursor: pointer; transition: .2s ease;
+}
+.sky-mode-switch button span { margin-right: 7px; font-size: 13px; }
+.sky-mode-switch button:hover { color: #eef4ff; background: rgba(255,255,255,.04); }
+.sky-mode-switch button.active { color: #ffe1c7; background: rgba(255,100,32,.12); border-color: rgba(255,112,50,.38); box-shadow: inset 0 0 16px rgba(255,90,20,.05); }
+.explore-panel { overflow: hidden; }
+.explore-head { align-items: center; }
+.explore-subtitle { margin-top: 5px; color: #65738a; font: 9px var(--font-mono); letter-spacing: .13em; }
+.celestial-explore {
+  position: relative; width: 100%; height: clamp(440px, 66vh, 780px); min-height: 400px;
+  overflow: hidden; isolation: isolate; background: #02030a; border: 1px solid rgba(112,145,205,.14);
+}
+.celestial-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; outline: none; cursor: grab; touch-action: none; }
+.celestial-canvas.is-dragging { cursor: grabbing; }
+.explore-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.18) 75%, rgba(0,0,0,.52) 100%); }
+.explore-top-left, .explore-top-right, .explore-bottom-left, .explore-bottom-right {
+  position: absolute; z-index: 2; color: rgba(189,205,230,.67); font: 9px var(--font-mono); letter-spacing: .12em; pointer-events: none;
+  text-shadow: 0 1px 8px #000;
+}
+.explore-top-left { top: 18px; left: 19px; display: flex; align-items: center; gap: 8px; }
+.explore-top-right { top: 18px; right: 19px; }
+.explore-bottom-left { bottom: 17px; left: 19px; }
+.explore-bottom-left span, .explore-top-right span, .explore-divider { color: #ff9256; padding: 0 3px; }
+.explore-bottom-right { bottom: 17px; right: 19px; max-width: 42%; text-align: right; color: #ffb17d; letter-spacing: .04em; }
+.explore-live-dot, .explore-footer i { width: 6px; height: 6px; border-radius: 50%; background: #ff8b48; box-shadow: 0 0 9px rgba(255,139,72,.8); }
+.explore-center-reticle { position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; transform: translate(-50%,-50%); opacity: .28; pointer-events: none; }
+.explore-center-reticle::before, .explore-center-reticle::after { content: ''; position: absolute; background: rgba(200,220,255,.8); }
+.explore-center-reticle::before { width: 16px; height: 1px; left: 0; top: 7px; }
+.explore-center-reticle::after { width: 1px; height: 16px; top: 0; left: 7px; }
+.explore-center-reticle span { position: absolute; inset: 4px; border: 1px solid rgba(200,220,255,.6); border-radius: 50%; }
+.explore-search { position: absolute; z-index: 5; top: 50px; left: 18px; width: min(310px, calc(100% - 36px)); }
+.explore-search-icon { position: absolute; z-index: 1; left: 12px; top: 7px; color: #ff9b63; font-size: 22px; line-height: 24px; }
+.explore-search input { width: 100%; height: 38px; padding: 0 34px 0 36px; border: 1px solid rgba(143,169,214,.22); border-radius: 7px; background: rgba(5,8,16,.84); backdrop-filter: blur(12px); color: #f3f6ff; outline: none; font: 11px var(--font-mono); letter-spacing: .03em; }
+.explore-search input:focus { border-color: rgba(255,137,75,.65); box-shadow: 0 0 18px rgba(255,106,40,.09); }
+.explore-search input::placeholder { color: #758096; }
+.explore-clear { position: absolute; right: 7px; top: 6px; width: 25px; height: 25px; border: 0; background: transparent; color: #aeb9cd; font-size: 19px; cursor: pointer; }
+.explore-search-results { margin-top: 5px; padding: 5px; border: 1px solid rgba(143,169,214,.2); border-radius: 8px; background: rgba(5,8,16,.94); backdrop-filter: blur(16px); box-shadow: 0 15px 45px rgba(0,0,0,.4); }
+.explore-search-result { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px; border: 0; border-radius: 5px; background: transparent; color: #e9effc; text-align: left; cursor: pointer; }
+.explore-search-result:hover { background: rgba(255,125,60,.1); }
+.result-star-dot, .object-color-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; }
+.explore-search-result > span:nth-child(2) { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.explore-search-result strong { font: 600 11px var(--font-sans); letter-spacing: .02em; }
+.explore-search-result small { color: #8491a7; font: 9px var(--font-mono); }
+.result-arrow { margin-left: auto; color: #ff9b63; }
+.explore-no-results { padding: 14px 10px; color: #929db0; font-size: 11px; }
+.explore-settings, .explore-object-card, .explore-welcome { position: absolute; z-index: 4; border: 1px solid rgba(143,169,214,.2); background: rgba(5,8,16,.9); backdrop-filter: blur(15px); box-shadow: 0 18px 55px rgba(0,0,0,.36); }
+.explore-settings { top: 98px; right: 16px; width: min(280px, calc(100% - 32px)); padding: 15px; border-radius: 8px; }
+.explore-settings-head, .explore-object-head { display: flex; align-items: center; justify-content: space-between; }
+.explore-settings-head { color: #ffb17d; font: 10px var(--font-mono); letter-spacing: .13em; margin-bottom: 15px; }
+.explore-settings-head button, .explore-object-head button { border: 0; background: transparent; color: #aab6ca; cursor: pointer; font-size: 20px; }
+.explore-settings label { display: block; margin: 12px 0; color: #dce4f4; font-size: 11px; }
+.explore-settings label span { float: right; color: #ffb17d; font: 10px var(--font-mono); }
+.explore-settings input[type="range"] { display: block; width: 100%; margin-top: 10px; accent-color: #ff8246; }
+.explore-settings p { margin: 14px 0 0; color: #78869d; font-size: 10px; line-height: 1.6; }
+.explore-object-card { top: 50px; right: 16px; width: min(330px, calc(100% - 32px)); padding: 16px; border-radius: 9px; }
+.object-kicker, .welcome-kicker { color: #ff9a61; font: 9px var(--font-mono); letter-spacing: .15em; }
+.explore-object-title { display: flex; align-items: center; gap: 11px; margin: 14px 0 10px; }
+.explore-object-title h3 { margin: 0; color: #f1f5ff; font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+.explore-object-title p { margin: 5px 0 0; color: #8f9bb0; font-size: 10px; }
+.explore-object-title p span { color: #ff9a61; padding: 0 4px; }
+.explore-object-description { margin: 12px 0; color: #c1ccdf; font-size: 11px; line-height: 1.65; }
+.explore-object-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.08); }
+.explore-object-stats div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.explore-object-stats small { color: #78869d; font-size: 9px; }
+.explore-object-stats strong { overflow-wrap: anywhere; color: #e7edf9; font: 11px var(--font-mono); }
+.explore-data-note { margin: 12px 0 0; color: #738097; font-size: 9px; line-height: 1.6; }
+.explore-welcome { left: 18px; bottom: 48px; width: min(330px, calc(100% - 36px)); padding: 18px; border-radius: 9px; }
+.explore-welcome-close { position: absolute; right: 9px; top: 7px; border: 0; background: transparent; color: #8895aa; font-size: 19px; cursor: pointer; }
+.explore-welcome h3 { margin: 10px 0 7px; color: #f1f5ff; font-size: 25px; font-weight: 400; letter-spacing: -.04em; }
+.explore-welcome p { margin: 0 0 14px; color: #a3afc4; font-size: 11px; line-height: 1.65; }
+.explore-welcome div { display: flex; align-items: center; gap: 8px; color: #9ba8bc; font-size: 9px; }
+.explore-welcome div span { padding: 4px 6px; border: 1px solid rgba(255,255,255,.13); border-radius: 4px; color: #ffb17d; font: 9px var(--font-mono); }
+.explore-footer { display: flex; justify-content: space-between; gap: 10px; padding: 11px 2px 2px; color: #778398; font: 9px var(--font-mono); letter-spacing: .09em; }
+.explore-footer > span:first-child { display: flex; align-items: center; gap: 7px; color: #a8b6cb; }
+.explore-footer b { color: #ff9256; font-weight: 400; }
+
+/* Celestial compass */
+.celestial-compass {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 80px;
+  height: 80px;
+  z-index: 40;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--text-secondary);
+}
+.compass-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: radial-gradient(circle at 50% 50%, rgba(255, 90, 20, 0.08) 0%, transparent 70%);
+}
+.compass-north,
+.compass-south,
+.compass-east,
+.compass-west {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.compass-north { top: 6px; left: 50%; color: var(--neon-orange); }
+.compass-south { bottom: 2px; left: 50%; }
+.compass-east { right: 6px; top: 50%; }
+.compass-west { left: 6px; top: 50%; }
+.compass-needle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2px;
+  height: 28px;
+  background: linear-gradient(180deg, var(--neon-bright) 0%, transparent 100%);
+  transform: translate(-50%, -50%) rotate(0deg);
+  transform-origin: 50% 50%;
+  transition: transform 0.12s ease-out;
+  box-shadow: 0 0 6px rgba(255, 77, 0, 0.4);
+}
+@media (max-width: 640px) {
+  .sky-mode-switch { width: 100%; }
+  .sky-mode-switch button { flex: 1; padding: 10px 5px; font-size: 9px; }
+  .celestial-explore { height: min(72vh, 640px); min-height: 430px; }
+  .explore-top-right { display: none; }
+  .explore-search { top: 48px; left: 10px; width: calc(100% - 20px); }
+  .explore-object-card { top: auto; bottom: 45px; right: 10px; width: calc(100% - 20px); max-height: 48%; overflow-y: auto; }
+  .explore-settings { top: 93px; right: 10px; }
+  .explore-welcome { left: 10px; bottom: 44px; width: calc(100% - 20px); }
+  .explore-bottom-left { left: 10px; bottom: 12px; font-size: 8px; }
+  .explore-bottom-right { display: none; }
+  .celestial-compass { width: 64px; height: 64px; top: 54px; right: 8px; font-size: 8px; }
+  .compass-needle { height: 22px; }
