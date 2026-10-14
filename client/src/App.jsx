@@ -32,33 +32,52 @@ const TABS = [
 ];
 
 export default function App() {
-  const [tab, setTabRaw] = useState(initialTab());
+  // Read the initial tab + selection from the URL exactly once.
+  const [initial] = useState(initialRoute);
+  const [tab, setTabRaw] = useState(initial.tab);
   const [stats, setStats] = useState(null);
   const [health, setHealth] = useState(null);
   const [objects, setObjects] = useState([]);
   const [objectsLoaded, setObjectsLoaded] = useState(false);
-  const [target, setTarget] = useState(null); // { tab, id } deep-link to a candidate
+  // Cross-view selection. Views unmount whenever the tab changes, so "which
+  // object is selected" lives here and is shared by the Sky Viewer, Blink
+  // Comparator, Catalogue and Spectra — picking an object anywhere updates it.
+  const [selectedId, setSelectedId] = useState(initial.id);
   const [menuOpen, setMenuOpen] = useState(false);
   const objectsRequest = useRef(null);
 
-  const setTab = (t) => {
-    setTabRaw(t);
-    setTarget(null); // plain nav clears any deep-link target
-    setMenuOpen(false);
-    try { location.hash = t; } catch (_) {}
+  // Mirror the active tab + selection into the URL hash (`#tab/id`) so deep
+  // links, reloads and browser history restore the exact view.
+  const writeHash = (t, id) => {
+    try { location.hash = id ? `${t}/${id}` : t; } catch (_) {}
   };
 
-  // Navigate to a tab and pre-select a target candidate (e.g. from a preset).
-  const goToTarget = (t, id) => {
-    setTarget(id ? { tab: t, id } : null);
+  const setTab = (t) => {
     setTabRaw(t);
     setMenuOpen(false);
-    try { location.hash = t; } catch (_) {}
+    writeHash(t, selectedId); // plain nav keeps the current selection
+  };
+
+  // Select (or clear, with `null`) the shared object and reflect it in the URL.
+  const selectObject = (id) => {
+    setSelectedId(id || null);
+    writeHash(tab, id || null);
+  };
+
+  // Navigate to a tab and select a target candidate (presets / "open in" links).
+  const goToTarget = (t, id) => {
+    if (id) setSelectedId(id);
+    setTabRaw(t);
+    setMenuOpen(false);
+    writeHash(t, id || selectedId);
   };
 
   const onHashChange = () => {
-    const t = location.hash.replace('#', '');
-    if (TABS.some((x) => x.id === t)) { setTabRaw(t); setTarget(null); }
+    const { tab: t, id } = parseHash(location.hash);
+    if (TABS.some((x) => x.id === t)) {
+      setTabRaw(t);
+      setSelectedId(id);
+    }
   };
 
   useEffect(() => {
@@ -132,7 +151,7 @@ export default function App() {
       clearTimeout(fallback);
       observer.disconnect();
     };
-  }, [tab, target, objects]);
+  }, [tab, selectedId, objects]);
 
   // Custom sci-fi targeting-reticle cursor. Disabled on coarse-pointer (touch)
   // and `prefers-reduced-motion` devices, where the native cursor is kept.
@@ -260,10 +279,6 @@ export default function App() {
     };
   }, []);
 
-  const blinkPreset = tab === 'blink' && target ? target.id : null;
-  const cataloguePreset = tab === 'catalogue' && target ? target.id : null;
-  const spectraPreset = tab === 'spectra' && target ? target.id : null;
-
   return (
     <div className="shell">
       <div className="bg fx">
@@ -281,15 +296,15 @@ export default function App() {
       </div>
       <main className="view" key={tab}>
         {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
-        {tab === 'sky' && <RetryableModule loader={loadSkyViewer} label="Loading sky viewer…" />}
+        {tab === 'sky' && <RetryableModule loader={loadSkyViewer} label="Loading sky viewer…" componentProps={{ selectedId, onSelect: selectObject, onTarget: goToTarget }} />}
         {tab === 'blink' && (objectsLoaded
-          ? <RetryableModule loader={loadBlinkComparator} label="Loading blink comparator…" componentProps={{ objects, presetId: blinkPreset, onTarget: goToTarget }} />
+          ? <RetryableModule loader={loadBlinkComparator} label="Loading blink comparator…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
           : <ModuleLoading label="Loading survey objects…" />)}
         {tab === 'catalogue' && (objectsLoaded
-          ? <RetryableModule loader={loadCatalogue} label="Loading catalogue…" componentProps={{ objects, presetId: cataloguePreset, onTarget: goToTarget }} />
+          ? <RetryableModule loader={loadCatalogue} label="Loading catalogue…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
           : <ModuleLoading label="Loading catalogue…" />)}
         {tab === 'spectra' && (objectsLoaded
-          ? <RetryableModule loader={loadSpectraView} label="Loading spectra…" componentProps={{ objects, presetId: spectraPreset, onTarget: goToTarget }} />
+          ? <RetryableModule loader={loadSpectraView} label="Loading spectra…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
           : <ModuleLoading label="Loading spectral targets…" />)}
         {tab === 'archives' && <RetryableModule loader={loadIvoaLab} label="Loading live archives…" />}
         {tab === 'sources' && <RetryableModule loader={loadDataSources} label="Loading data sources…" />}
@@ -303,9 +318,16 @@ function ModuleLoading({ label = 'Loading module…' }) {
   return <div className="module-loading" role="status" aria-live="polite">{label}</div>;
 }
 
-function initialTab() {
-  const t = typeof location !== 'undefined' ? location.hash.replace('#', '') : '';
-  return TABS.some((x) => x.id === t) ? t : 'home';
+function parseHash(hash) {
+  const raw = (hash || '').replace(/^#/, '');
+  const [tab, ...rest] = raw.split('/');
+  return { tab: tab || '', id: rest.join('/') || null };
+}
+
+function initialRoute() {
+  if (typeof location === 'undefined') return { tab: 'home', id: null };
+  const { tab, id } = parseHash(location.hash);
+  return { tab: TABS.some((x) => x.id === tab) ? tab : 'home', id };
 }
 
 function Navbar({ tab, setTab, stats, menuOpen, onToggleMenu }) {

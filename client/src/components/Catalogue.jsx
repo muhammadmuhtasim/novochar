@@ -1,26 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { fmtRA, fmtDec } from '../lib/api.js';
 
 const FILTERS = ['ALL', 'TNO', 'AST', 'HPM'];
 const STATUS = ['ALL', 'candidate', 'confirmed'];
 
-export default function Catalogue({ objects, presetId = null, onTarget = () => {} }) {
+export default function Catalogue({ objects, selectedId = null, onSelect = () => {}, onTarget = () => {} }) {
   const [type, setType] = useState('ALL');
   const [status, setStatus] = useState('ALL');
   const [q, setQ] = useState('');
   const [sort, setSort] = useState('id');
   const [dir, setDir] = useState(1);
-  const [detail, setDetail] = useState(null);
-
-  // Deep-link support: open a specific object's detail drawer when navigated
-  // here from another view (e.g. Sky Viewer -> "+ catalog").
-  const prevPreset = useRef(null);
-  useEffect(() => {
-    if (!presetId || presetId === prevPreset.current) return;
-    prevPreset.current = presetId;
-    const o = objects.find((x) => x.id === presetId);
-    if (o) setDetail(o);
-  }, [presetId, objects]);
+  // The detail drawer mirrors the shared cross-view selection.
+  const detail = selectedId ? objects.find((o) => o.id === selectedId) || null : null;
 
   let list = objects;
   if (type !== 'ALL') list = list.filter((o) => o.type === type);
@@ -88,7 +79,7 @@ export default function Catalogue({ objects, presetId = null, onTarget = () => {
             </thead>
             <tbody>
               {list.map((o) => (
-                <tr key={o.id} onClick={() => setDetail(detail && detail.id === o.id ? null : o)} className={detail && detail.id === o.id ? 'selected' : ''}>
+                <tr key={o.id} onClick={() => onSelect(detail && detail.id === o.id ? null : o.id)} className={detail && detail.id === o.id ? 'selected' : ''}>
                   <td className="mono">{o.id}</td>
                   <td>{o.name}</td>
                   <td><span className="chip-type" style={{ color: o.color }}>{o.type}</span></td>
@@ -110,7 +101,7 @@ export default function Catalogue({ objects, presetId = null, onTarget = () => {
         <aside className="panel side detail-panel">
           <div className="panel-head">
             <h2>{detail.id} — {detail.name}</h2>
-            <button className="btn sm" onClick={() => setDetail(null)}>✕</button>
+            <button className="btn sm" onClick={() => onSelect(null)}>✕</button>
           </div>
           <DetailCard o={detail} />
           <div className="side-actions">

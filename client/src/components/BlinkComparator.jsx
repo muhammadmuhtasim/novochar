@@ -19,8 +19,13 @@ function niceStep(range) {
   return (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
 }
 
-export default function BlinkComparator({ objects, presetId = null, onTarget = () => {} }) {
-  const [sel, setSel] = useState(presetId || (objects.length ? objects[0].id : null));
+export default function BlinkComparator({ objects, selectedId: selectedIdProp = null, onSelect = () => {}, onTarget = () => {} }) {
+  // Shared cross-view selection (owned by App) with a local fallback to the
+  // first catalogue entry so the view is never empty.
+  const sel = selectedIdProp && objects.some((o) => o.id === selectedIdProp)
+    ? selectedIdProp
+    : (objects.length ? objects[0].id : null);
+  const setSel = (id) => { if (id !== sel) onSelect(id); };
   const [frames, setFrames] = useState([]);
   const [meta, setMeta] = useState(null);
   const [idx, setIdx] = useState(0);
@@ -36,20 +41,6 @@ export default function BlinkComparator({ objects, presetId = null, onTarget = (
       .then((d) => { setFrames(d.frames); setMeta(d.object); setIdx(0); setPlaying(false); })
       .catch(() => {});
   }, [sel]);
-
-  // Auto-select the first tracked object once the catalogue arrives (covers
-  // direct-load cases where `objects` is still empty on first mount).
-  useEffect(() => {
-    if (!sel && objects.length) setSel(objects[0].id);
-  }, [objects, sel]);
-
-  // Honour a deep-linked presetId (arrives after the catalogue loads).
-  const prevPreset = useRef(null);
-  useEffect(() => {
-    if (!presetId || presetId === prevPreset.current) return;
-    prevPreset.current = presetId;
-    if (objects.some((o) => o.id === presetId)) setSel(presetId);
-  }, [presetId, objects]);
 
   useEffect(() => {
     playRef.current = playing;

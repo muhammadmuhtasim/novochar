@@ -182,10 +182,12 @@ function refreshVisibleCatalog(engine) {
     sprite.scale.setScalar(2.1 + Math.max(0, 8 - magnitude) * 0.16);
   });
 }
-export default function CelestialExplore() {
+export default function CelestialExplore({ selectedId = null, onSelect = () => {}, onTarget = () => {} }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
+  // Keep the latest onSelect without re-subscribing the canvas listener.
+  const onSelectRef = useRef(onSelect);
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -199,6 +201,8 @@ export default function CelestialExplore() {
   const [viewRangeLy, setViewRangeLy] = useState(180);
   const [timeOffsetYears, setTimeOffsetYears] = useState(0);
   const [visibleObjectCount, setVisibleObjectCount] = useState(0);
+
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
 
   useEffect(() => {
     api.objects().then((d) => {
@@ -257,6 +261,19 @@ export default function CelestialExplore() {
     return { ...source, ...apparentCoordinates(source, viewEpochJD) };
   }, [selected, catalog, viewEpochJD]);
 
+  // Adopt a target chosen in another view (Comparator / Catalogue / Spectra).
+  // The selection is shared through App, so this only mirrors it locally.
+  useEffect(() => {
+    if (!selectedId || !catalog.length) return;
+    if (selected && selected.id === selectedId) return;
+    const object = catalog.find((o) => o.id === selectedId);
+    if (!object) return;
+    setSelected({ ...object, ...apparentCoordinates(object, viewEpochJD) });
+    setQuery(object.name || object.id);
+    setSearchOpen(false);
+    setNotice(`${object.name || object.id} selected`);
+  }, [selectedId, catalog, selected, viewEpochJD]);
+
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return filtered.slice(0, 8);
@@ -269,6 +286,7 @@ export default function CelestialExplore() {
     const onStarSelected = (event) => {
       const star = event.detail;
       setSelected(star || null);
+      onSelectRef.current(star ? star.id : null);
       if (star) { setQuery(star.name || star.id); setSearchOpen(false); setNotice(`${star.name || star.id} selected`); }
     };
     canvas.addEventListener('sky-star-select', onStarSelected);
@@ -551,6 +569,7 @@ export default function CelestialExplore() {
     const selectedObject = { ...star, ...apparentCoordinates(star, viewEpochJD) };
     setSelected(selectedObject); setQuery(star.name || star.id); setSearchOpen(false);
     setNotice(`${star.name || star.id} selected`);
+    onSelect(star.id);
     const engine = engineRef.current;
     if (engine) {
       engine.selectedMarker.position.copy(directionFromRaDec(selectedObject.ra, selectedObject.dec, 94.4));
@@ -562,6 +581,7 @@ export default function CelestialExplore() {
 
   const clearSelection = () => {
     setSelected(null);
+    onSelect(null);
     const canvas = canvasRef.current;
     if (canvas) canvas.dispatchEvent(new CustomEvent('sky-star-select', { detail: null }));
   };
@@ -620,6 +640,11 @@ export default function CelestialExplore() {
           <div className="explore-object-title"><span className="object-color-dot" style={{ background: categoryColor(selectedAtEpoch), boxShadow: `0 0 14px ${categoryColor(selectedAtEpoch)}` }} /><div><h3>{selectedAtEpoch.name || selectedAtEpoch.id}</h3><p>{selectedAtEpoch.type} <span>·</span> {selectedAtEpoch.id}</p></div></div>
           <p className="explore-object-description">{selectedAtEpoch.note || selectedAtEpoch.description || ''}</p>
           <div className="explore-object-stats"><div><small>Simulated apparent magnitude</small><strong>{(selectedAtEpoch.mag || 0).toFixed(2)} mag</strong></div><div><small>Right ascension</small><strong>{formatRa(selectedAtEpoch.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selectedAtEpoch.dec)}</strong></div><div><small>Catalog ID</small><strong>{selectedAtEpoch.id}</strong></div></div>
+          <div className="explore-object-actions">
+            <button className="btn sm" onClick={() => onTarget('catalogue', selectedAtEpoch.id)}>CATALOGUE ≋</button>
+            <button className="btn sm" onClick={() => onTarget('blink', selectedAtEpoch.id)}>BLINK ⧗</button>
+            <button className="btn primary sm" onClick={() => onTarget('spectra', selectedAtEpoch.id)}>SPECTRA ∿</button>
+          </div>
         </aside>}
         {helpVisible && !selected && <div className="explore-welcome"><button className="explore-welcome-close" onClick={() => setHelpVisible(false)} aria-label="Dismiss welcome">×</button><span className="welcome-kicker">WELCOME TO NOVOCHAR</span><h3>Look around.</h3><p>Explore the star field. Filter by object type, adjust object count and view range to see distant objects.</p><div><span>DRAG</span> Look around <span>SCROLL</span> Zoom</div></div>}
       </div>

@@ -57,8 +57,13 @@ const ObjectOptions = React.memo(function ObjectOptions({ objects }) {
   return objects.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.name}</option>);
 });
 
-export default function SpectraView({ objects, presetId, onTarget = () => {} }) {
-  const [selectedId, setSelectedId] = useState(presetId || (objects[0] && objects[0].id) || null);
+export default function SpectraView({ objects, selectedId: selectedIdProp = null, onSelect = () => {}, onTarget = () => {} }) {
+  // Shared cross-view selection (owned by App), falling back to the first
+  // catalogue entry so the workbench is never empty.
+  const selectedId = selectedIdProp && objects.some((o) => o.id === selectedIdProp)
+    ? selectedIdProp
+    : (objects[0] && objects[0].id) || null;
+  const setSelectedId = (id) => { if (id !== selectedId) onSelect(id); };
   const [sed, setSed] = useState(null);
   const [heat, setHeat] = useState(null);
   const [nside, setNside] = useState(64);
@@ -80,14 +85,12 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
   const [autoBusy, setAutoBusy] = useState(false);
   const svgRef = useRef(null);
 
+  // Reset the redshift controls whenever the shared target changes (whether the
+  // pick happened here or in another view).
   useEffect(() => {
-    if (presetId) { setSelectedId(presetId); setZ(0); setZEstimate(null); }
-  }, [presetId]);
-
-  // Auto-select the first tracked object once the catalogue arrives.
-  useEffect(() => {
-    if (!selectedId && objects.length) setSelectedId(objects[0].id);
-  }, [objects, selectedId]);
+    setZ(0);
+    setZEstimate(null);
+  }, [selectedIdProp]);
 
   useEffect(() => {
     if (!selectedId) return undefined;
