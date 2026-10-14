@@ -137,29 +137,38 @@ try {
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   mobile.on('pageerror', (error) => errors.push(error.message));
   const mobileCdp = await mobile.context().newCDPSession(mobile);
-  await mobileCdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   await mobile.goto(origin, { waitUntil: 'domcontentloaded' });
   await mobile.locator('.nav-burger').evaluate((button) => button.click());
   await mobile.locator('.nav-mobile button').nth(1).evaluate((button) => button.click());
   console.log('browser check: mobile menu selected Sky Viewer');
-  await mobile.locator('.celestial-canvas').waitFor({ state: 'visible', timeout: 60_000 });
-  const mobileExplore = await mobile.locator('.celestial-canvas').evaluate((canvas) => ({
+  await mobileCdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+  const exploreCanvas = await mobile.waitForSelector('.celestial-canvas', { state: 'visible', timeout: 60_000 });
+  const mobileExplore = await exploreCanvas.evaluate((canvas) => ({
     viewport: [innerWidth, innerHeight],
     size: [canvas.width, canvas.height],
     rect: [Math.round(canvas.getBoundingClientRect().width), Math.round(canvas.getBoundingClientRect().height)],
     pageWidth: document.documentElement.scrollWidth,
   }));
-  await mobile.locator('.sky-mode-switch button').nth(1).evaluate((button) => button.click());
-  await mobile.locator('.space3d-canvas').waitFor({ state: 'visible', timeout: 60_000 });
+  const skyControls = await mobile.evaluate(() => ({
+    hash: location.hash,
+    modeButtons: document.querySelectorAll('.sky-mode-switch button').length,
+    activeTab: document.querySelector('.nav-mobile .active')?.innerText ?? null,
+  }));
+  assert.equal(skyControls.modeButtons, 2, `Sky Viewer controls missing on mobile: ${JSON.stringify(skyControls)}`);
+  await mobile.evaluate(() => document.querySelectorAll('.sky-mode-switch button')[1].click());
+  console.log('browser check: mobile switched to Free-flight');
+  const flightCanvas = await mobile.waitForSelector('.space3d-canvas', { state: 'visible', timeout: 60_000 });
   await mobile.setViewportSize({ width: 740, height: 900 });
   await delay(300);
-  const mobileFlight = await mobile.locator('.space3d-canvas').evaluate((canvas) => ({
+  const mobileFlight = await flightCanvas.evaluate((canvas) => ({
     size: [canvas.width, canvas.height],
     rect: [Math.round(canvas.getBoundingClientRect().width), Math.round(canvas.getBoundingClientRect().height)],
   }));
-  await mobile.locator('.nav-burger').evaluate((button) => button.click());
-  await mobile.locator('.nav-mobile button').first().evaluate((button) => button.click());
-  await mobile.locator('.space3d-canvas').waitFor({ state: 'detached' });
+  await mobile.evaluate(() => {
+    document.querySelector('.nav-burger').click();
+    document.querySelector('.nav-mobile button').click();
+  });
+  await mobile.locator('.space3d-canvas').waitFor({ state: 'detached', timeout: 10_000 });
   const canvasesAfterUnmount = await mobile.locator('canvas').count();
   await mobileCdp.detach();
   console.log('browser check: mobile emulation and canvas cleanup completed');

@@ -24,9 +24,12 @@ production server:
 - Precomputed data and deterministic API responses have a five-minute browser
   TTL and a one-day stale-while-revalidate window.
 
-The local deployment probe was exercised against the production Express server,
-including its simulated stale-document retry path. No production URL was
-provided for this pass, so deployed headers and CDN behavior remain unverified.
+The local deployment probe was exercised against the production Express server.
+For the stale-document simulation, the same local deployment was supplied as
+both current and previous, and the harness injected a missing lazy-chunk 404
+before reloading the live HTML. This validates the recovery flow, but it does
+not compare two different deployed versions. No production URL was provided,
+so deployed headers and CDN behavior remain unverified.
 
 The local regression recorded a 168,788-byte entry script (54,716 bytes gzip),
 no landing-page catalogue request, one catalogue request under rapid switching,

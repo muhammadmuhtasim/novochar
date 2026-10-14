@@ -99,6 +99,8 @@ if (staleUrl) {
   });
   try {
     const page = await browser.newPage();
+    const pageErrors = [];
+    page.on('pageerror', (error) => pageErrors.push(error.message));
     let servingStaleDocument = false;
     let staleDocumentUsed = false;
     await page.route('**/*', async (route) => {
@@ -137,6 +139,7 @@ if (staleUrl) {
     await page.getByRole('button', { name: 'Retry feature' }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByRole('button', { name: 'Retry feature' }).click();
     await page.locator('.sky-mode-switch').waitFor({ state: 'visible', timeout: 20_000 });
+    assert.deepEqual(pageErrors, [], 'stale-chunk recovery must not leave uncaught JavaScript errors');
     report.staleDocumentRecovery = { passed: true, staleEntry: staleScriptUrl.pathname, recoveredAt: page.url() };
   } finally {
     await browser.close();
