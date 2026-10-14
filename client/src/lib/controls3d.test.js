@@ -83,3 +83,24 @@ test('no movement keys leaves the camera exactly in place', () => {
   controls.update(1);
   assert.equal(camera.position.length(), 0);
 });
+
+test('movement and roll are both disabled outside pointer lock', () => {
+  const { camera, controls } = makeControls();
+  identityState(camera);
+  controls.enabled = false;
+  controls.keys.add('w');
+  controls.keys.add('e');
+  controls.update(1);
+  assert.equal(camera.position.length(), 0);
+  assert.deepEqual(camera.quaternion.toArray(), [0, 0, 0, 1]);
+});
+
+test('dispose prevents any later keyboard movement', () => {
+  const { camera, controls } = makeControls();
+  identityState(camera);
+  controls.keys.add('w');
+  controls.dispose();
+  controls.update(1);
+  assert.equal(camera.position.length(), 0);
+  assert.equal(controls.keys.size, 0);
+});

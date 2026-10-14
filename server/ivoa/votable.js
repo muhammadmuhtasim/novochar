@@ -2,7 +2,7 @@
 //
 // Data encodings handled:
 //   <TABLEDATA>  text cells (VizieR, MAST, NOIRLab, ESO)
-//   <BINARY>     base64 little-endian fixed-width (HEASARC, SIMBAD)
+//   <BINARY>     base64 network-byte-order fixed-width
 //   <BINARY2>    base64 big-endian fixed-width (Gaia/ESA, TAP 1.4+)
 //   <FITS>       reported as encoding='FITS' (not decoded)
 //
@@ -24,14 +24,21 @@ const TYPE_FNS = {
   float: (s) => (s === '' ? null : Number(s)),
   real: (s) => (s === '' ? null : Number(s)),
   int: (s) => (s === '' ? null : parseInt(s, 10)),
-  long: (s) => (s === '' ? null : parseInt(s, 10)),
+  long: (s) => (s === '' ? null : parseVOTableInteger(s)),
   short: (s) => (s === '' ? null : parseInt(s, 10)),
-  longlong: (s) => (s === '' ? null : Number(s)),
-  unsignedByte: (s) => (s === '' ? null : parseInt(s, 10)),
+  longlong: (s) => (s === '' ? null : parseVOTableInteger(s)),
+  unsignedbyte: (s) => (s === '' ? null : parseInt(s, 10)),
   boolean: (s) => (s === '' ? null : /^[Tt1]/.test(s)),
   char: (s) => s,
-  unicodeChar: (s) => s,
+  unicodechar: (s) => s,
 };
+
+function parseVOTableInteger(value) {
+  const integer = BigInt(value);
+  return integer <= BigInt(Number.MAX_SAFE_INTEGER) && integer >= BigInt(Number.MIN_SAFE_INTEGER)
+    ? Number(integer)
+    : integer.toString();
+}
 
 function coerce(raw, datatype) {
   const s = raw == null ? '' : String(raw).trim();
@@ -101,10 +108,10 @@ function extractResourceBodies(xml) {
   return out;
 }
 
-// --- BINARY (little-endian) + BINARY2 (big-endian) decoding ----------------
+// --- BINARY and BINARY2 (network byte order) decoding ----------------------
 const BINARY_SIZE = { boolean: 1, unsignedbyte: 1, short: 2, int: 4, long: 8, longlong: 8, float: 4, double: 8 };
 
-export function decodeBinaryRows(b64, fields, endian = 'le', binary2 = false) {
+export function decodeBinaryRows(b64, fields, endian = 'be', binary2 = false) {
   if (!b64 || typeof atob === 'undefined') return [];
   const raw = Uint8Array.from(atob(b64.replace(/\s+/g, '')), (c) => c.charCodeAt(0));
   const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
@@ -148,8 +155,14 @@ export function decodeBinaryRows(b64, fields, endian = 'le', binary2 = false) {
           const value = dv.getBigInt64 ? dv.getBigInt64(p, !be) : BigInt(dv.getUint32(p, !be)) + BigInt(dv.getUint32(p + 4, !be)) * 4294967296n;
           row[(f.name) || `col${i}`] = value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
         }
-        else if (dt === 'boolean') row[(f.name) || `col${i}`] = raw[p] !== 0;
-        else if (dt === 'unsignedByte') row[(f.name) || `col${i}`] = raw[p];
+        else if (dt === 'boolean') {
+          const value = String.fromCharCode(raw[p]);
+          if (/^[Tt1]$/.test(value)) row[(f.name) || `col${i}`] = true;
+          else if (/^[Ff0]$/.test(value)) row[(f.name) || `col${i}`] = false;
+          else if (value === '?') row[(f.name) || `col${i}`] = null;
+          else { ok = false; break; }
+        }
+        else if (dt === 'unsignedbyte') row[(f.name) || `col${i}`] = raw[p];
         else {
           const as = f.arraysize;
           let start = p, size = as === 'x' || !as ? 1 : parseInt(as, 10);
@@ -184,7 +197,7 @@ export function parseVOTable(xml) {
       const bin2 = /<BINARY2>[\s\S]*?<STREAM[^>]*encoding\s*=\s*(?:"base64"|'base64')[^>]*>([\s\S]*?)<\/STREAM\s*>/i.exec(body);
       const bin = /<BINARY>[\s\S]*?<STREAM[^>]*encoding\s*=\s*(?:"base64"|'base64')[^>]*>([\s\S]*?)<\/STREAM\s*>/i.exec(body);
       if (bin2) { encoding = 'BINARY2'; rows = decodeBinaryRows(bin2[1], fields, 'be', true); }
-      else if (bin) { encoding = 'BINARY'; rows = decodeBinaryRows(bin[1], fields, 'le'); }
+      else if (bin) { encoding = 'BINARY'; rows = decodeBinaryRows(bin[1], fields, 'be'); }
       else if (/<FITS/i.test(body)) { encoding = 'FITS'; }
       else { encoding = 'TABLEDATA'; rows = extractRows(body, fields); }
     }

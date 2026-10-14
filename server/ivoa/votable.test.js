@@ -112,6 +112,53 @@ test('BINARY2 consumes row null flags and decodes 64-bit Gaia identifiers', () =
   assert.deepEqual(rows, [{ source_id: '1234567890123456789', ra: 84.25, pmra: null, ref_epoch: 2016 }]);
 });
 
+test('BINARY defaults to network byte order and parses signed integers, floats, and unsigned bytes', () => {
+  const fields = [
+    { name: 'signed_int', datatype: 'int' },
+    { name: 'signed_short', datatype: 'short' },
+    { name: 'flux', datatype: 'float' },
+    { name: 'identifier', datatype: 'long' },
+    { name: 'flag', datatype: 'unsignedByte' },
+  ];
+  const bytes = new ArrayBuffer(19);
+  const view = new DataView(bytes);
+  view.setInt32(0, -123456, false);
+  view.setInt16(4, -321, false);
+  view.setFloat32(6, 1.25, false);
+  view.setBigInt64(10, 9007199254740993n, false);
+  view.setUint8(18, 255);
+  const b64 = Buffer.from(bytes).toString('base64');
+  assert.deepEqual(decodeBinaryRows(b64, fields), [{
+    signed_int: -123456,
+    signed_short: -321,
+    flux: 1.25,
+    identifier: '9007199254740993',
+    flag: 255,
+  }]);
+
+  const xml = `<VOTABLE><RESOURCE><TABLE>
+    ${fields.map((f) => `<FIELD name="${f.name}" datatype="${f.datatype}"/>`).join('')}
+    <DATA><BINARY><STREAM encoding="base64">${b64}</STREAM></BINARY></DATA>
+  </TABLE></RESOURCE></VOTABLE>`;
+  assert.deepEqual(parseVOTable(xml)[0].rows[0].flag, 255, 'VOTable BINARY parser uses network byte order and unsigned-byte conversion');
+});
+
+test('TABLEDATA converts unsignedByte after datatype normalization', () => {
+  const xml = '<VOTABLE><RESOURCE><TABLE><FIELD name="u" datatype="unsignedByte"/><DATA><TABLEDATA><TR><TD>255</TD></TR></TABLEDATA></DATA></TABLE></RESOURCE></VOTABLE>';
+  assert.equal(parseVOTable(xml)[0].rows[0].u, 255);
+});
+
+test('TABLEDATA preserves VOTable 64-bit integers beyond JavaScript safe precision', () => {
+  const xml = '<VOTABLE><RESOURCE><TABLE><FIELD name="id" datatype="long"/><DATA><TABLEDATA><TR><TD>9007199254740993</TD></TR></TABLEDATA></DATA></TABLE></RESOURCE></VOTABLE>';
+  assert.equal(parseVOTable(xml)[0].rows[0].id, '9007199254740993');
+});
+
+test('BINARY booleans decode their specified ASCII values rather than any nonzero byte', () => {
+  const fields = [{ name: 'yes', datatype: 'boolean' }, { name: 'no', datatype: 'boolean' }, { name: 'missing', datatype: 'boolean' }];
+  const bytes = Buffer.from([0x54, 0x30, 0x3f]).toString('base64'); // T, 0, ?
+  assert.deepEqual(decodeBinaryRows(bytes, fields), [{ yes: true, no: false, missing: null }]);
+});
+
 test('nested RESOURCE does not truncate the inner TABLE', () => {
   const xml = '<VOTABLE><RESOURCE type="results"><RESOURCE><COOSYS ID="c"/></RESOURCE>' +
     '<TABLE><FIELD name="x" datatype="int"/><DATA><TABLEDATA><TR><TD>7</TD></TR></TABLEDATA></DATA></TABLE>' +

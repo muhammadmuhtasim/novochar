@@ -16,7 +16,11 @@ export class FreeFlightControls {
     this.right = new THREE.Vector3();
     this.up = new THREE.Vector3(0, 1, 0);
     this._onClick = () => { if (!this.enabled) this.domElement.requestPointerLock?.(); };
-    this._onLock = () => { this.enabled = document.pointerLockElement === this.domElement; };
+    this._onLock = () => {
+      const enabled = document.pointerLockElement === this.domElement;
+      if (enabled !== this.enabled) this.keys.clear();
+      this.enabled = enabled;
+    };
     this._onMouse = e => {
       if (!this.enabled) return;
       this.euler.setFromQuaternion(this.camera.quaternion, 'YXZ');
@@ -41,9 +45,14 @@ export class FreeFlightControls {
   }
 
   update(dt) {
+    // Flight controls are active only while this canvas owns pointer lock.
+    // Keyboard listeners remain global so key-up can be observed reliably,
+    // but stale/held keys must never move the camera outside flight mode.
+    if (!this.enabled) return;
+
     // Q/E roll around the camera's forward axis.
     const roll = (this.keys.has('e') ? 1 : 0) - (this.keys.has('q') ? 1 : 0);
-    if (roll && this.enabled) {
+    if (roll) {
       const rollQ = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, -1), roll * this.rollSpeed * dt);
       this.camera.quaternion.multiply(rollQ);
     }
@@ -67,6 +76,8 @@ export class FreeFlightControls {
   }
 
   dispose() {
+    this.enabled = false;
+    this.keys.clear();
     this.domElement.removeEventListener('click', this._onClick);
     document.removeEventListener('pointerlockchange', this._onLock);
     document.removeEventListener('mousemove', this._onMouse);

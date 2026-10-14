@@ -48,3 +48,24 @@ test('hash keys stay strings even at extreme negative coordinates', () => {
   assert.equal(a, b);
   assert.equal(typeof a, 'string');
 });
+
+test('sectors share one grid material and world disposal releases it once', () => {
+  const scene = new THREE.Scene();
+  const world = new ProceduralWorld(scene, { sectorSize: 72, viewRadius: 1 });
+  world.update({ x: 0, y: 0, z: 0 });
+  const gridMaterial = world.gridMaterial;
+  let disposeEvents = 0;
+  gridMaterial.addEventListener('dispose', () => { disposeEvents += 1; });
+  for (const group of world.sectors.values()) {
+    const grid = group.children.find((child) => child.isLineSegments && child.geometry.attributes.position.count === 84);
+    assert.ok(grid, 'sector has its grid lines');
+    assert.equal(grid.material, gridMaterial);
+  }
+
+  world.update({ x: 1000, y: 1000, z: 1000 });
+  assert.equal(disposeEvents, 0, 'removing sectors keeps the shared material alive');
+  world.dispose();
+  world.dispose();
+  assert.equal(disposeEvents, 1, 'world disposal releases the shared material once');
+  assert.equal(world.update({ x: 0, y: 0, z: 0 }), 0, 'disposed worlds do not allocate sectors again');
+});

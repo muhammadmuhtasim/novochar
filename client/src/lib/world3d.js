@@ -8,12 +8,16 @@ export class ProceduralWorld {
     this.sectorSize = options.sectorSize ?? 72;
     this.viewRadius = options.viewRadius ?? 1;
     this.sectors = new Map();
+    this.disposed = false;
     this.materials = [
       new THREE.LineBasicMaterial({ color: 0xff5500, transparent: true, opacity: 0.78 }),
       new THREE.LineBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.65 }),
       new THREE.LineBasicMaterial({ color: 0xff3300, transparent: true, opacity: 0.62 }),
       new THREE.LineBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.48 })
     ];
+    // A single shared grid material avoids one GPU material allocation per
+    // generated sector. Object-line materials above remain shared separately.
+    this.gridMaterial = new THREE.LineBasicMaterial({ color: 0x3d1a00, transparent: true, opacity: 0.22 });
     this.starMaterial = new THREE.PointsMaterial({ color: 0xffbb66, size: 0.12, transparent: true, opacity: 0.7, sizeAttenuation: true });
   }
 
@@ -21,6 +25,7 @@ export class ProceduralWorld {
   coord(value) { return Math.floor(value / this.sectorSize); }
 
   update(position) {
+    if (this.disposed) return 0;
     const cx = this.coord(position.x), cy = this.coord(position.y), cz = this.coord(position.z);
     const needed = new Set();
     for (let x = cx - this.viewRadius; x <= cx + this.viewRadius; x++) {
@@ -63,7 +68,7 @@ export class ProceduralWorld {
     }
     const gridGeo = new THREE.BufferGeometry();
     gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridPositions, 3));
-    const grid = new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x3d1a00, transparent: true, opacity: 0.22 }));
+    const grid = new THREE.LineSegments(gridGeo, this.gridMaterial);
     group.add(grid);
 
     // Procedural wireframe primitives scattered in 3D, not on a ground plane.
@@ -100,11 +105,14 @@ export class ProceduralWorld {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     for (const group of this.sectors.values()) {
       this.scene.remove(group);
       group.traverse(obj => { if (obj.geometry) obj.geometry.dispose(); });
     }
     this.sectors.clear();
+    this.gridMaterial.dispose();
     for (const material of this.materials) material.dispose();
     this.starMaterial.dispose();
   }

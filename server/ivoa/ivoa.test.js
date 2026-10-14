@@ -88,6 +88,22 @@ test('tapQuery permits callers to request TABLEDATA VOTable output', async () =>
   assert.equal(captured.searchParams.get('FORMAT'), 'votable/td');
 });
 
+test('IRSA TAP URL preserves reserved characters in the original ADQL query', async () => {
+  const query = `SELECT * FROM catalog WHERE label = 'O''Brien & C+1 / ? # %'`;
+  let captured;
+  await tapQuery({
+    archive: 'irsa',
+    query,
+    fetchImpl: async (url) => {
+      captured = new URL(url);
+      return { ok: true, text: async () => VOTABLE };
+    },
+  });
+  assert.equal(captured.pathname, '/TAP/sync');
+  assert.equal(captured.searchParams.get('QUERY'), query);
+  assert.equal(captured.searchParams.get('FORMAT'), 'votable');
+});
+
 test('resolveEndpoint resolves registry keys and passes URLs through', () => {
   assert.equal(resolveEndpoint('vizier', TAP_ENDPOINTS), TAP_ENDPOINTS.vizier);
   assert.equal(resolveEndpoint('https://example.org/tap', TAP_ENDPOINTS), 'https://example.org/tap');

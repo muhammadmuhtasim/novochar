@@ -2,7 +2,7 @@
 //
 // Supports both wire dialects in common use:
 //   style 'ivoad' - standard TAP sync (?REQUEST=doQuery&LANG=ADQL&FORMAT=votable&QUERY=...)
-//   style 'irsa'  - IRSA TAP (?QUERY=...&FORMAT=votable, spaces as '+', CONTAINS()/CIRCLE())
+//   style 'irsa'  - IRSA TAP (?QUERY=...&FORMAT=votable, CONTAINS()/CIRCLE())
 //
 // Any endpoint can be given as an archive registry key (see registry.js) or
 // as an absolute URL. Table/schema introspection is provided through
@@ -69,8 +69,10 @@ function ivoadUrl(base, adql, extra = {}) {
 
 /** IRSA TAP uses QUERY=... with '+' for spaces and CONTAINS()/CIRCLE(). */
 function irsaUrl(base, adql) {
-  const q = adql.replace(/ /g, '+').replace(/,/g, ',');
-  return `${String(base).replace(/\/?$/, '')}/sync?QUERY=${q}&FORMAT=votable`;
+  const url = new URL(String(base).replace(/\/?$/, '') + '/sync');
+  url.searchParams.set('QUERY', adql);
+  url.searchParams.set('FORMAT', 'votable');
+  return url.toString();
 }
 
 /**
