@@ -1,7 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
+import { motionStats } from '../lib/astrometry.js';
 import BlinkDraw from './BlinkDraw.jsx';
 import Readout from './Readout.jsx';
+
+function fmtArc(mas) {
+  if (!Number.isFinite(mas)) return '—';
+  const a = Math.abs(mas);
+  if (a < 1000) return `${a < 10 ? a.toFixed(1) : a.toFixed(0)} mas`;
+  if (a < 600_000) return `${(a / 1000).toFixed(2)}″`;
+  return `${(a / 3.6e6).toFixed(2)}°`;
+}
+
+function niceStep(range) {
+  if (!(range > 0)) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(range)));
+  const n = range / pow;
+  return (n >= 5 ? 5 : n >= 2 ? 2 : 1) * pow;
+}
 
 export default function BlinkComparator({ objects, presetId = null, onTarget = () => {} }) {
   const [sel, setSel] = useState(presetId || (objects.length ? objects[0].id : null));
@@ -46,6 +62,9 @@ export default function BlinkComparator({ objects, presetId = null, onTarget = (
 
   const step = (d) => { if (!frames.length) return; setIdx((idx + d + frames.length) % frames.length); };
   const select = (e) => { setPlaying(false); setSel(e.target.value); };
+
+  // Shared tangent-plane summary powering the readout + both charts.
+  const stats = useMemo(() => motionStats(frames), [frames]);
 
   return (
     <section className="blink-grid">
@@ -102,10 +121,156 @@ export default function BlinkComparator({ objects, presetId = null, onTarget = (
           <span className="tag">ASTROMETRY</span>
         </div>
         {frames.length && meta
-          ? <Readout frames={frames} idx={idx} meta={meta} />
+          ? <Readout frames={frames} idx={idx} meta={meta} stats={stats} />
           : <p className="muted empty">Select a candidate to compute differential motion.</p>}
       </aside>
+
+      {frames.length > 0 && (
+        <div className="panel blink-charts">
+          <div className="panel-head">
+            <h2>MOTION &amp; BRIGHTNESS</h2>
+            <span className="tag">ACROSS {frames.length} PASSES</span>
+          </div>
+          <div className="blink-charts-grid">
+            <MotionPlot stats={stats} idx={idx} />
+            <LightCurve stats={stats} idx={idx} />
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+// Tangent-plane motion track: true on-sky offsets (mas) of each pass relative
+// to the first epoch. A single shared scale keeps the track's angle truthful.
+function MotionPlot({ stats, idx }) {
+  const path = (stats && stats.path) || [];
+  if (path.length === 0) return <p className="muted empty">No motion data.</p>;
+  const W = 360, H = 262;
+  const pad = { l: 50, r: 16, t: 16, b: 34 };
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+  const es = path.map((p) => p.east);
+  const ns = path.map((p) => p.north);
+  let eMin = Math.min(...es, 0), eMax = Math.max(...es, 0);
+  let nMin = Math.min(...ns, 0), nMax = Math.max(...ns, 0);
+  if (eMax - eMin < 1e-3) { eMin -= 1; eMax += 1; }
+  if (nMax - nMin < 1e-3) { nMin -= 1; nMax += 1; }
+  const eMid = (eMin + eMax) / 2;
+  const nMid = (nMin + nMax) / 2;
+  const scale = Math.min(iw / (eMax - eMin), ih / (nMax - nMin));
+  const X = (e) => pad.l + iw / 2 + (e - eMid) * scale;
+  const Y = (n) => pad.t + ih / 2 - (n - nMid) * scale;
+  const stepE = niceStep((eMax - eMin) / 3);
+  const stepN = niceStep((nMax - nMin) / 3);
+  const ticksE = [];
+  for (let v = Math.ceil(eMin / stepE) * stepE; v <= eMax + 1e-9; v += stepE) ticksE.push(v);
+  const ticksN = [];
+  for (let v = Math.ceil(nMin / stepN) * stepN; v <= nMax + 1e-9; v += stepN) ticksN.push(v);
+  const d = path.map((p, i) => `${i ? 'L' : 'M'}${X(p.east).toFixed(1)},${Y(p.north).toFixed(1)}`).join(' ');
+  const now = path[Math.min(idx, path.length - 1)];
+  return (
+    <div className="chart">
+      <h4 className="chart-title">MOTION TRACK <span className="muted">· east / north offset</span></h4>
+      <svg viewBox={`0 0 ${W} ${H}`} className="motion-svg" role="img" aria-label="Tangent-plane motion track">
+        <rect x={pad.l} y={pad.t} width={iw} height={ih} className="mp-frame" />
+        {ticksE.map((v) => (
+          <line key={`e${v}`} x1={X(v)} y1={pad.t} x2={X(v)} y2={pad.t + ih} className="mp-grid" />
+        ))}
+        {ticksN.map((v) => (
+          <line key={`n${v}`} x1={pad.l} y1={Y(v)} x2={pad.l + iw} y2={Y(v)} className="mp-grid" />
+        ))}
+        <line x1={X(0)} y1={pad.t} x2={X(0)} y2={pad.t + ih} className="mp-origin" />
+        <line x1={pad.l} y1={Y(0)} x2={pad.l + iw} y2={Y(0)} className="mp-origin" />
+        {ticksE.map((v) => (
+          <text key={`el${v}`} x={X(v)} y={pad.t + ih + 13} textAnchor="middle" className="mp-tick">{fmtArc(v)}</text>
+        ))}
+        {ticksN.map((v) => (
+          <text key={`nl${v}`} x={pad.l - 6} y={Y(v) + 3} textAnchor="end" className="mp-tick">{fmtArc(v)}</text>
+        ))}
+        <text x={pad.l + iw / 2} y={H - 3} textAnchor="middle" className="mp-axis">← west · east →</text>
+        <text x={13} y={pad.t + ih / 2} textAnchor="middle" className="mp-axis" transform={`rotate(-90 13 ${pad.t + ih / 2})`}>north ↑</text>
+        <path d={d} className="mp-path" />
+        {path.map((p, i) => (
+          <circle
+            key={p.passCode || i}
+            cx={X(p.east)}
+            cy={Y(p.north)}
+            r={i === idx ? 5 : 2.5}
+            className={`mp-dot${i === idx ? ' now' : ''}${p.flagged ? ' flagged' : ''}`}
+          />
+        ))}
+      </svg>
+      <p className="muted caption">
+        Track across {path.length} passes; the axes cross at the first epoch (dashed). The bright dot is the current pass
+        {now ? ` (${fmtArc(Math.hypot(now.east, now.north))} from the start).` : '.'}
+      </p>
+    </div>
+  );
+}
+
+// Brightness history: the target's binned magnitude at each pass. Magnitudes are
+// inverted (brighter = higher on the plot) so "up = brighter" reads naturally.
+function LightCurve({ stats, idx }) {
+  const path = (stats && stats.path) || [];
+  const mags = path.map((p) => p.mag).filter((m) => Number.isFinite(m));
+  if (mags.length === 0) return <p className="muted empty">No brightness data.</p>;
+  const W = 360, H = 262;
+  const pad = { l: 46, r: 16, t: 16, b: 34 };
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+  const min = Math.min(...mags);
+  const max = Math.max(...mags);
+  const span = Math.max(0.4, max - min);
+  const lo = max + span * 0.18; // faint (bottom)
+  const hi = min - span * 0.18; // bright (top)
+  const X = (i) => pad.l + (path.length > 1 ? (i / (path.length - 1)) * iw : iw / 2);
+  const Y = (m) => pad.t + ((m - hi) / (lo - hi)) * ih;
+  const stepM = niceStep((lo - hi) / 3) || 0.2;
+  const ticks = [];
+  for (let v = Math.ceil(hi / stepM) * stepM; v <= lo + 1e-9; v += stepM) ticks.push(v);
+  const d = path
+    .map((p, i) => (Number.isFinite(p.mag) ? `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.mag).toFixed(1)}` : ''))
+    .filter(Boolean)
+    .join(' ');
+  const mean = mags.reduce((a, b) => a + b, 0) / mags.length;
+  const dateAt = (i) => (path[i] && path[i].epochISO ? new Date(path[i].epochISO).toISOString().slice(5, 10) : '');
+  return (
+    <div className="chart">
+      <h4 className="chart-title">LIGHT CURVE <span className="muted">· magnitude per pass</span></h4>
+      <svg viewBox={`0 0 ${W} ${H}`} className="lightcurve-svg" role="img" aria-label="Brightness versus pass">
+        <rect x={pad.l} y={pad.t} width={iw} height={ih} className="mp-frame" />
+        {ticks.map((v) => (
+          <line key={v} x1={pad.l} y1={Y(v)} x2={pad.l + iw} y2={Y(v)} className="mp-grid" />
+        ))}
+        {ticks.map((v) => (
+          <text key={`l${v}`} x={pad.l - 6} y={Y(v) + 3} textAnchor="end" className="mp-tick">{v.toFixed(1)}</text>
+        ))}
+        <line x1={pad.l} y1={Y(mean)} x2={pad.l + iw} y2={Y(mean)} className="lc-mean" />
+        <path d={d} className="lc-path" />
+        {path.map((p, i) =>
+          Number.isFinite(p.mag) ? (
+            <circle
+              key={p.passCode || i}
+              cx={X(i)}
+              cy={Y(p.mag)}
+              r={i === idx ? 4.6 : 2.4}
+              className={`mp-dot${i === idx ? ' now' : ''}`}
+            />
+          ) : null
+        )}
+        {[0, Math.floor((path.length - 1) / 2), path.length - 1].map((i) => (
+          <text key={`x${i}`} x={X(i)} y={pad.t + ih + 14} textAnchor={i === 0 ? 'start' : i === path.length - 1 ? 'end' : 'middle'} className="mp-tick">
+            {dateAt(i)}
+          </text>
+        ))}
+        <text x={13} y={pad.t + ih / 2} textAnchor="middle" className="mp-axis" transform={`rotate(-90 13 ${pad.t + ih / 2})`}>magnitude</text>
+      </svg>
+      <p className="muted caption">
+        Binned magnitude each pass; higher = brighter. The dashed line is the mean ({mean.toFixed(2)}). Constant light with
+        steady drift points to a Solar-System mover; a change in brightness suggests a variable source.
+      </p>
+    </div>
   );
 }
 

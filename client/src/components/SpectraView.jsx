@@ -23,6 +23,7 @@ import {
   alignmentScore,
   nearestLine,
 } from '../lib/spectral-analysis.js';
+import { interpretSpectrum } from '../lib/spectral-interpret.js';
 import { nearestGrid, autoRedshift } from '../lib/spectra-jobs.js';
 import {
   spectrumCSV,
@@ -121,6 +122,13 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
     const r = residualSpectrum(sed).filter((p) => Number.isFinite(p.y));
     return r.length ? Math.max(...r.map((p) => Math.abs(p.y))) : NaN;
   }, [sed]);
+
+  // Plain-language reading of the spectrum: colour, detected lines, shift, and a
+  // one-line verdict. Pure + memoised so it tracks the live redshift slider.
+  const interp = useMemo(
+    () => (sed && sed.spectrum ? interpretSpectrum(sed, z, { alpha: slope.alpha, limit: 6 }) : null),
+    [sed, z, slope]
+  );
 
   const addCompare = (id) => {
     const obj = objects.find((o) => o.id === id);
@@ -277,6 +285,36 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
           </div>
         )}
       </section>
+
+      {view === '1d' && sed && sed.object && sed.spectrum && interp && (
+        <section className="panel wide">
+          <div className="panel-head">
+            <h2>WHAT THIS SPECTRUM SHOWS</h2>
+            <span className="tag">PLAIN LANGUAGE</span>
+          </div>
+          <SpectralSummary interp={interp} zEstimate={zEstimate} />
+        </section>
+      )}
+
+      {view === '1d' && sed && sed.object && sed.spectrum && interp && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>DETECTED FEATURES</h2>
+            <span className="tag">{interp.features.length} FOUND</span>
+          </div>
+          <FeatureList features={interp.features} />
+        </section>
+      )}
+
+      {view === '1d' && sed && sed.object && sed.spectrum && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>BAND PHOTOMETRY</h2>
+            <span className="tag">{(sed.photometry || []).length} BANDS</span>
+          </div>
+          <BandChart photometry={sed.photometry} bandIndex={selected && selected.bandIndex} />
+        </section>
+      )}
 
       {view === '1d' && sed && sed.lines && sed.spectrum && (
         <section className="panel wide">
@@ -687,6 +725,125 @@ function ResidualStrip({ sed, z, xScale, tr, W }) {
   );
 }
 
+// ----- Plain-language interpretation panels -------------------------------
+
+function SpectralSummary({ interp, zEstimate }) {
+  const { colour, shift, verdict, detected, emission, absorption, features } = interp;
+  const strongest = features[0];
+  const cards = [
+    { k: 'COLOUR', v: colour.label, cls: colour.cls },
+    { k: 'LINES DETECTED', v: String(detected), sub: `${emission} emission · ${absorption} absorption` },
+    { k: 'REDSHIFT', v: shift.label, sub: `${shift.pct.toFixed(1)}% stretch` },
+    {
+      k: 'STRONGEST FEATURE',
+      v: strongest ? (strongest.matched ? strongest.label : 'unidentified') : '—',
+      sub: strongest
+        ? `${strongest.kind === 'em' ? '+' : '−'}${Math.abs(strongest.strength * 100).toFixed(0)}% at ${strongest.lambda.toFixed(3)} µm`
+        : 'none above threshold',
+    },
+  ];
+  return (
+    <div className="summary">
+      <p className="summary-verdict">{verdict}</p>
+      <div className="summary-cards">
+        {cards.map((c) => (
+          <div className="sum-card" key={c.k}>
+            <span className="sum-k">{c.k}</span>
+            <b className={`sum-v ${c.cls || ''}`}>{c.v}</b>
+            {c.sub && <span className="sum-sub">{c.sub}</span>}
+          </div>
+        ))}
+      </div>
+      <p className="muted caption">
+        {shift.note} Drag the <b>DOPPLER / REDSHIFT</b> slider until the labelled markers sit on the dips and bumps,
+        or press <b>AUTO z</b> to fit automatically
+        {zEstimate ? ` — best fit so far z = ${zEstimate.z.toFixed(3)}.` : '.'}
+      </p>
+    </div>
+  );
+}
+
+function FeatureList({ features }) {
+  if (!features.length) {
+    return <p className="muted empty">No features rise above the continuum noise floor at this redshift. Try sliding z, or check the residual toggle.</p>;
+  }
+  const max = Math.max(0.05, ...features.map((f) => Math.abs(f.strength)));
+  return (
+    <div className="feature-list">
+      {features.map((f) => {
+        const w = Math.max(3, (Math.abs(f.strength) / max) * 48);
+        const em = f.kind === 'em';
+        return (
+          <div className="feature-row" key={`${f.label}-${f.lambda.toFixed(4)}`}>
+            <div className="feature-head">
+              <span className={`feature-name${f.matched ? '' : ' unmatched'}`}>{f.matched ? f.label : 'unidentified'}</span>
+              <span className={`kind-tag ${f.kind}`}>{em ? 'emission' : 'absorption'}</span>
+              <span className="mono feature-lam">{f.lambda.toFixed(3)} µm</span>
+              <span className={`mono feature-val ${f.kind}`}>{em ? '+' : '−'}{Math.abs(f.strength * 100).toFixed(0)}%</span>
+            </div>
+            <div className="feature-bar">
+              <span
+                className={`feature-fill ${f.kind}`}
+                style={em ? { left: '50%', width: `${w}%` } : { right: '50%', width: `${w}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function shortBand(band) {
+  const m = /SPHEREx\s*B?(\d)/i.exec(band || '');
+  if (m) return `B${m[1]}`;
+  const parts = String(band || '').trim().split(/\s+/);
+  return (parts[parts.length - 1] || band || '?').slice(0, 4);
+}
+
+function BandChart({ photometry, bandIndex }) {
+  const pts = (photometry || []).filter((p) => Number.isFinite(p.flux) && p.flux > 0);
+  if (!pts.length) return <p className="muted empty">No photometric points for this target.</p>;
+  const W = 380;
+  const H = 214;
+  const pad = { l: 12, r: 12, t: 16, b: 38 };
+  const floor = 1e-3;
+  const lo = Math.log10(Math.max(floor, Math.min(...pts.map((p) => Math.max(p.flux - (p.error || 0), floor)), ...pts.map((p) => p.flux))));
+  const hi = Math.log10(Math.max(floor, ...pts.map((p) => p.flux + (p.error || 0))));
+  const span = (hi - lo) || 1;
+  const Y = (f) => pad.t + (1 - (Math.log10(Math.max(f, floor)) - lo) / span) * (H - pad.t - pad.b);
+  const bw = (W - pad.l - pad.r) / pts.length;
+  const baseY = H - pad.b;
+  const dominant = bandIndex ? `SPHEREx B${bandIndex}` : null;
+  return (
+    <div className="bandchart">
+      <svg viewBox={`0 0 ${W} ${H}`} className="band-chart" role="img" aria-label="Photometric flux per band, log scale">
+        <line x1={pad.l} y1={baseY} x2={W - pad.r} y2={baseY} className="bc-axis" />
+        {pts.map((p, i) => {
+          const cx = pad.l + (i + 0.5) * bw;
+          const barW = Math.min(26, bw * 0.52);
+          const y = Y(p.flux);
+          const errLo = p.error ? Y(p.flux - p.error) : y;
+          const errHi = p.error ? Y(p.flux + p.error) : y;
+          const on = p.band === dominant;
+          return (
+            <g key={p.band} className={`bc-bar${on ? ' peak' : ''}`}>
+              <rect x={cx - barW / 2} y={y} width={barW} height={Math.max(1, baseY - y)} />
+              {p.error > 0 && <line x1={cx} y1={errLo} x2={cx} y2={errHi} className="bc-err" />}
+              <text x={cx} y={baseY + 13} textAnchor="middle" className="bc-lbl">{shortBand(p.band)}</text>
+              <text x={cx} y={baseY + 26} textAnchor="middle" className="bc-lbl dim">{p.flux.toFixed(0)}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <p className="muted caption">
+        Flux in each photometric band, arbitrary units on a log height scale, with measurement error.
+        {dominant ? ' The highlighted bar is the target’s dominant SPHEREx band.' : ' Taller = brighter in that band.'}
+      </p>
+    </div>
+  );
+}
+
 function LineTable({ sed, z }) {
   const rows = (sed.lines || []).map((l) => ({
     ...l,
@@ -956,6 +1113,12 @@ function HelpModal({ onClose }) {
         <div className="help-body">
           <h3>1-D Spectrum</h3>
           <p className="muted">Synthetic flux (arbitrary units, log scale) against observed wavelength (µm). The solid neon curve is the target; the dotted grey curve is the line-free continuum; dashed coloured curves are comparison sources. Cyan markers are <b>emission</b> lines, amber are <b>absorption</b> lines.</p>
+          <h3>What this spectrum shows</h3>
+          <p className="muted">The summary cards translate the numbers into words. <b>Colour</b> comes from the slope of the line-free continuum (blue = warmer/energetic, red = cooler/dusty). <b>Lines detected</b> counts the features that rise above the noise. <b>Redshift</b> describes how far the line pattern is stretched toward longer wavelengths — it is a stretch factor, not a distance.</p>
+          <h3>Detected features</h3>
+          <p className="muted">Each bar is a bump (<b>emission</b>, cyan, growing to the right) or a dip (<b>absorption</b>, amber, growing to the left) measured against the continuum. They are labelled with the nearest catalogue line at the current z, or <i>unidentified</i> when nothing matches.</p>
+          <h3>Band photometry</h3>
+          <p className="muted">The target’s brightness in each photometric band (Gaia G, SDSS r/z and the six SPHEREx bands), as bars with error whiskers on a log scale. The highlighted bar is the band the target is best detected in.</p>
           <h3>Redshift &amp; Auto-fit</h3>
           <p className="muted">z = Δλ/λ. Slide the slider to shift the rest-frame line template to λ<sub>obs</sub> = λ<sub>rest</sub>·(1+z) until it matches the observed features, or press <b>AUTO z</b> to recover it by cross-correlating the template with the residuals. The injected redshift is simulated; the estimator performs a genuine grid search over z.</p>
           <h3>Spectral Index &amp; Contrast</h3>

@@ -67,7 +67,10 @@ export function generateSurvey() {
   // 6 months, ~ weekly passes => 24 passes
   for (let i = 0; i < 24; i++) {
     const passCount = i + 1;
-    const dateEpoch = Date.UTC(2026, 0, 5) + Math.round(i * 8.5) * 86400;
+    // NB: milliseconds per day (86,400,000), not seconds — a stray /1000 here
+    // made every pass ~13 minutes apart instead of the intended 8.5 days, so the
+    // frame dates all collapsed onto a single day while the drift used 8.5 d.
+    const dateEpoch = Date.UTC(2026, 0, 5) + Math.round(i * 8.5) * 86_400_000;
     const progress = Math.min(1, i / 23);
     passes.push({
       id: `pass-${String(passCount).padStart(2, '0')}`,
@@ -261,26 +264,34 @@ export function buildPresets(objects) {
 }
 
 // Build a time-series of "blink frames" for one object across the survey passes.
-// Frames simulate an astrometric centroid path plus Gaussian noise, so real
-// differential motion emerges when frames are blinked. Deterministic per object.
+// Frames simulate an astrometric centroid path plus noise, so real differential
+// motion emerges when frames are blinked. Deterministic per object.
+//
+// The offsets are the TRUE on-sky displacement (mas/day × elapsed days): the
+// comparator canvas auto-fits the track to its viewport, so the previous ×60
+// "display amplification" was unnecessary and actively harmful — it made the
+// mas read-outs contradict the object's own `motion`, and it ignored the
+// object's position angle (every target appeared to move the same way).
 export function buildFrames(object, passes, count = 18) {
   const idx = parseInt(object.id.slice(3), 10) || 1;
   const rand = mulberry32(idx * 7919 + 13);
   const frames = [];
   const total = Math.min(count, passes.length);
-  // Apparent motion is in milli-arcseconds/day. Convert to degrees of drift over
-  // the elapsed time, then amplify so the blink strain is visible, and CAP it so
-  // a fast star (HPM, ~900 mas/day) never "flies" tens of degrees across the
-  // field — which previously spat out absurd ~70°-span frames.
-  const DRIFT_EXAG = 60; // display amplification for the comparator
-  const DRIFT_MAX_DEG = 3.0;
+  // Apparent motion is in milli-arcseconds/day. Integrate over the elapsed time
+  // to get degrees of drift, then split along the position angle (degrees east
+  // of north) so the blink direction matches the velocity vector shown in the
+  // sky viewer / catalogue.
+  const cosDec = Math.cos((object.dec * Math.PI) / 180) || 1;
+  const paRad = ((Number.isFinite(object.pa) ? object.pa : 0) * Math.PI) / 180;
   for (let i = 0; i < total; i++) {
     const p = passes[i];
     const dtDays = i * 8.5;
-    const drift = Math.min((object.motion * dtDays) / 3600000 * DRIFT_EXAG, DRIFT_MAX_DEG);
-    const dRA = drift * 0.55;
-    const dDec = drift * 0.31;
-    const noise = (rand() - 0.5) * Math.max(1e-4, drift * 0.18); // deg
+    const drift = (object.motion * dtDays) / 3.6e6; // deg, true on-sky
+    const dE = drift * Math.sin(paRad); // east (position angle measured from north)
+    const dN = drift * Math.cos(paRad); // north
+    const dRA = dE / cosDec; // east is +RA; shrink by cos(dec) on the sky
+    const dDec = dN;
+    const noise = (rand() - 0.5) * drift * 0.22; // centroid scatter, kept proportional to signal
 
     frames.push({
       pass: p.id,
@@ -289,8 +300,8 @@ export function buildFrames(object, passes, count = 18) {
       epochJD: p.epochJD,
       bandIndex: p.bandIndex !== undefined ? p.bandIndex : 1 + (i % 6),
       band: (p.bandIndex !== undefined ? SPHEREX_BANDS[p.bandIndex - 1] : SPHEREX_BANDS[i % 6]).label,
-      ra: object.ra + dRA * 0.9 + noise * 0.35,
-      dec: object.dec + dDec * 0.9 + noise * 0.35,
+      ra: object.ra + dRA + noise,
+      dec: object.dec + dDec + noise,
       measuredMag: object.mag + (rand() - 0.5) * 0.4,
       snr: Math.round((6 + Math.abs(rand()) * 9) * 10) / 10,
       flux: Math.round((4 + Math.abs(rand()) * 30) * 10) / 10,
