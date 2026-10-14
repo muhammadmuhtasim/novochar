@@ -11,7 +11,7 @@ rewire to real NASA data (SPHEREx / GBOT / JPL / NASA NEO API).
 ## Stack
 
 - **Server** — Node.js + Express REST API (`/server`)
-- **Client** — React 18 + Vite 5 (`/client`)
+- **Client** — React 18 + Vite 7 (`/client`)
 - Root npm workspaces + `concurrently` for a one-command dev server
 
 ## Quick start

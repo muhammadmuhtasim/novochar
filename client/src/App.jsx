@@ -1,13 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from './lib/api.js';
 import Logo from './components/Logo.jsx';
 import Home from './components/Home.jsx';
-import SkyViewer from './components/SkyViewer.jsx';
-import BlinkComparator from './components/BlinkComparator.jsx';
-import Catalogue from './components/Catalogue.jsx';
-import DataSources from './components/DataSources.jsx';
-import SpectraView from './components/SpectraView.jsx';
-import IvoaLab from './components/IvoaLab.jsx';
+import RetryableModule from './components/RetryableModule.jsx';
+
+const loadSkyViewer = () => import('./components/SkyViewer.jsx');
+const loadBlinkComparator = () => import('./components/BlinkComparator.jsx');
+const loadCatalogue = () => import('./components/Catalogue.jsx');
+const loadDataSources = () => import('./components/DataSources.jsx');
+const loadSpectraView = () => import('./components/SpectraView.jsx');
+const loadIvoaLab = () => import('./components/IvoaLab.jsx');
+
+const TAB_MODULES = {
+  sky: loadSkyViewer,
+  blink: loadBlinkComparator,
+  catalogue: loadCatalogue,
+  sources: loadDataSources,
+  spectra: loadSpectraView,
+  archives: loadIvoaLab,
+};
+const OBJECT_DATA_TABS = new Set(['blink', 'catalogue', 'spectra']);
 
 const TABS = [
   { id: 'home', label: 'MISSION', icon: '◉' },
@@ -24,8 +36,10 @@ export default function App() {
   const [stats, setStats] = useState(null);
   const [health, setHealth] = useState(null);
   const [objects, setObjects] = useState([]);
+  const [objectsLoaded, setObjectsLoaded] = useState(false);
   const [target, setTarget] = useState(null); // { tab, id } deep-link to a candidate
   const [menuOpen, setMenuOpen] = useState(false);
+  const objectsRequest = useRef(null);
 
   const setTab = (t) => {
     setTabRaw(t);
@@ -51,15 +65,32 @@ export default function App() {
       .health()
       .then(setHealth)
       .catch(() => {});
-    api
-      .objects()
-      .then((d) => setObjects(d.objects))
-      .catch(() => {});
     window.addEventListener('hashchange', () => {
       const t = location.hash.replace('#', '');
       if (TABS.some((x) => x.id === t)) { setTabRaw(t); setTarget(null); }
     });
   }, []);
+
+  useEffect(() => {
+    TAB_MODULES[tab]?.().catch(() => {});
+
+    if (!OBJECT_DATA_TABS.has(tab) || objectsLoaded) return undefined;
+
+    let current = true;
+    objectsRequest.current ??= api.objects();
+    objectsRequest.current
+      .then((data) => {
+        if (!current) return;
+        setObjects(Array.isArray(data?.objects) ? data.objects : []);
+        setObjectsLoaded(true);
+      })
+      .catch(() => {
+        objectsRequest.current = null;
+        if (current) setObjectsLoaded(true);
+      });
+
+    return () => { current = false; };
+  }, [tab, objectsLoaded]);
 
   useEffect(() => {
     // Scroll reveal observer for panels and cards
@@ -226,16 +257,26 @@ export default function App() {
       </div>
       <main className="view" key={tab}>
         {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
-        {tab === 'sky' && <SkyViewer />}
-        {tab === 'blink' && <BlinkComparator objects={objects} presetId={blinkPreset} onTarget={goToTarget} />}
-        {tab === 'catalogue' && <Catalogue objects={objects} presetId={cataloguePreset} onTarget={goToTarget} />}
-        {tab === 'spectra' && <SpectraView objects={objects} presetId={spectraPreset} onTarget={goToTarget} />}
-        {tab === 'archives' && <IvoaLab />}
-        {tab === 'sources' && <DataSources />}
+        {tab === 'sky' && <RetryableModule loader={loadSkyViewer} label="Loading sky viewer…" />}
+        {tab === 'blink' && (objectsLoaded
+          ? <RetryableModule loader={loadBlinkComparator} label="Loading blink comparator…" componentProps={{ objects, presetId: blinkPreset, onTarget: goToTarget }} />
+          : <ModuleLoading label="Loading survey objects…" />)}
+        {tab === 'catalogue' && (objectsLoaded
+          ? <RetryableModule loader={loadCatalogue} label="Loading catalogue…" componentProps={{ objects, presetId: cataloguePreset, onTarget: goToTarget }} />
+          : <ModuleLoading label="Loading catalogue…" />)}
+        {tab === 'spectra' && (objectsLoaded
+          ? <RetryableModule loader={loadSpectraView} label="Loading spectra…" componentProps={{ objects, presetId: spectraPreset, onTarget: goToTarget }} />
+          : <ModuleLoading label="Loading spectral targets…" />)}
+        {tab === 'archives' && <RetryableModule loader={loadIvoaLab} label="Loading live archives…" />}
+        {tab === 'sources' && <RetryableModule loader={loadDataSources} label="Loading data sources…" />}
       </main>
       <Ticker />
     </div>
   );
+}
+
+function ModuleLoading({ label = 'Loading module…' }) {
+  return <div className="module-loading" role="status" aria-live="polite">{label}</div>;
 }
 
 function initialTab() {

@@ -168,6 +168,35 @@ main.view {
   margin: 0 auto;
 }
 
+.module-loading {
+  min-height: 42vh;
+  display: grid;
+  place-items: center;
+  color: var(--neon-amber);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.module-error {
+  min-height: 42vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px;
+  color: var(--text-primary);
+  text-align: center;
+  border: 1px solid rgba(255, 120, 100, 0.3);
+  background: rgba(20, 11, 12, 0.72);
+}
+
+.module-error p { margin: 0; }
+.module-error-detail { color: var(--text-muted); font-size: 13px; }
+.module-error-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 8px; }
+
 
 
 
