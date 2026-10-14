@@ -54,6 +54,18 @@ test('GET /api/field/heatmap clamps nside', async () => {
   assert.ok(hm.nside <= 1024);
 });
 
+test('GET /api/field/heatmap rejects a non-numeric nside', async () => {
+  const res = await fetch(`${base}/api/field/heatmap?nside=abc`);
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /nside/);
+});
+
+test('GET /api/objects/:id/blink rejects a non-numeric count', async () => {
+  const res = await fetch(`${base}/api/objects/NC-0001/blink?count=abc`);
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /count/);
+});
+
 test('GET /api/objects/:id/blink returns frames for the selected object', async () => {
   const res = await fetch(`${base}/api/objects/NC-0001/blink?count=6`);
   assert.equal(res.status, 200);

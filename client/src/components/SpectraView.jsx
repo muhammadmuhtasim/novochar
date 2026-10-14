@@ -89,14 +89,22 @@ export default function SpectraView({ objects, presetId, onTarget = () => {} }) 
   }, [objects, selectedId]);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId) return undefined;
+    let cancelled = false;
     setSed(null);
     setZEstimate(null);
-    api.spectra(selectedId).then((d) => setSed(d.sed)).catch(() => setSed({ error: 'failed to load spectrum' }));
+    api.spectra(selectedId)
+      .then((d) => { if (!cancelled) setSed(d.sed); })
+      .catch(() => { if (!cancelled) setSed({ error: 'failed to load spectrum' }); });
+    return () => { cancelled = true; };
   }, [selectedId]);
 
   useEffect(() => {
-    api.fieldHeatmap(nside).then(setHeat).catch(() => {});
+    let cancelled = false;
+    api.fieldHeatmap(nside)
+      .then((d) => { if (!cancelled) setHeat(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
   }, [nside]);
 
   const selected = objects.find((o) => o.id === selectedId) || null;
@@ -392,7 +400,10 @@ function MetadataBar({ o, sed, z }) {
 
 function RedshiftControl({ z, setZ, onAuto, autoBusy, zEstimate }) {
   const c = 299792.458; // km/s
-  const v = c * z;
+  // Relativistic Doppler (the slider allows z up to 3, where v = c·z would
+  // exceed the speed of light): v = c·((1+z)²−1)/((1+z)²+1).
+  const q = (1 + z) ** 2;
+  const v = c * ((q - 1) / (q + 1));
   const velTxt = v < 10000 ? `${Math.round(v)} km/s` : `${(v / 1000).toFixed(1)} ×10³ km/s`;
   // Coalesce slider input to one state update per frame: each update re-renders
   // the plot + marker table, and pointer streams can arrive faster than rAF.
@@ -573,12 +584,25 @@ function CrosshairOverlay({ svgRef, spectrum, lines, z, tr, W, H }) {
     let pending = null;
     let lastLambda = null;
 
+    // The plot draws inside the SVG *content* box (the overlay is inset by the
+    // border + padding via `.sed-crosshair { inset: 15px 17px }`), so the
+    // pointer must be mapped against the content box, not the border box that
+    // `getBoundingClientRect()` returns. These insets are constant per mount.
+    const cs = getComputedStyle(svg);
+    const px = (v) => parseFloat(v) || 0;
+    const insetL = px(cs.borderLeftWidth) + px(cs.paddingLeft);
+    const insetT = px(cs.borderTopWidth) + px(cs.paddingTop);
+    const insetR = px(cs.borderRightWidth) + px(cs.paddingRight);
+    const insetB = px(cs.borderBottomWidth) + px(cs.paddingBottom);
+
     // Snap the pointer to the nearest sample; only recompute the (more
     // expensive) nearest-line lookup when the snapped sample actually changes.
     const compute = (e) => {
       const r = svg.getBoundingClientRect();
-      const x = ((e.clientX - r.left) / r.width) * W;
-      const y = ((e.clientY - r.top) / r.height) * H;
+      const cw = r.width - insetL - insetR || 1;
+      const ch = r.height - insetT - insetB || 1;
+      const x = ((e.clientX - r.left - insetL) / cw) * W;
+      const y = ((e.clientY - r.top - insetT) / ch) * H;
       let best = null;
       let bd = Infinity;
       for (const p of spectrum) {
@@ -822,7 +846,10 @@ function HeatmapPanel({ heat, objects, onPick, compareMode }) {
   // lookup instead of scanning all ~1.6k objects.
   const [grid, setGrid] = useState(null);
   useEffect(() => {
-    if (!geom || !objects.length) { setGrid(null); return undefined; }
+    // Reset immediately so a stale grid (keyed to the previous geometry) is
+    // never indexed with the new one while the worker is still computing.
+    setGrid(null);
+    if (!geom || !objects.length) return undefined;
     let cancelled = false;
     const ra = new Float64Array(objects.length);
     const dec = new Float64Array(objects.length);

@@ -89,7 +89,8 @@ app.get('/api/objects/:id', (req, res) => {
 app.get('/api/objects/:id/blink', (req, res) => {
   const obj = objects.find((o) => o.id === req.params.id);
   if (!obj) return res.status(404).json({ error: 'object not found' });
-  let count = parseInt(req.query.count || '18', 10);
+  let count = Number.parseInt(req.query.count ?? '18', 10);
+  if (!Number.isFinite(count)) return res.status(400).json({ error: 'count must be an integer' });
   count = Math.max(2, Math.min(24, count));
   res.json({ object: { id: obj.id, name: obj.name, motion: obj.motion }, frames: buildFrames(obj, passes, count) });
 });
@@ -125,8 +126,9 @@ app.get('/api/spectra/:id', (req, res) => {
 
 // HEALPix density footprint of the tracked field.
 app.get('/api/field/heatmap', (req, res) => {
-  const nside = Math.min(1024, Math.max(1, parseInt(req.query.nside || '64', 10)));
-  res.json(buildHeatmap(objects, nside));
+  const nside = Number.parseInt(req.query.nside ?? '64', 10);
+  if (!Number.isFinite(nside)) return res.status(400).json({ error: 'nside must be an integer' });
+  res.json(buildHeatmap(objects, Math.min(1024, Math.max(1, nside))));
 });
 
 // --- Layer 1: IVOA Ingestion (real clients, live endpoints + probe) --------
@@ -202,9 +204,13 @@ app.get('/api/ivoa/probe', async (req, res) => {
 });
 
 app.get('/api/ivoa/probe/:key', async (req, res) => {
-  const out = await probeArchive(req.params.key);
-  if (!ARCHIVES[req.params.key]) return res.status(404).json(out);
-  res.json(out);
+  try {
+    const out = await probeArchive(req.params.key);
+    if (!ARCHIVES[req.params.key]) return res.status(404).json(out);
+    res.json(out);
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 app.get('/api/ivoa/resolve', async (req, res) => {

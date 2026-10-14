@@ -49,8 +49,9 @@ export function continuumOf(sed) {
 
 /** Fractional residual (flux − continuum) / continuum, sampled on the same grid. */
 export function residualSpectrum(sed) {
+  if (!sed || !Array.isArray(sed.spectrum)) return [];
   const cont = continuumOf(sed);
-  return (sed.spectrum || []).map((p, i) => {
+  return sed.spectrum.map((p, i) => {
     const c = cont[i].y;
     const r = c > 0 ? (p.flux - c) / c : 0;
     return { x: p.lambda, y: r };

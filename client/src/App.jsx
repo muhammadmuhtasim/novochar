@@ -56,6 +56,11 @@ export default function App() {
     try { location.hash = t; } catch (_) {}
   };
 
+  const onHashChange = () => {
+    const t = location.hash.replace('#', '');
+    if (TABS.some((x) => x.id === t)) { setTabRaw(t); setTarget(null); }
+  };
+
   useEffect(() => {
     api
       .stats()
@@ -65,10 +70,8 @@ export default function App() {
       .health()
       .then(setHealth)
       .catch(() => {});
-    window.addEventListener('hashchange', () => {
-      const t = location.hash.replace('#', '');
-      if (TABS.some((x) => x.id === t)) { setTabRaw(t); setTarget(null); }
-    });
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
   useEffect(() => {

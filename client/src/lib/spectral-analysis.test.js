@@ -63,6 +63,13 @@ test('residualSpectrum is zero for a line-free continuum and signed at features'
   assert.ok(at(0.5893 * 1.2).y < -0.1, 'absorption residual negative');
 });
 
+test('residualSpectrum tolerates null / missing input', () => {
+  assert.deepEqual(residualSpectrum(null), []);
+  assert.deepEqual(residualSpectrum(undefined), []);
+  assert.deepEqual(residualSpectrum({}), []);
+  assert.deepEqual(residualSpectrum({ spectrum: null }), []);
+});
+
 test('alignmentScore peaks at the injected redshift', () => {
   const lines = [
     { label: 'Hα', rest: 0.6563, kind: 'em', strength: 0.5, sigma: 0.01 },

@@ -17,8 +17,7 @@ export const SOURCE_ADAPTERS = {
   mast: { name: 'MAST', protocols: ['rest', 'sia'], state: 'live-rest-query-verified' },
   heasarc: { name: 'HEASARC', protocols: ['tap'], state: 'adapter-present-live-unverified' },
   lambda: { name: 'LAMBDA', protocols: ['file'], state: 'file-route-present-live-unverified' },
-  darts: { name: 'DARTS', protocols: ['registry'], state: 'registry-search-no-match-yet' },
-    darts: { name: 'DARTS', protocols: ['file', 'registry', 'tap'], state: 'file-route-live-unverified-registry-no-match-yet' },
+  darts: { name: 'DARTS', protocols: ['file', 'registry', 'tap'], state: 'file-route-live-unverified-registry-no-match-yet' },
   ned: { name: 'NED', protocols: ['rest'], state: 'live-object-lookup-verified' },
   esdc: { name: 'ESA Science Archives / ESDC', protocols: ['registry', 'tap'], state: 'live-registry-and-tap-query-verified' },
 };

@@ -24,9 +24,17 @@ function ensureWorker() {
       else job.reject(new Error(error || 'worker job failed'));
     };
     worker.onerror = () => {
-      for (const job of pending.values()) job.reject(new Error('spectra worker crashed'));
+      // The worker died (e.g. failed to load). Recover by running every
+      // in-flight job on the main thread instead of rejecting them, then fall
+      // back for good so the feature keeps working.
+      const dead = worker;
+      worker = null;
+      if (dead && typeof dead.terminate === 'function') dead.terminate();
+      const jobs = [...pending.values()];
       pending.clear();
-      worker = null; // fall back to the main thread for subsequent jobs
+      for (const job of jobs) {
+        try { job.resolve(job.fallback()); } catch (err) { job.reject(err); }
+      }
     };
   } catch {
     worker = null;
@@ -39,8 +47,15 @@ function post(type, payload, fallback) {
   if (!w) return Promise.resolve().then(fallback);
   return new Promise((resolve, reject) => {
     const id = ++seq;
-    pending.set(id, { resolve, reject });
-    w.postMessage({ id, type, payload });
+    pending.set(id, { resolve, reject, fallback });
+    try {
+      w.postMessage({ id, type, payload });
+    } catch (err) {
+      // e.g. DataCloneError on a non-cloneable payload — settle rather than
+      // leave the caller hanging with an orphaned pending entry.
+      pending.delete(id);
+      reject(err);
+    }
   });
 }
 
