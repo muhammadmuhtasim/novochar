@@ -13,6 +13,7 @@
     "dev:client": "npm run dev -w client",
     "build": "npm run build -w client && npm run precompute:data",
     "precompute:data": "node scripts/precompute-data.mjs",
+    "package:source": "node scripts/package-source.mjs",
     "start": "npm run start -w server",
     "test": "npm test -w server && npm test -w client"
   },

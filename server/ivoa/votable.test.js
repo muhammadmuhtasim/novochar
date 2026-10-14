@@ -159,6 +159,119 @@ test('BINARY booleans decode their specified ASCII values rather than any nonzer
   assert.deepEqual(decodeBinaryRows(bytes, fields), [{ yes: true, no: false, missing: null }]);
 });
 
+test('BINARY fixed numeric arrays decode every element and keep following fields aligned', () => {
+  const fields = [
+    { name: 'flux', datatype: 'float', arraysize: '3' },
+    { name: 'marker', datatype: 'int' },
+  ];
+  const buffer = new ArrayBuffer(32);
+  const view = new DataView(buffer);
+  [1, 2, 3].forEach((value, index) => view.setFloat32(index * 4, value, false));
+  view.setInt32(12, 42, false);
+  [-1, -2, -3].forEach((value, index) => view.setFloat32(16 + index * 4, value, false));
+  view.setInt32(28, 7, false);
+  const b64 = Buffer.from(buffer).toString('base64');
+  assert.deepEqual(decodeBinaryRows(b64, fields), [
+    { flux: [1, 2, 3], marker: 42 },
+    { flux: [-1, -2, -3], marker: 7 },
+  ]);
+  const xml = `<VOTABLE><RESOURCE><TABLE>
+    <FIELD name="flux" datatype="float" arraysize="3"/><FIELD name="marker" datatype="int"/>
+    <DATA><BINARY><STREAM encoding="base64">${b64}</STREAM></BINARY></DATA>
+  </TABLE></RESOURCE></VOTABLE>`;
+  assert.deepEqual(parseVOTable(xml)[0].rows[1], { flux: [-1, -2, -3], marker: 7 });
+});
+
+test('BINARY variable numeric arrays use the element-count prefix and preserve row alignment', () => {
+  const fields = [
+    { name: 'samples', datatype: 'short', arraysize: '4*' },
+    { name: 'marker', datatype: 'int' },
+  ];
+  const bytes = new Uint8Array([
+    0, 0, 0, 3, 0, 10, 0, 20, 0, 30, 0, 0, 0, 99,
+    0, 0, 0, 2, 255, 254, 0, 5, 255, 255, 255, 252,
+  ]);
+  const b64 = Buffer.from(bytes).toString('base64');
+  assert.deepEqual(decodeBinaryRows(b64, fields), [
+    { samples: [10, 20, 30], marker: 99 },
+    { samples: [-2, 5], marker: -4 },
+  ]);
+});
+
+test('BINARY rejects malformed and truncated arrays instead of returning corrupted rows', () => {
+  assert.throws(
+    () => decodeBinaryRows(Buffer.from([0, 0, 0, 1]).toString('base64'), [{ name: 'x', datatype: 'float', arraysize: '0' }]),
+    /Invalid VOTable arraysize/,
+  );
+  assert.throws(
+    () => decodeBinaryRows(Buffer.from([0x3f, 0x80, 0]).toString('base64'), [{ name: 'x', datatype: 'float', arraysize: '2' }]),
+    /Truncated VOTable binary value/,
+  );
+});
+
+test('BINARY decodes fixed char and Unicode character arrays as strings', () => {
+  const fields = [
+    { name: 'label', datatype: 'char', arraysize: '6' },
+    { name: 'unicode', datatype: 'unicodeChar', arraysize: '4' },
+    { name: 'n', datatype: 'int' },
+  ];
+  const bytes = new Uint8Array(18);
+  bytes.set([0x41, 0x42, 0x43, 0x44, 0x20, 0x20], 0);
+  const view = new DataView(bytes.buffer);
+  [0x00c5, 0x6c34, 0x0020, 0x0020].forEach((code, index) => view.setUint16(6 + index * 2, code, false));
+  view.setInt32(14, 7, false);
+  const b64 = Buffer.from(bytes).toString('base64');
+  const xml = `<VOTABLE><RESOURCE><TABLE>
+    <FIELD name="label" datatype="char" arraysize="6"/>
+    <FIELD name="unicode" datatype="unicodeChar" arraysize="4"/>
+    <FIELD name="n" datatype="int"/>
+    <DATA><BINARY><STREAM encoding="base64">${b64}</STREAM></BINARY></DATA>
+  </TABLE></RESOURCE></VOTABLE>`;
+  assert.deepEqual(parseVOTable(xml)[0].rows, [{ label: 'ABCD  ', unicode: 'Å水  ', n: 7 }]);
+});
+
+test('BINARY2 decodes fixed char and Unicode character arrays and keeps trailing spaces', () => {
+  const bytes = new Uint8Array(19);
+  bytes[0] = 0; // no BINARY2 null flags set
+  bytes.set([0x41, 0x42, 0x43, 0x44, 0x20, 0x20], 1);
+  const view = new DataView(bytes.buffer);
+  [0x00c5, 0x6c34, 0x0020, 0x0020].forEach((code, index) => view.setUint16(7 + index * 2, code, false));
+  view.setInt32(15, 9, false);
+  const b64 = Buffer.from(bytes).toString('base64');
+  const xml = `<VOTABLE><RESOURCE><TABLE>
+    <FIELD name="label" datatype="char" arraysize="6"/>
+    <FIELD name="unicode" datatype="unicodeChar" arraysize="4"/>
+    <FIELD name="n" datatype="int"/>
+    <DATA><BINARY2><STREAM encoding="base64">${b64}</STREAM></BINARY2></DATA>
+  </TABLE></RESOURCE></VOTABLE>`;
+  assert.deepEqual(parseVOTable(xml)[0].rows, [{ label: 'ABCD  ', unicode: 'Å水  ', n: 9 }]);
+});
+
+test('TABLEDATA preserves character-array leading and trailing whitespace', () => {
+  const xml = '<VOTABLE><RESOURCE><TABLE><FIELD name="label" datatype="char" arraysize="8"/><DATA><TABLEDATA><TR><TD>ABCD    </TD></TR></TABLEDATA></DATA></TABLE></RESOURCE></VOTABLE>';
+  assert.equal(parseVOTable(xml)[0].rows[0].label, 'ABCD    ');
+});
+
+test('TABLEDATA decodes fixed and variable numeric arrays as typed lists', () => {
+  const xml = `<VOTABLE><RESOURCE><TABLE>
+    <FIELD name="fixed" datatype="float" arraysize="3"/>
+    <FIELD name="variable" datatype="int" arraysize="4*"/>
+    <DATA><TABLEDATA>
+      <TR><TD>1.5 2.5 3.5</TD><TD>10 20</TD></TR>
+      <TR><TD>-1 0 1</TD><TD>-7 8 9 10</TD></TR>
+    </TABLEDATA></DATA>
+  </TABLE></RESOURCE></VOTABLE>`;
+  assert.deepEqual(parseVOTable(xml)[0].rows, [
+    { fixed: [1.5, 2.5, 3.5], variable: [10, 20] },
+    { fixed: [-1, 0, 1], variable: [-7, 8, 9, 10] },
+  ]);
+});
+
+test('TABLEDATA rejects arrays whose declared shape does not match their values', () => {
+  const xml = '<VOTABLE><RESOURCE><TABLE><FIELD name="v" datatype="float" arraysize="3"/><DATA><TABLEDATA><TR><TD>1 2</TD></TR></TABLEDATA></DATA></TABLE></RESOURCE></VOTABLE>';
+  assert.throws(() => parseVOTable(xml), /arraysize is "3"/);
+});
+
 test('nested RESOURCE does not truncate the inner TABLE', () => {
   const xml = '<VOTABLE><RESOURCE type="results"><RESOURCE><COOSYS ID="c"/></RESOURCE>' +
     '<TABLE><FIELD name="x" datatype="int"/><DATA><TABLEDATA><TR><TD>7</TD></TR></TABLEDATA></DATA></TABLE>' +

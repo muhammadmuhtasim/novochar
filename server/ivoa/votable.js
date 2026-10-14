@@ -2,8 +2,8 @@
 //
 // Data encodings handled:
 //   <TABLEDATA>  text cells (VizieR, MAST, NOIRLab, ESO)
-//   <BINARY>     base64 network-byte-order fixed-width
-//   <BINARY2>    base64 big-endian fixed-width (Gaia/ESA, TAP 1.4+)
+//   <BINARY>     base64 network-byte-order scalar and array values
+//   <BINARY2>    base64 network-byte-order values with per-cell null flags
 //   <FITS>       reported as encoding='FITS' (not decoded)
 //
 // Resources may be nested; extraction balances <RESOURCE> depth so inner
@@ -40,9 +40,29 @@ function parseVOTableInteger(value) {
     : integer.toString();
 }
 
-function coerce(raw, datatype) {
-  const s = raw == null ? '' : String(raw).trim();
-  const fn = TYPE_FNS[(datatype || 'char').toLowerCase()];
+function coerce(raw, datatype, arraysize = null) {
+  const type = (datatype || 'char').toLowerCase();
+  const text = raw == null ? '' : String(raw);
+  // Character whitespace is significant in VOTable and must not be trimmed.
+  const s = type === 'char' || type === 'unicodechar' ? text : text.trim();
+  const fn = TYPE_FNS[type];
+  if (arraysize && ['double', 'float', 'real', 'int', 'long', 'short', 'longlong', 'unsignedbyte', 'boolean'].includes(type)) {
+    if (s === '') return null;
+    const match = /^(\d+(?:x\d+)*|)\*?$/.exec(String(arraysize).trim());
+    if (!match) throw new Error(`Unsupported VOTable arraysize "${arraysize}"`);
+    const dimensions = match[1] ? match[1].split('x').map(Number) : [];
+    if (dimensions.some((dimension) => !Number.isSafeInteger(dimension) || dimension < 1)) {
+      throw new Error(`Invalid VOTable arraysize "${arraysize}"`);
+    }
+    const capacity = dimensions.reduce((product, dimension) => product * dimension, 1);
+    if (!Number.isSafeInteger(capacity) || capacity > MAX_ARRAY_ELEMENTS) throw new Error('VOTable array is too large');
+    const values = s.split(/\s+/);
+    const variable = String(arraysize).trim().endsWith('*');
+    if (values.length > MAX_ARRAY_ELEMENTS || (variable ? (dimensions.length && values.length > capacity) : values.length !== capacity)) {
+      throw new Error(`VOTable array has ${values.length} elements; arraysize is "${arraysize}"`);
+    }
+    return values.map((value) => fn ? fn(value) : value);
+  }
   return fn ? fn(s) : s;
 }
 
@@ -78,7 +98,7 @@ export function extractRows(tableBody, fields) {
     const row = {};
     cells.forEach((value, i) => {
       const f = fields[i];
-      row[(f && f.name) || `col${i}`] = coerce(value, f ? f.datatype : 'char');
+      row[(f && f.name) || `col${i}`] = coerce(value, f ? f.datatype : 'char', f && f.arraysize);
     });
     rows.push(row);
   }
@@ -109,7 +129,33 @@ function extractResourceBodies(xml) {
 }
 
 // --- BINARY and BINARY2 (network byte order) decoding ----------------------
-const BINARY_SIZE = { boolean: 1, unsignedbyte: 1, short: 2, int: 4, long: 8, longlong: 8, float: 4, double: 8 };
+const BINARY_SIZE = { boolean: 1, unsignedbyte: 1, short: 2, int: 4, long: 8, longlong: 8, float: 4, double: 8, char: 1, unicodechar: 2 };
+const MAX_ARRAY_ELEMENTS = 10_000_000;
+
+function binaryArrayInfo(field, offset, readLen, byteLength) {
+  const rawSize = field.arraysize;
+  if (rawSize == null || rawSize === '') return { isArray: false, count: 1, dataOffset: offset };
+
+  const match = /^(\d+(?:x\d+)*|)\*?$/.exec(String(rawSize).trim());
+  if (!match) throw new Error(`Unsupported VOTable arraysize "${rawSize}" for field "${field.name || '?'}"`);
+  const dimensions = match[1] ? match[1].split('x').map(Number) : [];
+  if (dimensions.some((dimension) => !Number.isSafeInteger(dimension) || dimension < 1)) {
+    throw new Error(`Invalid VOTable arraysize "${rawSize}" for field "${field.name || '?'}"`);
+  }
+  const variable = String(rawSize).trim().endsWith('*');
+  const fixedCapacity = dimensions.reduce((product, dimension) => product * dimension, 1);
+  if (!Number.isSafeInteger(fixedCapacity) || fixedCapacity > MAX_ARRAY_ELEMENTS) {
+    throw new Error(`VOTable array is too large for field "${field.name || '?'}"`);
+  }
+  if (!variable) return { isArray: true, count: fixedCapacity, dataOffset: offset };
+
+  if (offset + 4 > byteLength) throw new Error(`Missing variable-array length for field "${field.name || '?'}"`);
+  const count = readLen(offset);
+  if (count < 0 || count > MAX_ARRAY_ELEMENTS || (dimensions.length && count > fixedCapacity)) {
+    throw new Error(`Invalid variable-array element count ${count} for field "${field.name || '?'}"`);
+  }
+  return { isArray: true, count, dataOffset: offset + 4 };
+}
 
 export function decodeBinaryRows(b64, fields, endian = 'be', binary2 = false) {
   if (!b64 || typeof atob === 'undefined') return [];
@@ -118,14 +164,46 @@ export function decodeBinaryRows(b64, fields, endian = 'be', binary2 = false) {
   const be = endian === 'be';
   const dec = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
 
-  const readLen = (off) => (be ? (raw[off] << 24) | (raw[off + 1] << 16) | (raw[off + 2] << 8) | raw[off + 3]
-    : (raw[off] | (raw[off + 1] << 8) | (raw[off + 2] << 16) | (raw[off + 3] << 24)));
-  const advance = (f, p) => {
-    const n = BINARY_SIZE[(f.datatype || 'char').toLowerCase()];
-    if (n) return p + n;
-    const as = f.arraysize;
-    if (!as || as === '*') return p + 4 + Math.abs(readLen(p));
-    return p + (as === 'x' ? 1 : parseInt(as, 10));
+  const readLen = (off) => (be ? dv.getInt32(off, false) : dv.getInt32(off, true));
+
+  const decodePrimitive = (datatype, offset) => {
+    if (datatype === 'double') return dv.getFloat64(offset, !be);
+    if (datatype === 'float') return dv.getFloat32(offset, !be);
+    if (datatype === 'long' || datatype === 'longlong') {
+      const value = dv.getBigInt64 ? dv.getBigInt64(offset, !be) : BigInt(dv.getInt32(offset, !be)) * 4294967296n + BigInt(dv.getUint32(offset + 4, !be));
+      return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
+    }
+    if (datatype === 'int') return dv.getInt32(offset, !be);
+    if (datatype === 'short') return dv.getInt16(offset, !be);
+    if (datatype === 'unsignedbyte') return raw[offset];
+    if (datatype === 'boolean') {
+      const value = String.fromCharCode(raw[offset]);
+      if (/^[Tt1]$/.test(value)) return true;
+      if (/^[Ff0]$/.test(value)) return false;
+      if (value === '?') return null;
+      throw new Error(`Invalid VOTable boolean byte 0x${raw[offset].toString(16)}`);
+    }
+    if (datatype === 'char') return String.fromCharCode(raw[offset]);
+    if (datatype === 'unicodechar') return String.fromCharCode(dv.getUint16(offset, !be));
+    return null;
+  };
+
+  const decodeCharacterArray = (datatype, offset, count) => {
+    let value = '';
+    if (datatype === 'char') {
+      for (let index = 0; index < count; index++) {
+        const code = raw[offset + index];
+        // FITS-compatible char arrays may terminate early with ASCII NUL.
+        // Fixed-width trailing spaces remain part of the string.
+        if (code === 0) break;
+        value += String.fromCharCode(code);
+      }
+      return value;
+    }
+    for (let index = 0; index < count; index++) {
+      value += String.fromCharCode(dv.getUint16(offset + index * 2, !be));
+    }
+    return value;
   };
 
   const rows = [];
@@ -135,46 +213,43 @@ export function decodeBinaryRows(b64, fields, endian = 'be', binary2 = false) {
     const nullFlags = binary2 ? raw.subarray(pos, pos + nullBytes) : null;
     const row = {};
     let p = pos + nullBytes;
-    let ok = true;
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i];
       const dt = (f.datatype || 'char').toLowerCase();
-      const next = advance(f, p);
-      if (next > raw.length) { ok = false; break; }
       try {
-        if (binary2 && (nullFlags[i >> 3] & (1 << (7 - (i & 7))))) row[(f.name) || `col${i}`] = null;
-        else if (dt === 'double') row[(f.name) || `col${i}`] = dv.getFloat64(p, !be);
-        else if (dt === 'float') row[(f.name) || `col${i}`] = dv.getFloat32(p, !be);
-        else if (dt === 'long') {
-          const value = dv.getBigInt64 ? dv.getBigInt64(p, !be) : BigInt(dv.getInt32(p, !be)) * 4294967296n + BigInt(dv.getUint32(p + 4, !be));
-          row[(f.name) || `col${i}`] = value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
+        const array = binaryArrayInfo(f, p, readLen, raw.byteLength);
+        const bytesPerElement = BINARY_SIZE[dt];
+        const bitArray = dt === 'bit';
+        const byteCount = bitArray ? Math.ceil(array.count / 8) : bytesPerElement ? array.count * bytesPerElement : array.count * (dt === 'unicodechar' ? 2 : 1);
+        const next = array.dataOffset + byteCount;
+        if (!Number.isSafeInteger(byteCount) || next > raw.length) {
+          throw new Error(`Truncated VOTable binary value for field "${f.name || '?'}"`);
         }
-        else if (dt === 'int') row[(f.name) || `col${i}`] = dv.getInt32(p, !be);
-        else if (dt === 'short') row[(f.name) || `col${i}`] = dv.getInt16(p, !be);
-        else if (dt === 'longlong') {
-          const value = dv.getBigInt64 ? dv.getBigInt64(p, !be) : BigInt(dv.getUint32(p, !be)) + BigInt(dv.getUint32(p + 4, !be)) * 4294967296n;
-          row[(f.name) || `col${i}`] = value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(value) : value.toString();
-        }
-        else if (dt === 'boolean') {
-          const value = String.fromCharCode(raw[p]);
-          if (/^[Tt1]$/.test(value)) row[(f.name) || `col${i}`] = true;
-          else if (/^[Ff0]$/.test(value)) row[(f.name) || `col${i}`] = false;
-          else if (value === '?') row[(f.name) || `col${i}`] = null;
-          else { ok = false; break; }
-        }
-        else if (dt === 'unsignedbyte') row[(f.name) || `col${i}`] = raw[p];
-        else {
-          const as = f.arraysize;
-          let start = p, size = as === 'x' || !as ? 1 : parseInt(as, 10);
-          if (!as || as === '*') { size = Math.abs(readLen(p)); start = p + 4; }
-          let end = start + Math.max(0, size);
+
+        let value;
+        if (binary2 && (nullFlags[i >> 3] & (1 << (7 - (i & 7))))) value = null;
+        else if (bitArray) {
+          value = Array.from({ length: array.count }, (_, index) => Boolean(raw[array.dataOffset + (index >> 3)] & (1 << (7 - (index & 7)))));
+        } else if (dt === 'char' || dt === 'unicodechar') {
+          value = decodeCharacterArray(dt, array.dataOffset, array.count);
+        } else if (bytesPerElement) {
+          if (array.isArray) {
+            value = Array.from({ length: array.count }, (_, index) => decodePrimitive(dt, array.dataOffset + index * bytesPerElement));
+          } else {
+            value = decodePrimitive(dt, array.dataOffset);
+          }
+        } else {
+          const start = array.dataOffset;
+          let end = start + byteCount;
           while (end > start && raw[end - 1] === 0) end--;
-          row[(f.name) || `col${i}`] = dec ? dec.decode(raw.slice(start, end)) : '';
+          value = dec ? dec.decode(raw.slice(start, end)) : '';
         }
-      } catch (_) { ok = false; break; }
-      p = next;
+        row[(f.name) || `col${i}`] = value;
+        p = next;
+      } catch (error) {
+        throw new Error(`Unable to decode VOTable field "${f.name || `col${i}`}" at byte ${p}: ${error.message}`);
+      }
     }
-    if (!ok) break;
     rows.push(row);
     pos = p;
     if (rows.length >= 100000) break;

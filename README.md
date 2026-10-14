@@ -17,7 +17,7 @@ rewire to real NASA data (SPHEREx / GBOT / JPL / NASA NEO API).
 ## Quick start
 
 ```bash
-npm install          # installs server + client + root tooling
+npm ci               # reproducible install from package-lock.json
 npm run dev          # API on :4000, web app on :5173 (with /api proxy)
 ```
 
@@ -29,6 +29,13 @@ Then open **http://localhost:5173**.
 npm run build        # builds the React app into client/dist
 npm start            # Express serves the API + static app on :4000
 ```
+
+### Source ZIP
+
+Create a source archive with `npm run package:source`. It writes
+`dist/novochar-source.zip` and excludes `node_modules` and generated build
+output. After extracting the archive, run `npm ci` to install the exact locked
+dependency tree; do not copy a local `node_modules` folder into the archive.
 
 ### Deploy to Vercel
 
