@@ -41,7 +41,7 @@ app.use(express.json());
 const CACHEABLE_API = /^\/api\/(survey|objects|stats|presets|spectra\/|field\/heatmap)/;
 app.use((req, res, next) => {
   if (req.method === 'GET' && CACHEABLE_API.test(req.path || req.url)) {
-    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=31536000');
+    res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
   }
   next();
 });
@@ -299,8 +299,21 @@ app.get('/api/ivoa/ssa', async (req, res) => {
 // In production, serve the built React app alongside the API.
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(clientDist));
-  app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+  app.use('/assets', express.static(path.join(clientDist, 'assets'), { maxAge: '1y', immutable: true }));
+  app.use('/data', express.static(path.join(clientDist, 'data'), {
+    maxAge: '5m',
+    setHeaders: (res) => res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400'),
+  }));
+  app.use(express.static(clientDist, {
+    setHeaders: (res, filePath) => {
+      if (path.basename(filePath) === 'index.html') {
+        res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
+      }
+    },
+  }));
+  app.get(/^\/(?!api).*/, (req, res) => res.sendFile(path.join(clientDist, 'index.html'), {
+    headers: { 'Cache-Control': 'public, max-age=0, must-revalidate' },
+  }));
 }
 
 export default app;

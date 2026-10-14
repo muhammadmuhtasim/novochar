@@ -28,7 +28,15 @@ Then open **http://localhost:5173**.
 ```bash
 npm run build        # builds the React app into client/dist
 npm start            # Express serves the API + static app on :4000
+npx playwright install chromium
+npm run check:performance  # bundle budgets + production-browser smoke
 ```
+
+For an actual Vercel deployment, run
+`node scripts/verify-deployment.mjs https://your-deployment-url`. To simulate
+an older cached document whose lazy chunk has disappeared from the current
+release, pass the previous deployment URL as the second argument. The manual
+GitHub Actions workflow runs the same probe and saves a report artifact.
 
 ### Source ZIP
 

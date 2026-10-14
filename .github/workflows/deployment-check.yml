@@ -1,0 +1,47 @@
+name: Verify deployed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_url:
+        description: Current production deployment URL
+        required: true
+        type: string
+      previous_deployment_url:
+        description: Optional previous deployment URL for stale-chunk recovery simulation
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-deployment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - if: ${{ inputs.previous_deployment_url != '' }}
+        run: npx playwright install --with-deps chromium
+      - name: Check deployed HTML, assets, catalogue, and cache headers
+        env:
+          DEPLOYMENT_URL: ${{ inputs.deployment_url }}
+          PREVIOUS_DEPLOYMENT_URL: ${{ inputs.previous_deployment_url }}
+        run: |
+          set -o pipefail
+          if [ -n "$PREVIOUS_DEPLOYMENT_URL" ]; then
+            node scripts/verify-deployment.mjs "$DEPLOYMENT_URL" "$PREVIOUS_DEPLOYMENT_URL" | tee dist-deployment-report.json
+          else
+            node scripts/verify-deployment.mjs "$DEPLOYMENT_URL" | tee dist-deployment-report.json
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: novochar-deployment-verification-${{ github.run_id }}
+          path: dist-deployment-report.json
+          if-no-files-found: warn
