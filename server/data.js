@@ -39,6 +39,7 @@ const PASS_NAMES = [
   'SPX-ORBIT-05',
   'SPX-ORBIT-06',
 ];
+const AU_PER_LIGHT_YEAR = 63241.077;
 
 // SPHEREx observes broad swaths of the ecliptic, but Novochar is an *all-sky*
 // utility, so the survey field now covers the whole celestial sphere (RA 0–360°,
@@ -51,9 +52,9 @@ const FIELD = { raCenter: 0.0, decCenter: 0.0, raHalf: 180.0, decHalf: 90.0 };
 //   - AST (asteroids)          -> a tight band hugging the ecliptic
 //   - HPM (fast-moving stars)  -> distributed across the whole sphere
 const POPULATION = {
-  TNO: { count: 440, decSpread: 18 },
-  AST: { count: 540, decSpread: 8 },
-  HPM: { count: 680, decSpread: 86 },
+  TNO: { count: 440, eclipticLatitudeSpread: 18 },
+  AST: { count: 540, eclipticLatitudeSpread: 8 },
+  HPM: { count: 680 },
 };
 // Total tracked candidates across the whole sky (feels "limitless" vs. a handful).
 const TOTAL_OBJECTS = POPULATION.TNO.count + POPULATION.AST.count + POPULATION.HPM.count;
@@ -89,11 +90,25 @@ export function generateSurvey() {
   // --- Candidate objects (all-sky population, deterministic) ---
   const objects = [];
 
-  // Sample a declination roughly on the ecliptic band with a (triangular) spread
-  // so clusters read as real belts but the sky still feels distributed.
-  const bandDec = (spread) => {
-    const d = (rand() + rand() - 1) * spread; // triangular, mean 0
-    return Math.max(-90, Math.min(90, d));
+  const sampleSkyPosition = (type, spread) => {
+    if (type === 'HPM') {
+      const ra = rand() * 360;
+      const dec = Math.asin(rand() * 2 - 1) * 180 / Math.PI;
+      return { ra, dec };
+    }
+    const longitude = rand() * Math.PI * 2;
+    const latitude = (rand() + rand() - 1) * spread * Math.PI / 180;
+    const obliquity = 23.43928 * Math.PI / 180;
+    const xEcliptic = Math.cos(latitude) * Math.cos(longitude);
+    const yEcliptic = Math.cos(latitude) * Math.sin(longitude);
+    const zEcliptic = Math.sin(latitude);
+    const xEquatorial = xEcliptic;
+    const yEquatorial = yEcliptic * Math.cos(obliquity) - zEcliptic * Math.sin(obliquity);
+    const zEquatorial = yEcliptic * Math.sin(obliquity) + zEcliptic * Math.cos(obliquity);
+    return {
+      ra: (Math.atan2(yEquatorial, xEquatorial) * 180 / Math.PI + 360) % 360,
+      dec: Math.asin(Math.max(-1, Math.min(1, zEquatorial))) * 180 / Math.PI,
+    };
   };
 
   // Deterministic, readable designations (year + running catalogue code).
@@ -111,19 +126,28 @@ export function generateSurvey() {
 
   let i = 0;
   for (const type of ['TNO', 'AST', 'HPM']) {
-    const { count, decSpread } = POPULATION[type];
+    const { count, eclipticLatitudeSpread } = POPULATION[type];
     for (let k = 0; k < count; k++) {
       i += 1;
       const id = `NC-${String(i).padStart(4, '0')}`;
-      const ra = rand() * 360;
-      const dec = bandDec(decSpread);
+      const { ra, dec } = sampleSkyPosition(type, eclipticLatitudeSpread);
       const [mLo, mHi] = motionType[type];
       const motion = mLo + Math.pow(rand(), 1.6) * (mHi - mLo);
-      const distanceLy = type === 'TNO'
-        ? 35 + rand() * 600
+      const semiMajorAxis = type === 'TNO' ? 34 + rand() * 60 : type === 'AST' ? 2.2 + rand() * 1.5 : 0;
+      const maxEccentricity = type === 'TNO'
+        ? Math.min(0.75, 1 - 30 / semiMajorAxis)
         : type === 'AST'
-          ? 1.5 + rand() * 8.5
-          : 7 + rand() * 300;
+          ? Math.min(0.35, 1 - 1.67 / semiMajorAxis)
+          : 0;
+      const eccentricity = Math.floor(rand() * Math.max(0, maxEccentricity) * 1000) / 1000;
+      const inclination = type === 'TNO' ? rand() * 18 : type === 'AST' ? rand() * 8 : 0;
+      const trueAnomaly = rand() * Math.PI * 2;
+      const heliocentricDistanceAu = semiMajorAxis > 0
+        ? semiMajorAxis * (1 - eccentricity ** 2) / (1 + eccentricity * Math.cos(trueAnomaly))
+        : 0;
+      const distanceLy = type === 'HPM'
+        ? 7 + rand() * 300
+        : heliocentricDistanceAu / AU_PER_LIGHT_YEAR;
       const baseMag =
         type === 'TNO' ? 19 + rand() * 3.5 : type === 'AST' ? 15 + rand() * 4 : 4.5 + rand() * 10;
       const name = designation();
@@ -158,7 +182,7 @@ export function generateSurvey() {
         band: band.label,
         ra: Math.round(ra * 10000) / 10000,
         dec: Math.round(dec * 10000) / 10000,
-        distanceLy: Math.round(distanceLy * 10) / 10,
+        distanceLy: Number(distanceLy.toFixed(8)),
         mag: Math.round(baseMag * 10) / 10,
         motion: Math.round(motion * 100) / 100,
         motionUnits: 'mas/day',
@@ -175,12 +199,12 @@ export function generateSurvey() {
           ...(type === 'TNO' ? ['TNO'] : []),
         ],
         orbit: {
-          a: Math.round((type === 'TNO' ? 34 + rand() * 60 : type === 'AST' ? 2.2 + rand() * 1.5 : 0) * 10) / 10,
-          e: Math.round(rand() * 0.75 * 100) / 100,
-          i: Math.round(rand() * 45 * 10) / 10,
+          a: Number(semiMajorAxis.toFixed(3)),
+          e: Number(eccentricity.toFixed(3)),
+          i: Math.round(inclination * 10) / 10,
         },
         note:
-          type === 'TNO' ? 'Candidate detached TNO; blended flux across adjacent bands.' :
+          type === 'TNO' ? 'Trans-Neptunian candidate with a simulated orbit beyond Neptune.' :
           type === 'AST' ? 'Main-belt candidate with measurable parallax between passes.' :
           'High proper-motion field star; constant flux, large angular drift.',
         status: rand() > 0.65 ? 'confirmed' : 'candidate',

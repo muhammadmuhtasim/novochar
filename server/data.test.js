@@ -13,7 +13,8 @@ const { survey, passes, objects } = generateSurvey();
 test('every object ships the richer marker channels', () => {
   assert.ok(objects.length > 0);
   for (const o of objects) {
-    // physical distance from the observer, measured in light-years
+    // Simulated object distance, measured in light-years (solar-system
+    // candidates use heliocentric orbital distance; stars use observer distance).
     assert.equal(typeof o.distanceLy, 'number');
     assert.ok(Number.isFinite(o.distanceLy) && o.distanceLy > 0, `distanceLy positive for ${o.id}`);
     // position angle of motion (deg, east of north)

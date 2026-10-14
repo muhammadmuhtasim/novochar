@@ -8,6 +8,9 @@ const CATEGORY_COLORS = {
   AST: '#FFB547',
   HPM: '#D792FF',
 };
+const AU_PER_LIGHT_YEAR = 63241.077;
+const MIN_VIEW_DISTANCE_LY = 1e-6;
+const PICK_RADIUS_PX = 7;
 
 function categoryColor(object) {
   return CATEGORY_COLORS[object.type] || object.color || '#F4F7FF';
@@ -18,10 +21,10 @@ function directionFromRaDec(raDeg, decDeg, radius = 100) {
 }
 
 function formatRa(deg) {
-  const hours = ((deg / 15) % 24 + 24) % 24;
-  const h = Math.floor(hours);
-  const m = Math.floor((hours - h) * 60);
-  const s = Math.round((((hours - h) * 60) - m) * 60);
+  const totalSeconds = Math.round((((deg / 15) % 24 + 24) % 24) * 3600) % 86400;
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
   return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
 }
 
@@ -34,9 +37,56 @@ function formatDec(deg) {
 }
 
 function distanceLy(object) {
-  if (Number.isFinite(Number(object.distanceLy))) return Number(object.distanceLy);
-  if (Number.isFinite(Number(object.distancePc))) return Number(object.distancePc) * 3.26156;
-  return 0;
+  if (object.distanceLy !== null && object.distanceLy !== undefined && object.distanceLy !== '' && Number.isFinite(Number(object.distanceLy)) && Number(object.distanceLy) >= 0) {
+    return Number(object.distanceLy);
+  }
+  if (object.distancePc !== null && object.distancePc !== undefined && Number.isFinite(Number(object.distancePc)) && Number(object.distancePc) >= 0) {
+    return Number(object.distancePc) * 3.26156;
+  }
+  return null;
+}
+
+function apparentCoordinates(object, epochJD) {
+  const ra = Number(object.ra);
+  const dec = Number(object.dec);
+  const motion = Number(object.motion);
+  const pa = Number(object.pa);
+  const hasEpoch = object.epochOfDiscovery !== null && object.epochOfDiscovery !== undefined && Number.isFinite(Number(object.epochOfDiscovery));
+  const elapsedDays = hasEpoch && Number.isFinite(epochJD)
+    ? Math.max(0, epochJD - Number(object.epochOfDiscovery))
+    : 0;
+  if (!Number.isFinite(motion) || motion <= 0 || !Number.isFinite(pa) || elapsedDays === 0) return { ra, dec };
+
+  const alpha = THREE.MathUtils.degToRad(ra);
+  const delta = THREE.MathUtils.degToRad(dec);
+  const position = new THREE.Vector3(Math.cos(delta) * Math.sin(alpha), Math.sin(delta), -Math.cos(delta) * Math.cos(alpha));
+  const east = new THREE.Vector3(Math.cos(alpha), 0, Math.sin(alpha));
+  const north = new THREE.Vector3(-Math.sin(delta) * Math.sin(alpha), Math.cos(delta), Math.sin(delta) * Math.cos(alpha));
+  const angle = motion * elapsedDays * (Math.PI / (180 * 3600 * 1000));
+  const bearing = THREE.MathUtils.degToRad(pa);
+  const tangent = east.multiplyScalar(Math.sin(bearing)).add(north.multiplyScalar(Math.cos(bearing)));
+  position.multiplyScalar(Math.cos(angle)).addScaledVector(tangent, Math.sin(angle)).normalize();
+  return {
+    ra: (THREE.MathUtils.radToDeg(Math.atan2(position.x, -position.z)) + 360) % 360,
+    dec: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(position.y, -1, 1))),
+  };
+}
+
+function sliderToDistance(value, maximum) {
+  return MIN_VIEW_DISTANCE_LY * (maximum / MIN_VIEW_DISTANCE_LY) ** (Number(value) / 1000);
+}
+
+function distanceToSlider(distance, maximum) {
+  return THREE.MathUtils.clamp(
+    Math.round(1000 * Math.log(Math.max(MIN_VIEW_DISTANCE_LY, distance) / MIN_VIEW_DISTANCE_LY) / Math.log(maximum / MIN_VIEW_DISTANCE_LY)),
+    0,
+    1000,
+  );
+}
+
+function formatDistance(distanceLy) {
+  if (distanceLy < 1) return `${(distanceLy * AU_PER_LIGHT_YEAR).toPrecision(3)} AU`;
+  return `${distanceLy < 10 ? distanceLy.toPrecision(3) : Math.round(distanceLy)} ly`;
 }
 
 function refreshVisibleCatalog(engine) {
@@ -47,9 +97,12 @@ function refreshVisibleCatalog(engine) {
   const viewProjection = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   const frustum = new THREE.Frustum().setFromProjectionMatrix(viewProjection);
   const visible = engine.catalogObjects
-    .map((object) => ({ object, position: directionFromRaDec(object.ra, object.dec, 96) }))
-    .filter(({ object, position }) => frustum.containsPoint(position) && distanceLy(object) <= engine.viewRangeLy)
-    .sort((a, b) => distanceLy(b.object) - distanceLy(a.object) || a.object.id.localeCompare(b.object.id))
+    .map((object) => {
+      const coordinates = apparentCoordinates(object, engine.epochJD);
+      return { object, coordinates, position: directionFromRaDec(coordinates.ra, coordinates.dec, 96), distance: distanceLy(object) };
+    })
+    .filter(({ position, distance }) => distance !== null && distance <= engine.viewRangeLy && frustum.containsPoint(position))
+    .sort((a, b) => b.distance - a.distance || a.object.id.localeCompare(b.object.id))
     .slice(0, engine.maxCount);
 
   const geometry = engine.catalogPoints.geometry;
@@ -59,14 +112,16 @@ function refreshVisibleCatalog(engine) {
     geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
     geometry.setAttribute('size', new THREE.BufferAttribute(new Float32Array(capacity), 1));
+    geometry.setAttribute('brightness', new THREE.BufferAttribute(new Float32Array(capacity), 1));
     engine.catalogCapacity = capacity;
   }
 
   const positions = geometry.attributes.position.array;
   const colors = geometry.attributes.color.array;
   const sizes = geometry.attributes.size.array;
+  const brightnesses = geometry.attributes.brightness.array;
   const selectedObjects = [];
-  visible.forEach(({ object, position }, index) => {
+  visible.forEach(({ object, coordinates, position }, index) => {
     const offset = index * 3;
     positions[offset] = position.x;
     positions[offset + 1] = position.y;
@@ -75,13 +130,17 @@ function refreshVisibleCatalog(engine) {
     colors[offset] = color.r;
     colors[offset + 1] = color.g;
     colors[offset + 2] = color.b;
-    const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 5;
-    sizes[index] = Math.max(3, 6.2 - Math.max(0, magnitude) * 0.1);
-    selectedObjects.push(object);
+    const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 10;
+    const relativeFlux = 10 ** (-0.4 * (magnitude - 5));
+    const perceptualFlux = Math.max(0.4, Math.min(1, relativeFlux ** 0.06));
+    sizes[index] = 2.8 + 2.2 * Math.max(0.25, Math.min(1, relativeFlux ** 0.08));
+    brightnesses[index] = perceptualFlux;
+    selectedObjects.push({ ...object, ...coordinates });
   });
   geometry.attributes.position.needsUpdate = true;
   geometry.attributes.color.needsUpdate = true;
   geometry.attributes.size.needsUpdate = true;
+  geometry.attributes.brightness.needsUpdate = true;
   geometry.setDrawRange(0, visible.length);
   engine.catalogPoints.userData.catalogStars = selectedObjects;
   if (engine.visibleCount !== visible.length) {
@@ -98,7 +157,7 @@ function refreshVisibleCatalog(engine) {
       engine.glowById.delete(id);
     }
   }
-  glowCandidates.forEach(({ object }) => {
+  glowCandidates.forEach(({ object, coordinates }) => {
     let sprite = engine.glowById.get(object.id);
     if (!sprite) {
       sprite = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -107,16 +166,19 @@ function refreshVisibleCatalog(engine) {
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
-        opacity: 2.0,
+        opacity: 0.9,
         toneMapped: false,
       }));
       engine.glowById.set(object.id, sprite);
       engine.glowSprites.add(sprite);
     }
-    sprite.position.copy(directionFromRaDec(object.ra, object.dec, 95));
+    sprite.position.copy(directionFromRaDec(coordinates.ra, coordinates.dec, 95));
     const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 10;
     sprite.material.color.set(categoryColor(object));
-    sprite.material.opacity = THREE.MathUtils.clamp(0.98 - Math.max(0, magnitude - 5) * 0.015, 0.78, 0.98);
+    const relativeFlux = 10 ** (-0.4 * (magnitude - 5));
+    const perceptualFlux = Math.max(0.4, Math.min(1, relativeFlux ** 0.06));
+    sprite.userData.baseOpacity = 0.45 + 0.45 * perceptualFlux;
+    sprite.material.opacity = THREE.MathUtils.clamp(sprite.userData.baseOpacity * (engine.glowIntensityScale || 1), 0, 1);
     sprite.scale.setScalar(2.1 + Math.max(0, 8 - magnitude) * 0.16);
   });
 }
@@ -135,6 +197,7 @@ export default function CelestialExplore() {
   const [categories, setCategories] = useState(['ALL']);
   const [maxCount, setMaxCount] = useState(20);
   const [viewRangeLy, setViewRangeLy] = useState(180);
+  const [timeOffsetYears, setTimeOffsetYears] = useState(0);
   const [visibleObjectCount, setVisibleObjectCount] = useState(0);
 
   useEffect(() => {
@@ -180,9 +243,19 @@ export default function CelestialExplore() {
   }, [catalog]);
 
   const maximumDistanceLy = useMemo(
-    () => Math.max(180, ...catalog.map(distanceLy)),
+    () => Math.max(180, ...catalog.map(distanceLy).filter(Number.isFinite)),
     [catalog],
   );
+  const referenceEpochJD = useMemo(
+    () => Math.max(2460000, ...catalog.map((object) => Number(object.epochOfDiscovery)).filter(Number.isFinite)),
+    [catalog],
+  );
+  const viewEpochJD = referenceEpochJD + timeOffsetYears * 365.25;
+  const selectedAtEpoch = useMemo(() => {
+    if (!selected) return null;
+    const source = catalog.find((object) => object.id === selected.id) || selected;
+    return { ...source, ...apparentCoordinates(source, viewEpochJD) };
+  }, [selected, catalog, viewEpochJD]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -196,7 +269,7 @@ export default function CelestialExplore() {
     const onStarSelected = (event) => {
       const star = event.detail;
       setSelected(star || null);
-      if (star) { setQuery(star.name); setSearchOpen(false); setNotice(`${star.name} selected`); }
+      if (star) { setQuery(star.name || star.id); setSearchOpen(false); setNotice(`${star.name || star.id} selected`); }
     };
     canvas.addEventListener('sky-star-select', onStarSelected);
     return () => canvas.removeEventListener('sky-star-select', onStarSelected);
@@ -266,11 +339,27 @@ export default function CelestialExplore() {
     starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
     starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
     starGeometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(0), 1));
+    starGeometry.setAttribute('brightness', new THREE.Float32BufferAttribute(new Float32Array(0), 1));
     const starMaterial = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { uScale: { value: 2 }, uBrightness: { value: 2 } },
-      vertexShader: `attribute float size; attribute vec3 color; uniform float uScale; varying vec3 vColor; varying float vAlpha; void main(){ vColor=color; vAlpha=length(color)>0.001?1.0:0.0; vec4 mvPosition=modelViewMatrix*vec4(position,1.0); gl_Position=projectionMatrix*mvPosition; gl_PointSize=max(0.0,size*uScale); }`,
-      fragmentShader: `varying vec3 vColor; varying float vAlpha; uniform float uBrightness; void main(){ vec2 p=gl_PointCoord-vec2(0.5); float d=length(p); float a=1.0-smoothstep(0.34,0.5,d); if(a<0.02 || vAlpha<0.5) discard; float core=1.0-smoothstep(0.0,0.34,d); vec3 light=min(vec3(1.0),vColor*uBrightness+vec3(core*0.8)); gl_FragColor=vec4(light,a); }`,
+      uniforms: { uScale: { value: 1 }, uBrightness: { value: 2 } },
+      vertexShader: `attribute float size; attribute float brightness; attribute vec3 color; uniform float uScale; varying vec3 vColor; varying float vAlpha; varying float vBrightness; void main(){ vColor=color; vBrightness=brightness; vAlpha=length(color)>0.001?1.0:0.0; vec4 mvPosition=modelViewMatrix*vec4(position,1.0); gl_Position=projectionMatrix*mvPosition; gl_PointSize=max(0.0,size*uScale); }`,
+      fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+        varying float vBrightness;
+        uniform float uBrightness;
+        void main() {
+          vec2 p = gl_PointCoord - vec2(0.5);
+          float d = length(p);
+          float a = 1.0 - smoothstep(0.34, 0.5, d);
+          if (a < 0.02 || vAlpha < 0.5) discard;
+          float core = 1.0 - smoothstep(0.0, 0.34, d);
+          vec3 light = min(vec3(1.0), vColor * uBrightness * vBrightness + vec3(core * 0.8));
+          gl_FragColor = vec4(light, a);
+          #include <colorspace_fragment>
+        }
+      `,
       toneMapped: false,
     });
     const catalogPoints = new THREE.Points(starGeometry, starMaterial);
@@ -283,11 +372,11 @@ export default function CelestialExplore() {
     glow.addColorStop(0, 'rgba(255,255,255,0.9)'); glow.addColorStop(0.12, 'rgba(170,205,255,0.45)'); glow.addColorStop(1, 'rgba(80,130,255,0)');
     gctx.fillStyle = glow; gctx.fillRect(0, 0, 64, 64);
     const glowTexture = new THREE.CanvasTexture(glowCanvas);
+    glowTexture.colorSpace = THREE.SRGBColorSpace;
     const glowSprites = new THREE.Group();
     scene.add(glowSprites);
 
     const raycaster = new THREE.Raycaster();
-    raycaster.params.Points.threshold = 1.15;
     const pointer = new THREE.Vector2();
     let yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0, startX = 0, startY = 0, disposed = false, frame = 0;
     let targetYaw = 0, targetPitch = 0;
@@ -317,12 +406,18 @@ export default function CelestialExplore() {
         pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         raycaster.setFromCamera(pointer, camera);
-        const hits = raycaster.intersectObject(catalogPoints);
+        const angularPickRadius = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * PICK_RADIUS_PX / Math.max(1, rect.height);
+        raycaster.params.Points.threshold = 96 * angularPickRadius;
+        const hits = raycaster.intersectObject(catalogPoints).sort((a, b) => a.distanceToRay - b.distanceToRay);
         if (hits.length) {
           const star = catalogPoints.userData.catalogStars[hits[0].index];
           if (star) canvas.dispatchEvent(new CustomEvent('sky-star-select', { detail: star }));
         }
       }
+    };
+    const onPointerCancel = () => {
+      dragging = false;
+      canvas.classList.remove('is-dragging');
     };
     const onWheel = (e) => {
       e.preventDefault();
@@ -349,7 +444,7 @@ export default function CelestialExplore() {
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
-    canvas.addEventListener('pointercancel', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerCancel);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('sky-star-select', onSelect);
     window.addEventListener('keydown', onKeyDown);
@@ -365,20 +460,29 @@ export default function CelestialExplore() {
     const engine = {
       camera, renderer, catalogPoints, starMaterial, bgMaterial, selectedMarker, scene, glowSprites, glowTexture,
       catalogObjects: [], maxCount: 20, viewRangeLy: 180, catalogCapacity: 0, glowById: new Map(), visibleCount: -1,
+      epochJD: 2460000, glowIntensityScale: 1,
       onVisibleCount: setVisibleObjectCount,
-      setTarget: (star) => { targetYaw = -THREE.MathUtils.degToRad(star.ra); targetPitch = THREE.MathUtils.degToRad(star.dec); },
+      setTarget: (star) => {
+        const target = -THREE.MathUtils.degToRad(star.ra);
+        targetYaw = yaw + Math.atan2(Math.sin(target - yaw), Math.cos(target - yaw));
+        targetPitch = THREE.MathUtils.degToRad(star.dec);
+      },
     };
     engineRef.current = engine;
     let lastCatalogRefresh = 0;
     let lastCatalogYaw = NaN;
     let lastCatalogPitch = NaN;
+    let lastFrameTime = performance.now();
     const animate = () => {
       if (disposed) return;
       frame = requestAnimationFrame(animate);
-      yaw += (targetYaw - yaw) * 0.18;
-      pitch += (targetPitch - pitch) * 0.18;
-      camera.rotation.set(pitch, yaw, 0, 'YXZ');
       const now = performance.now();
+      const elapsedSeconds = Math.min(0.1, Math.max(0, now - lastFrameTime) / 1000);
+      lastFrameTime = now;
+      const easing = 1 - Math.exp(-11.9 * elapsedSeconds);
+      yaw += (targetYaw - yaw) * easing;
+      pitch += (targetPitch - pitch) * easing;
+      camera.rotation.set(pitch, yaw, 0, 'YXZ');
       const viewMoved = Math.abs(yaw - lastCatalogYaw) > 0.0015 || Math.abs(pitch - lastCatalogPitch) > 0.0015;
       if (viewMoved && now - lastCatalogRefresh >= 100) {
         refreshVisibleCatalog(engine);
@@ -400,7 +504,7 @@ export default function CelestialExplore() {
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
-      canvas.removeEventListener('pointercancel', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerCancel);
       canvas.removeEventListener('wheel', onWheel);
       canvas.removeEventListener('sky-star-select', onSelect);
       window.removeEventListener('keydown', onKeyDown);
@@ -418,26 +522,41 @@ export default function CelestialExplore() {
     engine.catalogObjects = filtered;
     engine.maxCount = maxCount;
     engine.viewRangeLy = viewRangeLy;
+    engine.epochJD = viewEpochJD;
     refreshVisibleCatalog(engine);
-  }, [filtered, maxCount, viewRangeLy]);
+  }, [filtered, maxCount, viewRangeLy, viewEpochJD]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !selectedAtEpoch) return;
+    engine.selectedMarker.position.copy(directionFromRaDec(selectedAtEpoch.ra, selectedAtEpoch.dec, 94.4));
+    engine.selectedMarker.material.color.set(categoryColor(selectedAtEpoch));
+    engine.selectedMarker.visible = true;
+    engine.setTarget(selectedAtEpoch);
+  }, [selectedAtEpoch]);
 
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    engine.starMaterial.uniforms.uScale.value = starScale * 0.8;
+    engine.starMaterial.uniforms.uScale.value = 1;
     engine.starMaterial.uniforms.uBrightness.value = starScale;
+    engine.glowIntensityScale = starScale / 2;
+    engine.glowById.forEach((sprite) => {
+      sprite.material.opacity = THREE.MathUtils.clamp(sprite.userData.baseOpacity * engine.glowIntensityScale, 0, 1);
+    });
     engine.bgMaterial.opacity = 0.76;
   }, [starScale]);
 
   const selectStar = (star) => {
-    setSelected(star); setQuery(star.name || star.id); setSearchOpen(false);
+    const selectedObject = { ...star, ...apparentCoordinates(star, viewEpochJD) };
+    setSelected(selectedObject); setQuery(star.name || star.id); setSearchOpen(false);
     setNotice(`${star.name || star.id} selected`);
     const engine = engineRef.current;
     if (engine) {
-      engine.selectedMarker.position.copy(directionFromRaDec(star.ra, star.dec, 94.4));
-      engine.selectedMarker.material.color.set(categoryColor(star));
+      engine.selectedMarker.position.copy(directionFromRaDec(selectedObject.ra, selectedObject.dec, 94.4));
+      engine.selectedMarker.material.color.set(categoryColor(selectedObject));
       engine.selectedMarker.visible = true;
-      engine.setTarget(star);
+      engine.setTarget(selectedObject);
     }
   };
 
@@ -491,15 +610,16 @@ export default function CelestialExplore() {
             ))}
           </div>
           <label>Max objects displayed <span>{maxCount}</span><input type="range" min="1" max="100" step="1" value={maxCount} onChange={(e) => setMaxCount(Number(e.target.value))} /></label>
-          <label>Observation distance <span>{Math.round(viewRangeLy)} ly</span><input type="range" min="1" max={Math.ceil(maximumDistanceLy)} step="1" value={Math.min(viewRangeLy, maximumDistanceLy)} onChange={(e) => setViewRangeLy(Number(e.target.value))} /></label>
+          <label>Maximum object distance <span>{formatDistance(viewRangeLy)}</span><input type="range" min="0" max="1000" step="1" value={distanceToSlider(viewRangeLy, maximumDistanceLy)} onChange={(e) => setViewRangeLy(sliderToDistance(e.target.value, maximumDistanceLy))} /></label>
+          <label>Simulated time offset <span>+{timeOffsetYears} years</span><input type="range" min="0" max="100" step="1" value={timeOffsetYears} onChange={(e) => setTimeOffsetYears(Number(e.target.value))} /></label>
           <label>Catalog object intensity <span>{starScale.toFixed(1)}×</span><input type="range" min="0.5" max="3" step="0.1" value={starScale} onChange={(e) => setStarScale(Number(e.target.value))} /></label>
-          <p>Showing {visibleObjectCount} of up to {maxCount} farthest objects currently in view.</p>
+          <p>Showing {visibleObjectCount} of up to {maxCount} farthest objects in view. Distance is a catalog cutoff; object depth is not to scale. Solar-system distances are heliocentric estimates. The time offset advances positions along stored motion vectors, not full orbital integrations.</p>
         </div>}
-        {selected && <aside className="explore-object-card">
+        {selectedAtEpoch && <aside className="explore-object-card">
           <div className="explore-object-head"><span className="object-kicker">SELECTED OBJECT</span><button onClick={clearSelection} aria-label="Close object details">×</button></div>
-          <div className="explore-object-title"><span className="object-color-dot" style={{ background: categoryColor(selected), boxShadow: `0 0 14px ${categoryColor(selected)}` }} /><div><h3>{selected.name || selected.id}</h3><p>{selected.type} <span>·</span> {selected.id}</p></div></div>
-          <p className="explore-object-description">{selected.note || selected.description || ''}</p>
-          <div className="explore-object-stats"><div><small>Apparent brightness</small><strong>{(selected.mag || 0).toFixed(2)} mag</strong></div><div><small>Right ascension</small><strong>{formatRa(selected.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selected.dec)}</strong></div><div><small>Catalog ID</small><strong>{selected.id}</strong></div></div>
+          <div className="explore-object-title"><span className="object-color-dot" style={{ background: categoryColor(selectedAtEpoch), boxShadow: `0 0 14px ${categoryColor(selectedAtEpoch)}` }} /><div><h3>{selectedAtEpoch.name || selectedAtEpoch.id}</h3><p>{selectedAtEpoch.type} <span>·</span> {selectedAtEpoch.id}</p></div></div>
+          <p className="explore-object-description">{selectedAtEpoch.note || selectedAtEpoch.description || ''}</p>
+          <div className="explore-object-stats"><div><small>Simulated apparent magnitude</small><strong>{(selectedAtEpoch.mag || 0).toFixed(2)} mag</strong></div><div><small>Right ascension</small><strong>{formatRa(selectedAtEpoch.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selectedAtEpoch.dec)}</strong></div><div><small>Catalog ID</small><strong>{selectedAtEpoch.id}</strong></div></div>
         </aside>}
         {helpVisible && !selected && <div className="explore-welcome"><button className="explore-welcome-close" onClick={() => setHelpVisible(false)} aria-label="Dismiss welcome">×</button><span className="welcome-kicker">WELCOME TO NOVOCHAR</span><h3>Look around.</h3><p>Explore the star field. Filter by object type, adjust object count and view range to see distant objects.</p><div><span>DRAG</span> Look around <span>SCROLL</span> Zoom</div></div>}
       </div>
