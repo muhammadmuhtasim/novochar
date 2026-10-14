@@ -28,6 +28,13 @@ The local deployment probe was exercised against the production Express server,
 including its simulated stale-document retry path. No production URL was
 provided for this pass, so deployed headers and CDN behavior remain unverified.
 
+The local regression recorded a 168,788-byte entry script (54,716 bytes gzip),
+no landing-page catalogue request, one catalogue request under rapid switching,
+successful chunk retry, successful simulated WebGL context loss/restoration,
+and zero canvases after navigation cleanup. Its post-unmount heap sample was
+about 6.0 MB. These are single software-rendered browser samples, not release
+thresholds or measurements from physical devices.
+
 The mobile browser check uses emulated viewport, touch capability, and CPU
 throttling. It cannot verify real touch gestures, orientation sensors, thermal
 throttling, device GPU limits, or physical-device context-loss behavior. Use

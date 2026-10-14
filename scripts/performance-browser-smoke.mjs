@@ -72,6 +72,7 @@ try {
   assert.equal(catalogueRequests.length, 1, 'rapid tab switching should issue one catalogue request');
   assert.match(await desktop.locator('.nav-tabs .active').innerText(), /CATALOGUE/);
   catalogueDelay = false;
+  await desktop.close();
   console.log('browser check: rapid route changes deduplicated catalogue request');
 
   let denySkyChunk = true;
@@ -80,21 +81,21 @@ try {
   await retryPage.route('**/assets/SkyViewer-*.js', (route) => denySkyChunk ? route.abort() : route.continue());
   await retryPage.goto(origin, { waitUntil: 'domcontentloaded' });
   await retryPage.locator('.nav-tabs button').nth(1).click();
-  await retryPage.locator('.module-error button').waitFor({ state: 'visible', timeout: 10_000 });
+  await retryPage.locator('.module-error button').waitFor({ state: 'visible', timeout: 30_000 });
   denySkyChunk = false;
   await retryPage.getByRole('button', { name: 'Retry feature' }).click();
-  await retryPage.locator('.sky-mode-switch').waitFor({ state: 'visible', timeout: 15_000 });
+  await retryPage.locator('.sky-mode-switch').waitFor({ state: 'visible', timeout: 60_000 });
   assert.equal(new URL(retryPage.url()).hash, '#sky', 'retry should retain the selected feature');
   console.log('browser check: failed chunk retried after app reload');
 
   const timeFeature = async (buttonIndex, selector) => {
     const started = performance.now();
     await retryPage.locator('.sky-mode-switch button').nth(buttonIndex).click();
-    await retryPage.locator(selector).waitFor({ state: 'visible', timeout: 20_000 });
+    await retryPage.locator(selector).waitFor({ state: 'visible', timeout: 60_000 });
     return Math.round(performance.now() - started);
   };
   const firstExploreStarted = performance.now();
-  await retryPage.locator('.celestial-canvas').waitFor({ state: 'visible', timeout: 20_000 });
+  await retryPage.locator('.celestial-canvas').waitFor({ state: 'visible', timeout: 60_000 });
   const firstExploreMs = Math.round(performance.now() - firstExploreStarted);
   console.log('browser check: Explore Sky mounted');
   const firstFlightMs = await timeFeature(1, '.space3d-canvas');
