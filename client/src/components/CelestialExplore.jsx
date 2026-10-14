@@ -1,36 +1,19 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { api } from '../lib/api.js';
 import { raDecToSkyDirection } from '../lib/sky-coordinates.js';
 
-// Bright-star reference positions (ICRS/J2000; approximate catalog values).
-// Procedural background points are decorative only and are never presented as catalog objects.
-const BRIGHT_STARS = [
-  { id: 'HIP-32349', name: 'Sirius', aliases: ['Alpha Canis Majoris'], type: 'Star', ra: 101.2872, dec: -16.7161, mag: -1.46, color: '#c9e3ff', description: "The brightest star in Earth's night sky." },
-  { id: 'HIP-30438', name: 'Canopus', aliases: ['Alpha Carinae'], type: 'Star', ra: 95.9879, dec: -52.6957, mag: -0.74, color: '#fff0d5', description: 'A luminous star in the constellation Carina.' },
-  { id: 'HIP-69673', name: 'Arcturus', aliases: ['Alpha Boötis'], type: 'Star', ra: 213.9153, dec: 19.1824, mag: -0.05, color: '#ffd3a1', description: 'A bright orange giant in Boötes.' },
-  { id: 'HIP-71683', name: 'Alpha Centauri', aliases: ['Rigil Kentaurus'], type: 'Star system', ra: 219.9021, dec: -60.8339, mag: -0.27, color: '#fff0cf', description: 'The nearest star system to the Sun.' },
-  { id: 'HIP-91262', name: 'Vega', aliases: ['Alpha Lyrae'], type: 'Star', ra: 279.2347, dec: 38.7837, mag: 0.03, color: '#c8e2ff', description: 'A bright blue-white star in Lyra.' },
-  { id: 'HIP-97649', name: 'Altair', aliases: ['Alpha Aquilae'], type: 'Star', ra: 297.6958, dec: 8.8683, mag: 0.77, color: '#f4f4ff', description: 'A rapidly rotating star in Aquila.' },
-  { id: 'HIP-102098', name: 'Deneb', aliases: ['Alpha Cygni'], type: 'Star', ra: 310.3579, dec: 45.2803, mag: 1.25, color: '#d9e9ff', description: 'A luminous supergiant in Cygnus.' },
-  { id: 'HIP-24608', name: 'Capella', aliases: ['Alpha Aurigae'], type: 'Star system', ra: 79.1723, dec: 45.9979, mag: 0.08, color: '#fff0cf', description: 'A bright multiple-star system in Auriga.' },
-  { id: 'HIP-24436', name: 'Rigel', aliases: ['Beta Orionis'], type: 'Star', ra: 78.6345, dec: -8.2016, mag: 0.13, color: '#c7e2ff', description: 'A blue-white supergiant in Orion.' },
-  { id: 'HIP-27989', name: 'Betelgeuse', aliases: ['Alpha Orionis'], type: 'Star', ra: 88.7929, dec: 7.4071, mag: 0.50, color: '#ffb38b', description: 'A red supergiant in Orion.' },
-  { id: 'HIP-37279', name: 'Procyon', aliases: ['Alpha Canis Minoris'], type: 'Star', ra: 114.8255, dec: 5.2249, mag: 0.34, color: '#fff3dc', description: 'A bright star in Canis Minor.' },
-  { id: 'HIP-37826', name: 'Pollux', aliases: ['Beta Geminorum'], type: 'Star', ra: 116.3289, dec: 28.0262, mag: 1.14, color: '#ffd4a3', description: 'An orange giant in Gemini.' },
-  { id: 'HIP-49669', name: 'Regulus', aliases: ['Alpha Leonis'], type: 'Star', ra: 152.0929, dec: 11.9672, mag: 1.35, color: '#d7e8ff', description: 'The brightest star in Leo.' },
-  { id: 'HIP-65474', name: 'Spica', aliases: ['Alpha Virginis'], type: 'Star', ra: 201.2983, dec: -11.1613, mag: 0.97, color: '#bcdcff', description: 'A close binary system in Virgo.' },
-  { id: 'HIP-80763', name: 'Antares', aliases: ['Alpha Scorpii'], type: 'Star', ra: 247.3519, dec: -26.4320, mag: 1.06, color: '#ff9a78', description: 'A red supergiant in Scorpius.' },
-  { id: 'HIP-11767', name: 'Polaris', aliases: ['North Star', 'Alpha Ursae Minoris'], type: 'Star', ra: 37.9546, dec: 89.2641, mag: 1.98, color: '#fff4df', description: 'A star located close to the north celestial pole.' },
-  { id: 'HIP-9884', name: 'Hamal', aliases: ['Alpha Arietis'], type: 'Star', ra: 31.7934, dec: 23.4624, mag: 2.00, color: '#ffd4a3', description: 'The brightest star in Aries.' },
-  { id: 'HIP-85927', name: 'Shaula', aliases: ['Lambda Scorpii'], type: 'Star', ra: 263.4022, dec: -37.1038, mag: 1.62, color: '#c8e1ff', description: 'A hot multiple-star system in Scorpius.' },
-  { id: 'HIP-113368', name: 'Fomalhaut', aliases: ['Alpha Piscis Austrini'], type: 'Star', ra: 344.4127, dec: -29.6222, mag: 1.16, color: '#e2edff', description: 'A bright star surrounded by a debris disk.' },
-  { id: 'HIP-26311', name: 'Alnilam', aliases: ['Epsilon Orionis'], type: 'Star', ra: 84.0534, dec: -1.2019, mag: 1.69, color: '#c9e2ff', description: 'The middle star in Orion’s Belt.' },
-  { id: 'HIP-26727', name: 'Alnitak', aliases: ['Zeta Orionis'], type: 'Star', ra: 85.1897, dec: -1.9426, mag: 1.77, color: '#c6e1ff', description: 'The easternmost star in Orion’s Belt.' },
-  { id: 'HIP-25930', name: 'Mintaka', aliases: ['Delta Orionis'], type: 'Star', ra: 83.0017, dec: -0.2991, mag: 2.23, color: '#d1e6ff', description: 'The westernmost star in Orion’s Belt.' },
-  { id: 'HIP-67301', name: 'Alkaid', aliases: ['Eta Ursae Majoris'], type: 'Star', ra: 206.8852, dec: 49.3133, mag: 1.86, color: '#cbe3ff', description: 'A blue-white star at the end of the Big Dipper’s handle.' },
-  { id: 'HIP-57632', name: 'Denebola', aliases: ['Beta Leonis'], type: 'Star', ra: 177.2649, dec: 14.5721, mag: 2.14, color: '#e5eeff', description: 'A white star marking the tail of Leo.' },
-  { id: 'HIP-78401', name: 'Dschubba', aliases: ['Delta Scorpii'], type: 'Star', ra: 240.0834, dec: -22.6217, mag: 2.32, color: '#d5e7ff', description: 'A hot star near the head of Scorpius.' },
-];function directionFromRaDec(raDeg, decDeg, radius = 100) {
+const CATEGORY_COLORS = {
+  TNO: '#58D9FF',
+  AST: '#FFB547',
+  HPM: '#D792FF',
+};
+
+function categoryColor(object) {
+  return CATEGORY_COLORS[object.type] || object.color || '#F4F7FF';
+}
+
+function directionFromRaDec(raDeg, decDeg, radius = 100) {
   return new THREE.Vector3(...raDecToSkyDirection(raDeg, decDeg)).multiplyScalar(radius);
 }
 
@@ -41,6 +24,7 @@ function formatRa(deg) {
   const s = Math.round((((hours - h) * 60) - m) * 60);
   return `${String(h).padStart(2, '0')}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
 }
+
 function formatDec(deg) {
   const sign = deg < 0 ? '−' : '+';
   const abs = Math.abs(deg);
@@ -49,6 +33,93 @@ function formatDec(deg) {
   return `${sign}${String(d).padStart(2, '0')}° ${String(m).padStart(2, '0')}′`;
 }
 
+function distanceLy(object) {
+  if (Number.isFinite(Number(object.distanceLy))) return Number(object.distanceLy);
+  if (Number.isFinite(Number(object.distancePc))) return Number(object.distancePc) * 3.26156;
+  return 0;
+}
+
+function refreshVisibleCatalog(engine) {
+  if (!engine) return;
+  const camera = engine.camera;
+  camera.updateMatrixWorld(true);
+  camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
+  const viewProjection = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(viewProjection);
+  const visible = engine.catalogObjects
+    .map((object) => ({ object, position: directionFromRaDec(object.ra, object.dec, 96) }))
+    .filter(({ object, position }) => frustum.containsPoint(position) && distanceLy(object) <= engine.viewRangeLy)
+    .sort((a, b) => distanceLy(b.object) - distanceLy(a.object) || a.object.id.localeCompare(b.object.id))
+    .slice(0, engine.maxCount);
+
+  const geometry = engine.catalogPoints.geometry;
+  const capacity = engine.catalogObjects.length;
+  if (engine.catalogCapacity !== capacity) {
+    geometry.dispose();
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
+    geometry.setAttribute('size', new THREE.BufferAttribute(new Float32Array(capacity), 1));
+    engine.catalogCapacity = capacity;
+  }
+
+  const positions = geometry.attributes.position.array;
+  const colors = geometry.attributes.color.array;
+  const sizes = geometry.attributes.size.array;
+  const selectedObjects = [];
+  visible.forEach(({ object, position }, index) => {
+    const offset = index * 3;
+    positions[offset] = position.x;
+    positions[offset + 1] = position.y;
+    positions[offset + 2] = position.z;
+    const color = new THREE.Color(categoryColor(object));
+    colors[offset] = color.r;
+    colors[offset + 1] = color.g;
+    colors[offset + 2] = color.b;
+    const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 5;
+    sizes[index] = Math.max(3, 6.2 - Math.max(0, magnitude) * 0.1);
+    selectedObjects.push(object);
+  });
+  geometry.attributes.position.needsUpdate = true;
+  geometry.attributes.color.needsUpdate = true;
+  geometry.attributes.size.needsUpdate = true;
+  geometry.setDrawRange(0, visible.length);
+  engine.catalogPoints.userData.catalogStars = selectedObjects;
+  if (engine.visibleCount !== visible.length) {
+    engine.visibleCount = visible.length;
+    engine.onVisibleCount?.(visible.length);
+  }
+
+  const glowCandidates = visible;
+  const glowIds = new Set(glowCandidates.map(({ object }) => object.id));
+  for (const [id, sprite] of engine.glowById) {
+    if (!glowIds.has(id)) {
+      engine.glowSprites.remove(sprite);
+      sprite.material.dispose();
+      engine.glowById.delete(id);
+    }
+  }
+  glowCandidates.forEach(({ object }) => {
+    let sprite = engine.glowById.get(object.id);
+    if (!sprite) {
+      sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: engine.glowTexture,
+        color: categoryColor(object),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        opacity: 2.0,
+        toneMapped: false,
+      }));
+      engine.glowById.set(object.id, sprite);
+      engine.glowSprites.add(sprite);
+    }
+    sprite.position.copy(directionFromRaDec(object.ra, object.dec, 95));
+    const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 10;
+    sprite.material.color.set(categoryColor(object));
+    sprite.material.opacity = THREE.MathUtils.clamp(0.98 - Math.max(0, magnitude - 5) * 0.015, 0.78, 0.98);
+    sprite.scale.setScalar(2.1 + Math.max(0, 8 - magnitude) * 0.16);
+  });
+}
 export default function CelestialExplore() {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
@@ -56,17 +127,68 @@ export default function CelestialExplore() {
   const [selected, setSelected] = useState(null);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const [magnitudeLimit, setMagnitudeLimit] = useState(5.5);
-  const [starScale, setStarScale] = useState(1);
+  const [starScale, setStarScale] = useState(2);
   const [showSettings, setShowSettings] = useState(false);
   const [helpVisible, setHelpVisible] = useState(true);
   const [notice, setNotice] = useState('Drag to look around · Scroll to zoom');
+  const [catalog, setCatalog] = useState([]);
+  const [categories, setCategories] = useState(['ALL']);
+  const [maxCount, setMaxCount] = useState(20);
+  const [viewRangeLy, setViewRangeLy] = useState(180);
+  const [visibleObjectCount, setVisibleObjectCount] = useState(0);
+
+  useEffect(() => {
+    api.objects().then((d) => {
+      const all = d.objects || [];
+      setCatalog(all);
+    }).catch(() => {});
+  }, []);
+
+  const toggleCategory = (key) => {
+    if (key === 'ALL') {
+      setCategories(['ALL']);
+      return;
+    }
+    setCategories((prev) => {
+      const has = prev.includes(key);
+      let next = has ? prev.filter((c) => c !== key) : [...prev.filter((c) => c !== 'ALL'), key];
+      if (next.length === 0) next = ['ALL'];
+      return next;
+    });
+  };
+
+  const filtered = useMemo(() => {
+    let list = catalog.slice();
+    if (!categories.includes('ALL')) {
+      list = list.filter((o) => categories.includes(o.type));
+    }
+    return list;
+  }, [catalog, categories]);
+
+  const categoryOptions = useMemo(() => {
+    const byType = new Map();
+    catalog.forEach((object) => {
+      if (!byType.has(object.type)) {
+        byType.set(object.type, {
+          key: object.type,
+          label: object.typeLabel || object.type,
+          color: categoryColor(object),
+        });
+      }
+    });
+    return [{ key: 'ALL', label: 'All Objects', color: '#ffffff' }, ...byType.values()];
+  }, [catalog]);
+
+  const maximumDistanceLy = useMemo(
+    () => Math.max(180, ...catalog.map(distanceLy)),
+    [catalog],
+  );
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return BRIGHT_STARS.slice(0, 7);
-    return BRIGHT_STARS.filter((s) => `${s.name} ${s.id} ${s.aliases.join(' ')}`.toLowerCase().includes(q)).slice(0, 8);
-  }, [query]);
+    if (!q) return filtered.slice(0, 8);
+    return filtered.filter((s) => `${s.name || ''} ${s.id || ''} ${(s.aliases || []).join(' ')}`.toLowerCase().includes(q)).slice(0, 8);
+  }, [query, filtered]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -97,7 +219,6 @@ export default function CelestialExplore() {
     camera.position.set(0, 0, 0);
     camera.rotation.order = 'YXZ';
 
-    // A faint nebular haze is a visual atmosphere, not a scientific Milky Way survey layer.
     const hazeCanvas = document.createElement('canvas');
     hazeCanvas.width = 1024; hazeCanvas.height = 512;
     const ctx = hazeCanvas.getContext('2d');
@@ -113,7 +234,6 @@ export default function CelestialExplore() {
     );
     scene.add(hazeMesh);
 
-    // Deterministic procedural points fill the view but are intentionally not selectable or identified as catalog stars.
     let seed = 738291;
     const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
     const bgCount = 5600;
@@ -142,31 +262,21 @@ export default function CelestialExplore() {
     const backgroundStars = new THREE.Points(bgGeometry, bgMaterial);
     scene.add(backgroundStars);
 
-    const positions = [];
-    const colors = [];
-    const sizes = [];
-    BRIGHT_STARS.forEach((star) => {
-      const p = directionFromRaDec(star.ra, star.dec, 96);
-      positions.push(p.x, p.y, p.z);
-      const c = new THREE.Color(star.color);
-      colors.push(c.r, c.g, c.b);
-      sizes.push(Math.max(1.7, 5.5 - star.mag * 1.05));
-    });
     const starGeometry = new THREE.BufferGeometry();
-    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    starGeometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
+    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
+    starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
+    starGeometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(0), 1));
     const starMaterial = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false,
-      uniforms: { uScale: { value: 1 }, uBrightness: { value: 1 } },
+      uniforms: { uScale: { value: 2 }, uBrightness: { value: 2 } },
       vertexShader: `attribute float size; attribute vec3 color; uniform float uScale; varying vec3 vColor; varying float vAlpha; void main(){ vColor=color; vAlpha=length(color)>0.001?1.0:0.0; vec4 mvPosition=modelViewMatrix*vec4(position,1.0); gl_Position=projectionMatrix*mvPosition; gl_PointSize=max(0.0,size*uScale); }`,
-      fragmentShader: `varying vec3 vColor; varying float vAlpha; uniform float uBrightness; void main(){ vec2 p=gl_PointCoord-vec2(0.5); float d=length(p); float a=1.0-smoothstep(0.22,0.5,d); if(a<0.02 || vAlpha<0.5) discard; gl_FragColor=vec4(vColor*uBrightness,a); }`,
+      fragmentShader: `varying vec3 vColor; varying float vAlpha; uniform float uBrightness; void main(){ vec2 p=gl_PointCoord-vec2(0.5); float d=length(p); float a=1.0-smoothstep(0.34,0.5,d); if(a<0.02 || vAlpha<0.5) discard; float core=1.0-smoothstep(0.0,0.34,d); vec3 light=min(vec3(1.0),vColor*uBrightness+vec3(core*0.8)); gl_FragColor=vec4(light,a); }`,
+      toneMapped: false,
     });
     const catalogPoints = new THREE.Points(starGeometry, starMaterial);
-    catalogPoints.userData.catalogStars = BRIGHT_STARS;
+    catalogPoints.userData.catalogStars = [];
     scene.add(catalogPoints);
 
-    // Soft glow sprite for the brighter catalog stars.
     const glowCanvas = document.createElement('canvas'); glowCanvas.width = 64; glowCanvas.height = 64;
     const gctx = glowCanvas.getContext('2d');
     const glow = gctx.createRadialGradient(32, 32, 0, 32, 32, 32);
@@ -174,13 +284,6 @@ export default function CelestialExplore() {
     gctx.fillStyle = glow; gctx.fillRect(0, 0, 64, 64);
     const glowTexture = new THREE.CanvasTexture(glowCanvas);
     const glowSprites = new THREE.Group();
-    BRIGHT_STARS.filter((s) => s.mag < 1.2).forEach((star) => {
-      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture, color: star.color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0.5 }));
-      sprite.position.copy(directionFromRaDec(star.ra, star.dec, 95));
-      sprite.scale.setScalar(1.3 + Math.max(0, 1 - star.mag) * 1.4);
-      sprite.userData.starId = star.id;
-      glowSprites.add(sprite);
-    });
     scene.add(glowSprites);
 
     const raycaster = new THREE.Raycaster();
@@ -189,6 +292,7 @@ export default function CelestialExplore() {
     let yaw = 0, pitch = 0, dragging = false, lastX = 0, lastY = 0, startX = 0, startY = 0, disposed = false, frame = 0;
     let targetYaw = 0, targetPitch = 0;
     const selectedMarker = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.72, 32), new THREE.MeshBasicMaterial({ color: 0xffa14a, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false }));
+    selectedMarker.scale.setScalar(1.8);
     selectedMarker.visible = false; scene.add(selectedMarker);
 
     const onPointerDown = (e) => {
@@ -215,20 +319,22 @@ export default function CelestialExplore() {
         raycaster.setFromCamera(pointer, camera);
         const hits = raycaster.intersectObject(catalogPoints);
         if (hits.length) {
-          const star = BRIGHT_STARS[hits[0].index];
-          if (star && star.mag <= (catalogPoints.userData.magnitudeLimit ?? 5.5)) canvas.dispatchEvent(new CustomEvent('sky-star-select', { detail: star }));
+          const star = catalogPoints.userData.catalogStars[hits[0].index];
+          if (star) canvas.dispatchEvent(new CustomEvent('sky-star-select', { detail: star }));
         }
       }
     };
     const onWheel = (e) => {
       e.preventDefault();
-      camera.fov = THREE.MathUtils.clamp(camera.fov + e.deltaY * 0.025, 28, 88);
+      camera.fov = THREE.MathUtils.clamp(camera.fov + e.deltaY * 0.025, 30, 150);
       camera.updateProjectionMatrix();
+      refreshVisibleCatalog(engineRef.current);
     };
     const onSelect = (e) => {
       const star = e.detail;
       if (!star) { selectedMarker.visible = false; return; }
       selectedMarker.position.copy(directionFromRaDec(star.ra, star.dec, 94.4));
+      selectedMarker.material.color.set(categoryColor(star));
       selectedMarker.quaternion.copy(camera.quaternion);
       selectedMarker.visible = true;
     };
@@ -251,29 +357,43 @@ export default function CelestialExplore() {
     const resize = () => {
       const w = Math.max(1, wrap.clientWidth), h = Math.max(1, wrap.clientHeight);
       camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
+      refreshVisibleCatalog(engineRef.current);
     };
     const ro = new ResizeObserver(resize); ro.observe(wrap); resize();
     const compass = wrap.querySelector('.celestial-compass');
     const compassNeedle = wrap.querySelector('.compass-needle');
+    const engine = {
+      camera, renderer, catalogPoints, starMaterial, bgMaterial, selectedMarker, scene, glowSprites, glowTexture,
+      catalogObjects: [], maxCount: 20, viewRangeLy: 180, catalogCapacity: 0, glowById: new Map(), visibleCount: -1,
+      onVisibleCount: setVisibleObjectCount,
+      setTarget: (star) => { targetYaw = -THREE.MathUtils.degToRad(star.ra); targetPitch = THREE.MathUtils.degToRad(star.dec); },
+    };
+    engineRef.current = engine;
+    let lastCatalogRefresh = 0;
+    let lastCatalogYaw = NaN;
+    let lastCatalogPitch = NaN;
     const animate = () => {
       if (disposed) return;
       frame = requestAnimationFrame(animate);
       yaw += (targetYaw - yaw) * 0.18;
       pitch += (targetPitch - pitch) * 0.18;
       camera.rotation.set(pitch, yaw, 0, 'YXZ');
+      const now = performance.now();
+      const viewMoved = Math.abs(yaw - lastCatalogYaw) > 0.0015 || Math.abs(pitch - lastCatalogPitch) > 0.0015;
+      if (viewMoved && now - lastCatalogRefresh >= 100) {
+        refreshVisibleCatalog(engine);
+        lastCatalogRefresh = now;
+        lastCatalogYaw = yaw;
+        lastCatalogPitch = pitch;
+      }
       selectedMarker.quaternion.copy(camera.quaternion);
       if (compassNeedle) {
-        // Compass points toward celestial north; yaw 0 is toward RA=0h (Dec=0)
-        // North celestial pole is at dec=+90; in our mapping, +Y is north
-        // Needle rotation: in CSS, 0deg points up (north). We rotate based on yaw.
         const rot = (-yaw * 180 / Math.PI + 360) % 360;
         compassNeedle.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
       }
       renderer.render(scene, camera);
     };
     frame = requestAnimationFrame(animate);
-    catalogPoints.userData.magnitudeLimit = 5.5;
-    engineRef.current = { camera, renderer, catalogPoints, starMaterial, bgMaterial, selectedMarker, scene, setTarget: (star) => { targetYaw = -THREE.MathUtils.degToRad(star.ra); targetPitch = THREE.MathUtils.degToRad(star.dec); } };
 
     return () => {
       disposed = true; cancelAnimationFrame(frame); ro.disconnect();
@@ -295,23 +415,27 @@ export default function CelestialExplore() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
-    const sizeAttr = engine.catalogPoints.geometry.attributes.size;
-    BRIGHT_STARS.forEach((star, i) => {
-      sizeAttr.array[i] = star.mag <= magnitudeLimit ? Math.max(1.7, 5.5 - star.mag * 1.05) : 0;
-    });
-    sizeAttr.needsUpdate = true;
-    engine.catalogPoints.userData.magnitudeLimit = magnitudeLimit;
-    engine.starMaterial.uniforms.uScale.value = starScale;
+    engine.catalogObjects = filtered;
+    engine.maxCount = maxCount;
+    engine.viewRangeLy = viewRangeLy;
+    refreshVisibleCatalog(engine);
+  }, [filtered, maxCount, viewRangeLy]);
+
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.starMaterial.uniforms.uScale.value = starScale * 0.8;
     engine.starMaterial.uniforms.uBrightness.value = starScale;
-    engine.bgMaterial.opacity = Math.min(0.98, 0.76 * starScale);
-  }, [magnitudeLimit, starScale]);
+    engine.bgMaterial.opacity = 0.76;
+  }, [starScale]);
 
   const selectStar = (star) => {
-    setSelected(star); setQuery(star.name); setSearchOpen(false);
-    setNotice(`${star.name} selected`);
+    setSelected(star); setQuery(star.name || star.id); setSearchOpen(false);
+    setNotice(`${star.name || star.id} selected`);
     const engine = engineRef.current;
     if (engine) {
       engine.selectedMarker.position.copy(directionFromRaDec(star.ra, star.dec, 94.4));
+      engine.selectedMarker.material.color.set(categoryColor(star));
       engine.selectedMarker.visible = true;
       engine.setTarget(star);
     }
@@ -353,25 +477,33 @@ export default function CelestialExplore() {
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} onKeyDown={(e) => { if (e.key === 'Enter' && results[0]) selectStar(results[0]); if (e.key === 'Escape') setSearchOpen(false); }} placeholder="Find a star…" aria-label="Search stars by name or catalog ID" />
           {query && <button className="explore-clear" onClick={() => { setQuery(''); setSearchOpen(true); }} aria-label="Clear search">×</button>}
           {searchOpen && <div className="explore-search-results">
-            {results.length ? results.map((star) => <button key={star.id} className="explore-search-result" onMouseDown={(e) => e.preventDefault()} onClick={() => selectStar(star)}><span className="result-star-dot" style={{ background: star.color }} /><span><strong>{star.name}</strong><small>{star.aliases[0]} · Mag {star.mag.toFixed(2)}</small></span><span className="result-arrow">↗</span></button>) : <div className="explore-no-results">No matching catalog star in this preview.</div>}
+            {results.length ? results.map((star) => <button key={star.id} className="explore-search-result" onMouseDown={(e) => e.preventDefault()} onClick={() => selectStar(star)}><span className="result-star-dot" style={{ background: categoryColor(star), boxShadow: `0 0 9px ${categoryColor(star)}` }} /><span><strong>{star.name || star.id}</strong><small>{star.type} · Mag {(star.mag || 0).toFixed(2)}</small></span><span className="result-arrow">↗</span></button>) : <div className="explore-no-results">No matching object in selected categories.</div>}
           </div>}
         </div>
         {showSettings && <div className="explore-settings">
           <div className="explore-settings-head"><strong>VIEW SETTINGS</strong><button onClick={() => setShowSettings(false)} aria-label="Close settings">×</button></div>
-          <label>Star visibility <span>magnitude ≤ {magnitudeLimit.toFixed(1)}</span><input type="range" min="0" max="6.5" step="0.5" value={magnitudeLimit} onChange={(e) => setMagnitudeLimit(Number(e.target.value))} /></label>
-          <label>Star intensity <span>{starScale.toFixed(1)}×</span><input type="range" min="0.5" max="2.5" step="0.1" value={starScale} onChange={(e) => setStarScale(Number(e.target.value))} /></label>
-          <p>Coordinate grids and axes are intentionally hidden in Explore mode.</p>
+          <label>Categories</label>
+          <div className="category-grid">
+            {categoryOptions.map((cat) => (
+              <button key={cat.key} className={`category-btn${categories.includes('ALL') || categories.includes(cat.key) ? ' active' : ''}`} onClick={() => toggleCategory(cat.key)}>
+                <span className="cat-dot" style={{ background: cat.color }} /> {cat.label}
+              </button>
+            ))}
+          </div>
+          <label>Max objects displayed <span>{maxCount}</span><input type="range" min="1" max="100" step="1" value={maxCount} onChange={(e) => setMaxCount(Number(e.target.value))} /></label>
+          <label>Observation distance <span>{Math.round(viewRangeLy)} ly</span><input type="range" min="1" max={Math.ceil(maximumDistanceLy)} step="1" value={Math.min(viewRangeLy, maximumDistanceLy)} onChange={(e) => setViewRangeLy(Number(e.target.value))} /></label>
+          <label>Catalog object intensity <span>{starScale.toFixed(1)}×</span><input type="range" min="0.5" max="3" step="0.1" value={starScale} onChange={(e) => setStarScale(Number(e.target.value))} /></label>
+          <p>Showing {visibleObjectCount} of up to {maxCount} farthest objects currently in view.</p>
         </div>}
         {selected && <aside className="explore-object-card">
           <div className="explore-object-head"><span className="object-kicker">SELECTED OBJECT</span><button onClick={clearSelection} aria-label="Close object details">×</button></div>
-          <div className="explore-object-title"><span className="object-color-dot" style={{ background: selected.color, boxShadow: `0 0 14px ${selected.color}` }} /><div><h3>{selected.name}</h3><p>{selected.type} <span>·</span> {selected.aliases[0]}</p></div></div>
-          <p className="explore-object-description">{selected.description}</p>
-          <div className="explore-object-stats"><div><small>Apparent brightness</small><strong>{selected.mag.toFixed(2)} mag</strong></div><div><small>Right ascension</small><strong>{formatRa(selected.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selected.dec)}</strong></div><div><small>Catalog ID</small><strong>{selected.id}</strong></div></div>
-          <p className="explore-data-note">Approximate J2000/ICRS reference values. This initial preview contains a curated bright-star list; the background star field is procedural and is not a scientific catalog.</p>
+          <div className="explore-object-title"><span className="object-color-dot" style={{ background: categoryColor(selected), boxShadow: `0 0 14px ${categoryColor(selected)}` }} /><div><h3>{selected.name || selected.id}</h3><p>{selected.type} <span>·</span> {selected.id}</p></div></div>
+          <p className="explore-object-description">{selected.note || selected.description || ''}</p>
+          <div className="explore-object-stats"><div><small>Apparent brightness</small><strong>{(selected.mag || 0).toFixed(2)} mag</strong></div><div><small>Right ascension</small><strong>{formatRa(selected.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selected.dec)}</strong></div><div><small>Catalog ID</small><strong>{selected.id}</strong></div></div>
         </aside>}
-        {helpVisible && !selected && <div className="explore-welcome"><button className="explore-welcome-close" onClick={() => setHelpVisible(false)} aria-label="Dismiss welcome">×</button><span className="welcome-kicker">WELCOME TO NOVOCHAR</span><h3>Look around.</h3><p>Explore the star field. Search for a known star or select a bright catalog object to learn more.</p><div><span>DRAG</span> Look around <span>SCROLL</span> Zoom</div></div>}
+        {helpVisible && !selected && <div className="explore-welcome"><button className="explore-welcome-close" onClick={() => setHelpVisible(false)} aria-label="Dismiss welcome">×</button><span className="welcome-kicker">WELCOME TO NOVOCHAR</span><h3>Look around.</h3><p>Explore the star field. Filter by object type, adjust object count and view range to see distant objects.</p><div><span>DRAG</span> Look around <span>SCROLL</span> Zoom</div></div>}
       </div>
-      <div className="explore-footer"><span><i /> EXPLORE MODE ACTIVE</span><span>SCIENTIFIC GRIDS OFF <b>·</b> OBJECT INSPECTION ON DEMAND</span></div>
+      <div className="explore-footer"><span><i /> EXPLORE MODE ACTIVE</span><span>IN VIEW {visibleObjectCount} · OBJECT LIMIT {maxCount}</span></div>
     </section>
   );
 }

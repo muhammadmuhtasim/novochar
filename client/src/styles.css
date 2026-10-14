@@ -2526,3 +2526,32 @@ html.nc-cursor-on [contenteditable="true"] {
   .explore-bottom-right { display: none; }
   .celestial-compass { width: 64px; height: 64px; top: 54px; right: 8px; font-size: 8px; }
   .compass-needle { height: 22px; }
+}
+
+.category-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.category-btn {
+  font: 9px var(--font-mono);
+  color: rgba(255,255,255,.7);
+  background: rgba(255,255,255,.03);
+  border: 1px solid rgba(255,255,255,.09);
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.category-btn.active {
+  color: #fff;
+  border-color: rgba(255,112,50,.38);
+  background: rgba(255,100,32,.12);
+}
+.cat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
