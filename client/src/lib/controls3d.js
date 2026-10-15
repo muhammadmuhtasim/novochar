@@ -31,7 +31,10 @@ export class FreeFlightControls {
     };
     this._onKeyDown = e => {
       const key = e.key.toLowerCase();
-      if ([' ', 'control', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
+      // Only swallow the browser's own scroll/activation keys while flight is
+      // actually engaged. Outside pointer lock the page must keep behaving
+      // normally (arrow-key scrolling, space activating a focused button).
+      if (this.enabled && [' ', 'control', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
       this.keys.add(key);
     };
     this._onKeyUp = e => this.keys.delete(e.key.toLowerCase());

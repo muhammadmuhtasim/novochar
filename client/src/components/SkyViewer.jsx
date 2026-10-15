@@ -17,13 +17,13 @@ export default function SkyViewer({ selectedId = null, onSelect = () => {}, onTa
         <button className={view === 'space' ? 'active' : ''} onClick={() => setView('space')}><span>◇</span> FREE-FLIGHT SPACE</button>
       </div>
       {view === 'explore' ? <Suspense fallback={<div className="module-loading" role="status">Loading sky renderer…</div>}><CelestialExplore selectedId={selectedId} onSelect={onSelect} onTarget={onTarget} /></Suspense> : (
-        <div className="viewer-grid"><div className="viewer-main-col"><section className="panel viewer-panel">
+        <section className="panel viewer-panel">
           <div className="panel-head"><h2>FREE-FLIGHT SPACE</h2><span className="tag">PROCEDURAL 3D</span></div>
           <Suspense fallback={<div className="module-loading" role="status">Initializing free-flight renderer…</div>}>
             <Space3DCanvas />
           </Suspense>
           <p className="muted caption">This is Novochar's original procedural free-flight environment. It is separate from the catalog-based celestial sphere in Explore Sky.</p>
-        </section></div></div>
+        </section>
       )}
     </>
   );

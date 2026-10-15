@@ -104,3 +104,36 @@ test('dispose prevents any later keyboard movement', () => {
   assert.equal(camera.position.length(), 0);
   assert.equal(controls.keys.size, 0);
 });
+
+test('scroll/activation keys are swallowed only while flight is engaged', () => {
+  // Capture the global keydown handler the controls register.
+  const handlers = {};
+  const realWindow = globalThis.window;
+  globalThis.window = {
+    addEventListener: (type, fn) => { (handlers[type] ||= []).push(fn); },
+    removeEventListener: () => {},
+    blur: () => {},
+  };
+  try {
+    const dom = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      requestPointerLock: () => {},
+    };
+    const controls = new FreeFlightControls(new THREE.PerspectiveCamera(), dom);
+    const prevented = [];
+    const press = (key) => handlers.keydown.forEach((fn) => fn({ key, preventDefault: () => prevented.push(key) }));
+
+    press('ArrowDown');
+    press(' ');
+    assert.deepEqual(prevented, [], 'outside flight the page keeps arrow/space behaviour');
+    assert.ok(controls.keys.has('arrowdown'), 'keys are still tracked so key-up is observed');
+    assert.ok(controls.keys.has(' '), 'keys are still tracked so key-up is observed');
+
+    controls.enabled = true;
+    press('ArrowDown');
+    assert.deepEqual(prevented, ['ArrowDown'], 'while flying the browser default is suppressed');
+  } finally {
+    globalThis.window = realWindow;
+  }
+});

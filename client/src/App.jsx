@@ -116,6 +116,7 @@ export default function App() {
 
   useEffect(() => {
     // Scroll reveal observer for panels and cards
+    const REVEAL_SELECTOR = '.panel, .source-card, .obj-card, .kv div, .sed-chart, .chip';
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -127,10 +128,11 @@ export default function App() {
       { threshold: 0.08, rootMargin: '0px 0px -30px 0px' }
     );
 
-    const timer = setTimeout(() => {
-      const elements = document.querySelectorAll('.panel, .source-card, .obj-card, .kv div, .sed-chart, .chip');
-      elements.forEach((el) => observer.observe(el));
-    }, 50);
+    const watch = () => {
+      document.querySelectorAll(REVEAL_SELECTOR).forEach((el) => observer.observe(el));
+    };
+
+    const timer = setTimeout(watch, 50);
 
     // Safety net: if IntersectionObserver ever fails to fire (edge cases / odd
     // layouts), force-reveal anything already on screen so content is never left
@@ -138,7 +140,7 @@ export default function App() {
     const fallback = setTimeout(() => {
       const vh = window.innerHeight;
       document
-        .querySelectorAll('.panel, .source-card, .obj-card, .kv div, .sed-chart, .chip')
+        .querySelectorAll(REVEAL_SELECTOR)
         .forEach((el) => {
           if (!el.classList.contains('in-view') && el.getBoundingClientRect().top < vh) {
             el.classList.add('in-view');
@@ -146,9 +148,31 @@ export default function App() {
         });
     }, 1100);
 
+    // Panels can also arrive after that sweep. The Sky Viewer's Explore /
+    // Free-flight toggle swaps its panel in place without touching `tab`, so
+    // nothing here would observe the replacement and it would stay parked at
+    // the pre-reveal `opacity: 0` — an apparently blank view. Catch late
+    // arrivals too, coalescing bursts of DOM churn to one pass per frame.
+    let queued = false;
+    const mutations = new MutationObserver((records) => {
+      const arrived = records.some((record) =>
+        [...record.addedNodes].some(
+          (node) => node.nodeType === 1 && (node.matches(REVEAL_SELECTOR) || node.querySelector(REVEAL_SELECTOR))
+        )
+      );
+      if (!arrived || queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        watch();
+      });
+    });
+    mutations.observe(document.body, { childList: true, subtree: true });
+
     return () => {
       clearTimeout(timer);
       clearTimeout(fallback);
+      mutations.disconnect();
       observer.disconnect();
     };
   }, [tab, selectedId, objects]);

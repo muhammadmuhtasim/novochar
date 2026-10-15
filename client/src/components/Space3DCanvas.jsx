@@ -60,7 +60,9 @@ export default function Space3DCanvas({ headerSlot = null }) {
     world.update(camera.position);
 
     // ── HUD update state ──
-    let previous = performance.now(), elapsed = 0, frames = 0;
+    let previous = performance.now();
+    let hudAt = previous; // wall-clock stamp of the last readout refresh
+    let frames = 0;
     let animId = null;
     let disposed = false;
 
@@ -90,7 +92,14 @@ export default function Space3DCanvas({ headerSlot = null }) {
     const onCanvasClick = () => {
       if (document.pointerLockElement !== canvas) showToast('CLICK TO CAPTURE POINTER · ESC TO RELEASE');
     };
+    // Chrome refuses a re-request issued too soon after a release; without this
+    // the click would silently do nothing and leave the view stuck.
+    const onLockError = () => {
+      setStatus('WORLD ONLINE');
+      showToast('POINTER LOCK BLOCKED · CLICK THE SCENE AGAIN');
+    };
     document.addEventListener('pointerlockchange', onLockChange);
+    document.addEventListener('pointerlockerror', onLockError);
     canvas.addEventListener('click', onCanvasClick);
 
     // ── Animation loop ──
@@ -99,19 +108,20 @@ export default function Space3DCanvas({ headerSlot = null }) {
       animId = requestAnimationFrame(animate);
       const dt = Math.min((now - previous) / 1000, 0.05);
       previous = now;
-      elapsed += dt;
       frames++;
 
       controls.update(dt);
       const sc = world.update(camera.position);
       renderer.render(scene, camera);
 
-      if (elapsed >= 0.25) {
-        const f = Math.round(frames / elapsed);
-        setFps(String(f));
+      // The readout advances on wall-clock time rather than the clamped physics
+      // step, so slow frames report their true rate instead of pegging at 20 FPS.
+      const span = (now - hudAt) / 1000;
+      if (span >= 0.25) {
+        setFps(String(Math.round(frames / span)));
         setCoords({ x: fmt(camera.position.x), y: fmt(camera.position.y), z: fmt(camera.position.z) });
         setSectors(sc);
-        elapsed = 0;
+        hudAt = now;
         frames = 0;
       }
     };
@@ -123,6 +133,7 @@ export default function Space3DCanvas({ headerSlot = null }) {
       cancelAnimationFrame(animId);
       clearTimeout(ref._toastTimer);
       document.removeEventListener('pointerlockchange', onLockChange);
+      document.removeEventListener('pointerlockerror', onLockError);
       canvas.removeEventListener('click', onCanvasClick);
       ro.disconnect();
       controls.dispose();

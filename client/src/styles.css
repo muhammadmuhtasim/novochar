@@ -1940,13 +1940,6 @@ main.view {
    LAYOUT CAPSULATION & DATA SOURCES STYLES
    ========================================================================== */
 
-.viewer-main-col {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  min-width: 0;
-}
-
 .analysis-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
