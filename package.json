@@ -4,6 +4,7 @@
   "private": true,
   "description": "Novochar (নভোচার) — interactive sky viewer and time-series blink comparator for candidate TNOs, asteroids and high proper-motion stars across SPHEREx survey passes.",
   "workspaces": [
+    "shared",
     "server",
     "client"
   ],
@@ -18,7 +19,7 @@
     "check:performance": "node scripts/check-performance-bundle.mjs && node scripts/performance-browser-smoke.mjs",
     "verify:deployment": "node scripts/verify-deployment.mjs",
     "start": "npm run start -w server",
-    "test": "npm run check:data && npm test -w server && npm test -w client"
+    "test": "npm run check:data && npm test -w shared && npm test -w server && npm test -w client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

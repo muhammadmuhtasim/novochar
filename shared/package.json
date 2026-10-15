@@ -1,0 +1,14 @@
+{
+  "name": "@novochar/astro",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pure, dependency-free astronomical mathematics shared by the Novochar server and client: unit vectors, equatorial/Galactic frames, epoch handling, proper-motion propagation and angular geometry.",
+  "main": "./astro/index.js",
+  "exports": {
+    ".": "./astro/index.js"
+  },
+  "scripts": {
+    "test": "node --test \"astro/**/*.test.js\""
+  }
+}
