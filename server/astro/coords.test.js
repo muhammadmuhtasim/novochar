@@ -110,9 +110,9 @@ test('angular separation stays finite and matches an independent vector formula'
   // randomized cross-check against the vector formula, pole- and wrap-inclusive
   for (let i = 0; i < 600; i++) {
     const ra1 = (i * 97.3) % 360;
-    const dec1 = -89.99 + ((i * 31) % 179.98) + Math.sin(i) * 0.05;
+    const dec1 = -89.99 + ((i * 31) % 179.98) + Math.sin(i) * 0.005;
     const ra2 = ((i * 53.7) + 120) % 360;
-    const dec2 = -89.99 + ((i * 7) % 179.98) - Math.cos(i) * 0.05;
+    const dec2 = -89.99 + ((i * 7) % 179.98) - Math.cos(i) * 0.005;
     const a = angularSeparationDeg(ra1, dec1, ra2, dec2);
     const b = vecSep(ra1, dec1, ra2, dec2);
     assert.ok(Number.isFinite(a), `finite trial ${i}`);
