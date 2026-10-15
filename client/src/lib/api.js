@@ -50,6 +50,12 @@ export const api = {
     return getJSON(`/objects?${qs}`);
   },
   object: (id) => getJSON(`/objects/${id}`),
+  // Star catalogue for the Mode A sphere. The active catalogue source is chosen
+  // in server/catalog/index.js (currently the redistributable fixture, pending a
+  // production catalogue's licence terms). Kept separate from the simulated
+  // survey `objects` so the two never blur together.
+  stars: () => staticOrApi('stars.json', '/catalog/stars'),
+  star: (id) => getJSON(`/catalog/stars/${encodeURIComponent(id)}`),
   blink: (id, count = 18) => getJSON(`/objects/${id}/blink?count=${count}`),
   presets: () => staticOrApi('presets.json', '/presets'),
   neo: (key) => getJSON(`/nasa/neo${key ? `?api_key=${encodeURIComponent(key)}` : ''}`),

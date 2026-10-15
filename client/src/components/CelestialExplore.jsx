@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { api } from '../lib/api.js';
-import { raDecToSkyDirection } from '../lib/sky-coordinates.js';
+import { advanceAlongGreatCircle, propagateProperMotion, raDecToSkyDirection } from '../lib/sky-coordinates.js';
+import { apparentMagnitude, selectVisibleStars } from '../lib/sky-selection.js';
 
 const CATEGORY_COLORS = {
   TNO: '#58D9FF',
   AST: '#FFB547',
   HPM: '#D792FF',
+  STAR: '#F4F7FF',
 };
 const AU_PER_LIGHT_YEAR = 63241.077;
 const MIN_VIEW_DISTANCE_LY = 1e-6;
@@ -46,9 +48,36 @@ function distanceLy(object) {
   return null;
 }
 
+function referenceEpochFor(object) {
+  const value = Number(object.refEpochJD ?? object.epochOfDiscovery);
+  return Number.isFinite(value) ? value : null;
+}
+
 function apparentCoordinates(object, epochJD) {
   const ra = Number(object.ra);
   const dec = Number(object.dec);
+  // Real star catalogues carry a proper-motion *vector* (pmRaMasYr is the
+  // projected μ*α = cos(dec)·dRA/dt) at a reference epoch. Use it when present.
+  const pmRa = Number(object.pmRaMasYr);
+  const pmDec = Number(object.pmDecMasYr);
+  const referenceEpochJD = referenceEpochFor(object);
+  if (Number.isFinite(pmRa) && Number.isFinite(pmDec) && referenceEpochJD !== null && Number.isFinite(epochJD)) {
+    try {
+      return propagateProperMotion({
+        raDeg: ra,
+        decDeg: dec,
+        pmRaMasYr: pmRa,
+        pmDecMasYr: pmDec,
+        refEpochJD: referenceEpochJD,
+        targetEpochJD: epochJD,
+      });
+    } catch {
+      return { ra, dec };
+    }
+  }
+
+  // Legacy scalar motion/position-angle path (survey candidates with no pm
+  // vector); kept so the renderer stays agnostic to the data source.
   const motion = Number(object.motion);
   const pa = Number(object.pa);
   const hasEpoch = object.epochOfDiscovery !== null && object.epochOfDiscovery !== undefined && Number.isFinite(Number(object.epochOfDiscovery));
@@ -56,20 +85,8 @@ function apparentCoordinates(object, epochJD) {
     ? Math.max(0, epochJD - Number(object.epochOfDiscovery))
     : 0;
   if (!Number.isFinite(motion) || motion <= 0 || !Number.isFinite(pa) || elapsedDays === 0) return { ra, dec };
-
-  const alpha = THREE.MathUtils.degToRad(ra);
-  const delta = THREE.MathUtils.degToRad(dec);
-  const position = new THREE.Vector3(Math.cos(delta) * Math.sin(alpha), Math.sin(delta), -Math.cos(delta) * Math.cos(alpha));
-  const east = new THREE.Vector3(Math.cos(alpha), 0, Math.sin(alpha));
-  const north = new THREE.Vector3(-Math.sin(delta) * Math.sin(alpha), Math.cos(delta), Math.sin(delta) * Math.cos(alpha));
   const angle = motion * elapsedDays * (Math.PI / (180 * 3600 * 1000));
-  const bearing = THREE.MathUtils.degToRad(pa);
-  const tangent = east.multiplyScalar(Math.sin(bearing)).add(north.multiplyScalar(Math.cos(bearing)));
-  position.multiplyScalar(Math.cos(angle)).addScaledVector(tangent, Math.sin(angle)).normalize();
-  return {
-    ra: (THREE.MathUtils.radToDeg(Math.atan2(position.x, -position.z)) + 360) % 360,
-    dec: THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(position.y, -1, 1))),
-  };
+  return advanceAlongGreatCircle(ra, dec, angle, THREE.MathUtils.degToRad(pa));
 }
 
 function sliderToDistance(value, maximum) {
@@ -96,14 +113,44 @@ function refreshVisibleCatalog(engine) {
   camera.matrixWorldInverse.copy(camera.matrixWorld).invert();
   const viewProjection = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
   const frustum = new THREE.Frustum().setFromProjectionMatrix(viewProjection);
-  const visible = engine.catalogObjects
+  const candidates = engine.catalogObjects
     .map((object) => {
       const coordinates = apparentCoordinates(object, engine.epochJD);
-      return { object, coordinates, position: directionFromRaDec(coordinates.ra, coordinates.dec, 96), distance: distanceLy(object) };
+      return {
+        id: object.id,
+        object,
+        coordinates,
+        position: directionFromRaDec(coordinates.ra, coordinates.dec, 96),
+        distance: distanceLy(object),
+        magnitude: apparentMagnitude(object),
+      };
     })
-    .filter(({ position, distance }) => distance !== null && distance <= engine.viewRangeLy && frustum.containsPoint(position))
-    .sort((a, b) => b.distance - a.distance || a.object.id.localeCompare(b.object.id))
-    .slice(0, engine.maxCount);
+    .filter(({ position, distance, magnitude }) => (
+      (distance === null || distance <= engine.viewRangeLy)
+      && magnitude <= engine.magnitudeLimit
+      && frustum.containsPoint(position)
+    ));
+
+  // Pin the current selection / search target into the draw set regardless of the
+  // magnitude, distance and frustum filters above, so navigating to a result can
+  // never point at a star the renderer silently omitted.
+  let pinned = null;
+  if (engine.pinnedId) {
+    const object = engine.catalogObjects.find((o) => o.id === engine.pinnedId);
+    if (object) {
+      const coordinates = apparentCoordinates(object, engine.epochJD);
+      pinned = {
+        id: object.id,
+        object,
+        coordinates,
+        position: directionFromRaDec(coordinates.ra, coordinates.dec, 96),
+        distance: distanceLy(object),
+        magnitude: apparentMagnitude(object),
+      };
+    }
+  }
+
+  const visible = selectVisibleStars({ candidates, maxCount: engine.maxCount, pinned });
 
   const geometry = engine.catalogPoints.geometry;
   const capacity = engine.catalogObjects.length;
@@ -130,7 +177,7 @@ function refreshVisibleCatalog(engine) {
     colors[offset] = color.r;
     colors[offset + 1] = color.g;
     colors[offset + 2] = color.b;
-    const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 10;
+    const magnitude = apparentMagnitude(object);
     const relativeFlux = 10 ** (-0.4 * (magnitude - 5));
     const perceptualFlux = Math.max(0.4, Math.min(1, relativeFlux ** 0.06));
     sizes[index] = 2.8 + 2.2 * Math.max(0.25, Math.min(1, relativeFlux ** 0.08));
@@ -143,9 +190,13 @@ function refreshVisibleCatalog(engine) {
   geometry.attributes.brightness.needsUpdate = true;
   geometry.setDrawRange(0, visible.length);
   engine.catalogPoints.userData.catalogStars = selectedObjects;
-  if (engine.visibleCount !== visible.length) {
+  // Report the two draw-related states separately so the UI never conflates
+  // "matches the current filters/view" with "actually drawn" (which is capped by
+  // the object limit and may include a pinned selection).
+  if (engine.visibleCount !== visible.length || engine.inViewCount !== candidates.length) {
     engine.visibleCount = visible.length;
-    engine.onVisibleCount?.(visible.length);
+    engine.inViewCount = candidates.length;
+    engine.onVisibleCount?.({ inView: candidates.length, rendered: visible.length });
   }
 
   const glowCandidates = visible;
@@ -173,7 +224,7 @@ function refreshVisibleCatalog(engine) {
       engine.glowSprites.add(sprite);
     }
     sprite.position.copy(directionFromRaDec(coordinates.ra, coordinates.dec, 95));
-    const magnitude = Number.isFinite(Number(object.mag)) ? Number(object.mag) : 10;
+    const magnitude = apparentMagnitude(object);
     sprite.material.color.set(categoryColor(object));
     const relativeFlux = 10 ** (-0.4 * (magnitude - 5));
     const perceptualFlux = Math.max(0.4, Math.min(1, relativeFlux ** 0.06));
@@ -196,20 +247,49 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
   const [helpVisible, setHelpVisible] = useState(true);
   const [notice, setNotice] = useState('Drag to look around · Scroll to zoom');
   const [catalog, setCatalog] = useState([]);
+  const [catalogMeta, setCatalogMeta] = useState(null);
+  const [catalogStatus, setCatalogStatus] = useState('loading');
+  const [catalogError, setCatalogError] = useState('');
+  const [catalogReload, setCatalogReload] = useState(0);
   const [categories, setCategories] = useState(['ALL']);
   const [maxCount, setMaxCount] = useState(20);
+  const [magLimit, setMagLimit] = useState(null);
   const [viewRangeLy, setViewRangeLy] = useState(180);
   const [timeOffsetYears, setTimeOffsetYears] = useState(0);
   const [visibleObjectCount, setVisibleObjectCount] = useState(0);
+  const [inViewCount, setInViewCount] = useState(0);
 
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
 
   useEffect(() => {
-    api.objects().then((d) => {
-      const all = d.objects || [];
-      setCatalog(all);
-    }).catch(() => {});
-  }, []);
+    let cancelled = false;
+    setCatalogStatus('loading');
+    setCatalogError('');
+    api.stars()
+      .then((d) => {
+        if (cancelled) return;
+        const all = Array.isArray(d?.stars) ? d.stars : [];
+        if (!all.length) throw new Error('Star catalog response contained no stars');
+        setCatalogMeta({
+          referenceEpochJD: Number(d?.referenceEpochJD),
+          frame: d?.frame || null,
+          source: d?.source || null,
+        });
+        setCatalog(all);
+        setCatalogStatus('ready');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Never let a failed catalog request look like a working sky: clear the
+        // data and surface an explicit error + retry instead of silently showing
+        // only the decorative background field.
+        setCatalog([]);
+        setCatalogMeta(null);
+        setCatalogError(err?.message || 'Unable to load the star catalog');
+        setCatalogStatus('error');
+      });
+    return () => { cancelled = true; };
+  }, [catalogReload]);
 
   const toggleCategory = (key) => {
     if (key === 'ALL') {
@@ -250,10 +330,38 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
     () => Math.max(180, ...catalog.map(distanceLy).filter(Number.isFinite)),
     [catalog],
   );
-  const referenceEpochJD = useMemo(
-    () => Math.max(2460000, ...catalog.map((object) => Number(object.epochOfDiscovery)).filter(Number.isFinite)),
-    [catalog],
-  );
+  const magnitudeBounds = useMemo(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    catalog.forEach((object) => {
+      const magnitude = Number(object.mag);
+      if (!Number.isFinite(magnitude)) return;
+      if (magnitude < min) min = magnitude;
+      if (magnitude > max) max = magnitude;
+    });
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: 0, max: 30 };
+    return { min: Math.floor(min), max: Math.ceil(max) };
+  }, [catalog]);
+  useEffect(() => {
+    // Default the magnitude limit to "show everything" once the catalog arrives.
+    if (magLimit === null && catalog.length) setMagLimit(magnitudeBounds.max);
+  }, [magLimit, catalog.length, magnitudeBounds.max]);
+  useEffect(() => {
+    // Stars on the celestial sphere are not meant to be distance-culled by
+    // default; start the range slider at the catalogue's farthest parallax so a
+    // fresh load shows the whole bright-sky field.
+    if (!catalog.length) return;
+    setViewRangeLy((current) => (current === 180 ? maximumDistanceLy : current));
+  }, [catalog.length, maximumDistanceLy]);
+  const effectiveMagLimit = magLimit === null ? Infinity : magLimit;
+  const referenceEpochJD = useMemo(() => {
+    if (Number.isFinite(catalogMeta?.referenceEpochJD)) return catalogMeta.referenceEpochJD;
+    const values = catalog.map((object) => Number(object.refEpochJD ?? object.epochOfDiscovery)).filter(Number.isFinite);
+    return values.length ? Math.max(...values) : 2451545.0;
+  }, [catalog, catalogMeta]);
+  const catalogSourceLabel = catalogMeta?.source?.kind === 'fixture'
+    ? 'a placeholder star fixture (the production catalogue is on hold pending licence clearance)'
+    : (catalogMeta?.source?.name || 'the star catalogue');
   const viewEpochJD = referenceEpochJD + timeOffsetYears * 365.25;
   const selectedAtEpoch = useMemo(() => {
     if (!selected) return null;
@@ -477,9 +585,9 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
     const compassNeedle = wrap.querySelector('.compass-needle');
     const engine = {
       camera, renderer, catalogPoints, starMaterial, bgMaterial, selectedMarker, scene, glowSprites, glowTexture,
-      catalogObjects: [], maxCount: 20, viewRangeLy: 180, catalogCapacity: 0, glowById: new Map(), visibleCount: -1,
+      catalogObjects: [], maxCount: 20, viewRangeLy: 180, magnitudeLimit: Infinity, pinnedId: null, catalogCapacity: 0, glowById: new Map(), visibleCount: -1,
       epochJD: 2460000, glowIntensityScale: 1,
-      onVisibleCount: setVisibleObjectCount,
+      onVisibleCount: ({ inView, rendered }) => { setInViewCount(inView); setVisibleObjectCount(rendered); },
       setTarget: (star) => {
         const target = -THREE.MathUtils.degToRad(star.ra);
         targetYaw = yaw + Math.atan2(Math.sin(target - yaw), Math.cos(target - yaw));
@@ -488,8 +596,13 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
     };
     engineRef.current = engine;
     let lastCatalogRefresh = 0;
-    let lastCatalogYaw = NaN;
-    let lastCatalogPitch = NaN;
+    // Seed from the initial orientation. Starting these at NaN made the
+    // `viewMoved` comparison in the animate loop permanently false (NaN > x is
+    // false), so the render set never refreshed while the camera animated — e.g.
+    // after selecting a search result the counts stayed stale until some other
+    // event (wheel/resize) forced a refresh.
+    let lastCatalogYaw = yaw;
+    let lastCatalogPitch = pitch;
     let lastFrameTime = performance.now();
     const animate = () => {
       if (disposed) return;
@@ -540,17 +653,22 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
     engine.catalogObjects = filtered;
     engine.maxCount = maxCount;
     engine.viewRangeLy = viewRangeLy;
+    engine.magnitudeLimit = effectiveMagLimit;
     engine.epochJD = viewEpochJD;
     refreshVisibleCatalog(engine);
-  }, [filtered, maxCount, viewRangeLy, viewEpochJD]);
+  }, [filtered, maxCount, viewRangeLy, effectiveMagLimit, viewEpochJD]);
 
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !selectedAtEpoch) return;
+    // Pin the selection into the draw set before refreshing, so the highlighted
+    // object is always actually rendered (see refreshVisibleCatalog).
+    engine.pinnedId = selectedAtEpoch.id;
     engine.selectedMarker.position.copy(directionFromRaDec(selectedAtEpoch.ra, selectedAtEpoch.dec, 94.4));
     engine.selectedMarker.material.color.set(categoryColor(selectedAtEpoch));
     engine.selectedMarker.visible = true;
     engine.setTarget(selectedAtEpoch);
+    refreshVisibleCatalog(engine);
   }, [selectedAtEpoch]);
 
   useEffect(() => {
@@ -582,6 +700,11 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
   const clearSelection = () => {
     setSelected(null);
     onSelect(null);
+    const engine = engineRef.current;
+    if (engine) {
+      engine.pinnedId = null;
+      refreshVisibleCatalog(engine);
+    }
     const canvas = canvasRef.current;
     if (canvas) canvas.dispatchEvent(new CustomEvent('sky-star-select', { detail: null }));
   };
@@ -598,6 +721,20 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
       <div className="celestial-explore" ref={wrapRef}>
         <canvas ref={canvasRef} className="celestial-canvas" aria-label="Immersive celestial sphere. Drag to look around and select catalog stars." />
         <div className="explore-vignette" aria-hidden="true" />
+        {catalogStatus !== 'ready' && (
+          <div className={`explore-catalog-status${catalogStatus === 'error' ? ' error' : ''}`} role={catalogStatus === 'error' ? 'alert' : 'status'} aria-live="polite">
+            {catalogStatus === 'loading' && <span className="explore-catalog-spinner" aria-hidden="true" />}
+            <div className="explore-catalog-message">
+              <strong>{catalogStatus === 'error' ? 'STAR CATALOG UNAVAILABLE' : 'LOADING STAR CATALOG'}</strong>
+              <span>
+                {catalogStatus === 'error'
+                  ? `${catalogError}. The visible background field is decorative only — it is not catalog data.`
+                  : 'Fetching catalog objects…'}
+              </span>
+            </div>
+            {catalogStatus === 'error' && <button className="btn sm" onClick={() => setCatalogReload((v) => v + 1)}>RETRY</button>}
+          </div>
+        )}
         <div className="explore-top-left"><span className="explore-live-dot" /> SKY FIELD <span className="explore-divider">/</span> CATALOG PREVIEW</div>
         <div className="explore-top-right">RA / DEC BASED <span className="explore-divider">·</span> GRIDS HIDDEN</div>
         <div className="explore-center-reticle" aria-hidden="true"><span /></div>
@@ -616,7 +753,7 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
           <input value={query} onChange={(e) => { setQuery(e.target.value); setSearchOpen(true); }} onFocus={() => setSearchOpen(true)} onKeyDown={(e) => { if (e.key === 'Enter' && results[0]) selectStar(results[0]); if (e.key === 'Escape') setSearchOpen(false); }} placeholder="Find a star…" aria-label="Search stars by name or catalog ID" />
           {query && <button className="explore-clear" onClick={() => { setQuery(''); setSearchOpen(true); }} aria-label="Clear search">×</button>}
           {searchOpen && <div className="explore-search-results">
-            {results.length ? results.map((star) => <button key={star.id} className="explore-search-result" onMouseDown={(e) => e.preventDefault()} onClick={() => selectStar(star)}><span className="result-star-dot" style={{ background: categoryColor(star), boxShadow: `0 0 9px ${categoryColor(star)}` }} /><span><strong>{star.name || star.id}</strong><small>{star.type} · Mag {(star.mag || 0).toFixed(2)}</small></span><span className="result-arrow">↗</span></button>) : <div className="explore-no-results">No matching object in selected categories.</div>}
+            {results.length ? results.map((star) => <button key={star.id} className="explore-search-result" onMouseDown={(e) => e.preventDefault()} onClick={() => selectStar(star)}><span className="result-star-dot" style={{ background: categoryColor(star), boxShadow: `0 0 9px ${categoryColor(star)}` }} /><span><strong>{star.name || star.id}</strong><small>{star.spectralType || star.type} · Mag {Number.isFinite(Number(star.mag)) ? Number(star.mag).toFixed(2) : '—'}</small></span><span className="result-arrow">↗</span></button>) : <div className="explore-no-results">{catalogStatus === 'ready' ? 'No matching star in the catalog.' : 'Star catalog not loaded.'}</div>}
           </div>}
         </div>
         {showSettings && <div className="explore-settings">
@@ -629,26 +766,27 @@ export default function CelestialExplore({ selectedId = null, onSelect = () => {
               </button>
             ))}
           </div>
+          <label>Magnitude limit <span>{Number.isFinite(effectiveMagLimit) ? `≤ ${effectiveMagLimit.toFixed(1)}` : '—'}</span><input type="range" min={magnitudeBounds.min} max={magnitudeBounds.max} step="0.5" value={magLimit ?? magnitudeBounds.max} onChange={(e) => setMagLimit(Number(e.target.value))} /></label>
           <label>Max objects displayed <span>{maxCount}</span><input type="range" min="1" max="100" step="1" value={maxCount} onChange={(e) => setMaxCount(Number(e.target.value))} /></label>
           <label>Maximum object distance <span>{formatDistance(viewRangeLy)}</span><input type="range" min="0" max="1000" step="1" value={distanceToSlider(viewRangeLy, maximumDistanceLy)} onChange={(e) => setViewRangeLy(sliderToDistance(e.target.value, maximumDistanceLy))} /></label>
           <label>Simulated time offset <span>+{timeOffsetYears} years</span><input type="range" min="0" max="100" step="1" value={timeOffsetYears} onChange={(e) => setTimeOffsetYears(Number(e.target.value))} /></label>
           <label>Catalog object intensity <span>{starScale.toFixed(1)}×</span><input type="range" min="0.5" max="3" step="0.1" value={starScale} onChange={(e) => setStarScale(Number(e.target.value))} /></label>
-          <p>Showing {visibleObjectCount} of up to {maxCount} farthest objects in view. Distance is a catalog cutoff; object depth is not to scale. Solar-system distances are heliocentric estimates. The time offset advances positions along stored motion vectors, not full orbital integrations.</p>
+          <p>Catalog: {catalog.length} stars available. In the current view: {inViewCount} pass the magnitude and distance filters, and {visibleObjectCount} are rendered (brightest first, up to {maxCount}){Number.isFinite(effectiveMagLimit) ? `; fainter than magnitude ${effectiveMagLimit.toFixed(1)} is hidden` : ''}. Stars come from {catalogSourceLabel}; distances come from catalogue parallaxes and are not to scale. The time offset advances positions along proper-motion vectors, not full orbital integration. The dense background field is a decorative layer, not catalogue stars, and its intensity is fixed.</p>
         </div>}
         {selectedAtEpoch && <aside className="explore-object-card">
           <div className="explore-object-head"><span className="object-kicker">SELECTED OBJECT</span><button onClick={clearSelection} aria-label="Close object details">×</button></div>
-          <div className="explore-object-title"><span className="object-color-dot" style={{ background: categoryColor(selectedAtEpoch), boxShadow: `0 0 14px ${categoryColor(selectedAtEpoch)}` }} /><div><h3>{selectedAtEpoch.name || selectedAtEpoch.id}</h3><p>{selectedAtEpoch.type} <span>·</span> {selectedAtEpoch.id}</p></div></div>
+          <div className="explore-object-title"><span className="object-color-dot" style={{ background: categoryColor(selectedAtEpoch), boxShadow: `0 0 14px ${categoryColor(selectedAtEpoch)}` }} /><div><h3>{selectedAtEpoch.name || selectedAtEpoch.id}</h3><p>{selectedAtEpoch.spectralType || selectedAtEpoch.type} <span>·</span> {selectedAtEpoch.id}</p></div></div>
           <p className="explore-object-description">{selectedAtEpoch.note || selectedAtEpoch.description || ''}</p>
-          <div className="explore-object-stats"><div><small>Simulated apparent magnitude</small><strong>{(selectedAtEpoch.mag || 0).toFixed(2)} mag</strong></div><div><small>Right ascension</small><strong>{formatRa(selectedAtEpoch.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selectedAtEpoch.dec)}</strong></div><div><small>Catalog ID</small><strong>{selectedAtEpoch.id}</strong></div></div>
-          <div className="explore-object-actions">
+          <div className="explore-object-stats"><div><small>Apparent magnitude (V)</small><strong>{Number.isFinite(Number(selectedAtEpoch.mag)) ? `${Number(selectedAtEpoch.mag).toFixed(2)} mag` : '—'}</strong></div><div><small>Right ascension</small><strong>{formatRa(selectedAtEpoch.ra)}</strong></div><div><small>Declination</small><strong>{formatDec(selectedAtEpoch.dec)}</strong></div>{distanceLy(selectedAtEpoch) !== null && <div><small>Distance (parallax)</small><strong>{formatDistance(distanceLy(selectedAtEpoch))}</strong></div>}{selectedAtEpoch.spectralType && <div><small>Spectral type</small><strong>{selectedAtEpoch.spectralType}</strong></div>}<div><small>Catalog ID</small><strong>{selectedAtEpoch.id}</strong></div></div>
+          {selectedAtEpoch.type !== 'STAR' && <div className="explore-object-actions">
             <button className="btn sm" onClick={() => onTarget('catalogue', selectedAtEpoch.id)}>CATALOGUE ≋</button>
             <button className="btn sm" onClick={() => onTarget('blink', selectedAtEpoch.id)}>BLINK ⧗</button>
             <button className="btn primary sm" onClick={() => onTarget('spectra', selectedAtEpoch.id)}>SPECTRA ∿</button>
-          </div>
+          </div>}
         </aside>}
-        {helpVisible && !selected && <div className="explore-welcome"><button className="explore-welcome-close" onClick={() => setHelpVisible(false)} aria-label="Dismiss welcome">×</button><span className="welcome-kicker">WELCOME TO NOVOCHAR</span><h3>Look around.</h3><p>Explore the star field. Filter by object type, adjust object count and view range to see distant objects.</p><div><span>DRAG</span> Look around <span>SCROLL</span> Zoom</div></div>}
+        {helpVisible && !selected && catalogStatus === 'ready' && <div className="explore-welcome"><button className="explore-welcome-close" onClick={() => setHelpVisible(false)} aria-label="Dismiss welcome">×</button><span className="welcome-kicker">WELCOME TO NOVOCHAR</span><h3>Look around.</h3><p>Explore the star field. Search by name, then adjust the magnitude limit and object count to reveal brighter or fainter stars. Source: {catalogSourceLabel}.</p><div><span>DRAG</span> Look around <span>SCROLL</span> Zoom</div></div>}
       </div>
-      <div className="explore-footer"><span><i /> EXPLORE MODE ACTIVE</span><span>IN VIEW {visibleObjectCount} · OBJECT LIMIT {maxCount}</span></div>
+      <div className="explore-footer"><span><i /> {catalogStatus === 'ready' ? 'EXPLORE MODE ACTIVE' : catalogStatus === 'loading' ? 'CATALOG SYNCING' : 'CATALOG OFFLINE'}</span><span>CATALOG {catalog.length} · IN VIEW {inViewCount} · RENDERED {visibleObjectCount}</span></div>
     </section>
   );
 }

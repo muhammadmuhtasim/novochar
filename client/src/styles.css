@@ -2820,6 +2820,23 @@ html.nc-cursor-on [contenteditable="true"] {
 .celestial-canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; outline: none; cursor: grab; touch-action: none; }
 .celestial-canvas.is-dragging { cursor: grabbing; }
 .explore-vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.18) 75%, rgba(0,0,0,.52) 100%); }
+.explore-catalog-status {
+  position: absolute; z-index: 6; top: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; max-width: min(560px, calc(100% - 32px));
+  padding: 11px 15px; border: 1px solid rgba(143,169,214,.24); border-radius: 8px;
+  background: rgba(5,8,16,.92); backdrop-filter: blur(14px); box-shadow: 0 18px 55px rgba(0,0,0,.4);
+}
+.explore-catalog-status.error { border-color: rgba(255,106,70,.55); box-shadow: 0 18px 55px rgba(0,0,0,.4), 0 0 22px rgba(255,106,40,.12); }
+.explore-catalog-message { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.explore-catalog-message strong { color: #ffb17d; font: 10px var(--font-mono); letter-spacing: .13em; }
+.explore-catalog-status.error .explore-catalog-message strong { color: #ff8f66; }
+.explore-catalog-message span { color: #9ba8bc; font-size: 10px; line-height: 1.5; }
+.explore-catalog-spinner {
+  width: 13px; height: 13px; flex: none; border-radius: 50%;
+  border: 2px solid rgba(255,139,72,.28); border-top-color: #ff8b48; animation: explore-spin .8s linear infinite;
+}
+@keyframes explore-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .explore-catalog-spinner { animation-duration: 2.4s; } }
 .explore-top-left, .explore-top-right, .explore-bottom-left, .explore-bottom-right {
   position: absolute; z-index: 2; color: rgba(189,205,230,.67); font: 9px var(--font-mono); letter-spacing: .12em; pointer-events: none;
   text-shadow: 0 1px 8px #000;
