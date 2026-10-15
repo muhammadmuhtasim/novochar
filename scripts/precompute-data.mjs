@@ -18,7 +18,11 @@ import { generateSurvey } from '../server/data.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Vite serves client/public directly; the build copies these files into dist.
-const outDir = path.resolve(__dirname, '..', 'client', 'public', 'data');
+// PRECOMPUTE_OUT redirects the output (used by the idempotency check, which
+// regenerates into a scratch directory and compares against the committed files).
+const outDir = process.env.PRECOMPUTE_OUT
+  ? path.resolve(process.env.PRECOMPUTE_OUT)
+  : path.resolve(__dirname, '..', 'client', 'public', 'data');
 mkdirSync(outDir, { recursive: true });
 
 const { survey, passes, objects } = generateSurvey();
@@ -75,12 +79,29 @@ write('objects.json', { count: objects.length, objects });
   write('heatmap/64.json', buildHeatmap(objects, 64));
 }
 
+// Star catalogue for the Mode A celestial sphere. A separate path from the
+// simulated survey candidates above: the Explore renderer reads stars.json, the
+// rest of Novochar keeps using objects.json. The active source is the
+// redistributable fixture until a production catalogue's terms are cleared
+// (see data/catalog/PROVENANCE.md and server/catalog/index.js).
+{
+  const { loadStarCatalog, validateStarCatalog } = await import('../server/catalog/index.js');
+  const catalog = loadStarCatalog();
+  // Fail the build on a malformed/empty catalogue rather than shipping it.
+  validateStarCatalog(catalog);
+  written++;
+  write('stars.json', catalog);
+  const sourceId = catalog.source?.id ?? catalog.source?.kind ?? 'unknown';
+  console.log(`  Star catalog source "${sourceId}": ${catalog.count} stars (${catalog.dropped} dropped)`);
+}
+
 // Index of every precomputed path so the client can discover (and future
-// tooling can sanity check) what was baked in.
+// tooling can sanity check) what was baked in. Deliberately has no timestamp:
+// the output must be byte-identical across runs so regeneration is idempotent
+// and can be diffed against the committed files in CI.
 write(
   'index.json',
   {
-    generatedAt: new Date().toISOString(),
     version: 1,
     files: [
       'survey.json',
@@ -88,6 +109,7 @@ write(
       'stats.json',
       'presets.json',
       'heatmap/64.json',
+      'stars.json',
     ],
   }
 );

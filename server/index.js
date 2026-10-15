@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { generateSurvey, buildFrames, fetchNEO } from './data.js';
 import { buildSpectrum } from './spectra.js';
 import { buildHeatmap } from './heatmap.js';
+import { loadStarCatalog } from './catalog/index.js';
 import {
   tapQuery,
   tapTables,
@@ -38,7 +39,7 @@ app.use(express.json());
 
 // Deterministic GET endpoints never change per-request, so allow the browser and
 // Vercel's edge to cache them (repeat loads avoid a serverless cold start).
-const CACHEABLE_API = /^\/api\/(survey|objects|stats|presets|spectra\/|field\/heatmap)/;
+const CACHEABLE_API = /^\/api\/(survey|objects|stats|presets|spectra\/|field\/heatmap|catalog\/stars)/;
 app.use((req, res, next) => {
   if (req.method === 'GET' && CACHEABLE_API.test(req.path || req.url)) {
     res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
@@ -84,6 +85,19 @@ app.get('/api/objects/:id', (req, res) => {
   const obj = objects.find((o) => o.id === req.params.id);
   if (!obj) return res.status(404).json({ error: 'object not found' });
   res.json(obj);
+});
+
+// Real star catalogue (Yale BSC5 / VizieR V/50) served for the Mode A celestial
+// sphere. Separate from /api/objects so the simulated survey candidates and the
+// real catalogue never blur together.
+app.get('/api/catalog/stars', (req, res) => {
+  res.json(loadStarCatalog());
+});
+
+app.get('/api/catalog/stars/:id', (req, res) => {
+  const star = loadStarCatalog().stars.find((s) => s.id === req.params.id);
+  if (!star) return res.status(404).json({ error: 'star not found' });
+  res.json(star);
 });
 
 app.get('/api/objects/:id/blink', (req, res) => {

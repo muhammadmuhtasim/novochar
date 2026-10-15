@@ -1,6 +1,11 @@
 node_modules/
 dist/
 *.log
+
+# Third-party catalogue raw files are vendored only after redistribution terms
+# are confirmed; until then they stay out of the repository. The committed
+# fixture and provenance docs remain tracked.
+data/catalog/raw/
 .env
 .env.local
 .env.*
