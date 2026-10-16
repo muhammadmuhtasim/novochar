@@ -8,6 +8,7 @@ import {
   LAYER_ORDER,
   distanceNote,
   formatDistance,
+  isStaleCursorError,
   isSuperseded,
   mergeShellResults,
   radialRange,
@@ -174,6 +175,17 @@ test('pagination never double-counts an id, and superseded responses are dropped
   // Sequence guard: a slow earlier response must not overwrite a newer one.
   assert.equal(isSuperseded(1, 2), true);
   assert.equal(isSuperseded(2, 2), false);
+});
+
+test('a rejected cursor is recognised so the UI can reset instead of failing', () => {
+  // The server tags a stale/malformed cursor with a stable code.
+  assert.equal(isStaleCursorError({ code: 'invalid-cursor' }), true);
+  assert.equal(isStaleCursorError(Object.assign(new Error('API ...'), { code: 'invalid-cursor', reason: 'mismatch' })), true);
+  // Ordinary failures are not reset triggers.
+  assert.equal(isStaleCursorError(new Error('network down')), false);
+  assert.equal(isStaleCursorError({ status: 500 }), false);
+  assert.equal(isStaleCursorError(null), false);
+  assert.equal(isStaleCursorError(undefined), false);
 });
 
 test('distanceNote explains how a distance was obtained, honestly', () => {

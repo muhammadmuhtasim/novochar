@@ -109,6 +109,33 @@ test('GET /api/observe/shell validates its parameters', async () => {
   assert.equal((await fetch(`${base}/api/observe/shell?unit=furlong`)).status, 400);
   assert.equal((await fetch(`${base}/api/observe/shell?include=nope`)).status, 400);
   assert.equal((await fetch(`${base}/api/observe/shell?radius=-1`)).status, 400);
+  const badCursor = await fetch(`${base}/api/observe/shell?cursor=not-a-cursor`);
+  assert.equal(badCursor.status, 400);
+  const body = await badCursor.json();
+  assert.equal(body.code, 'invalid-cursor');
+  assert.equal(body.reason, 'malformed');
+});
+
+test('GET /api/observe/shell pages with a query-bound cursor and rejects stale ones', async () => {
+  const firstRes = await fetch(`${base}/api/observe/shell?limit=10`);
+  assert.equal(firstRes.status, 200);
+  const first = await firstRes.json();
+  assert.equal(typeof first.page.next, 'string', 'the next cursor is an opaque token');
+
+  // The same query continues at the next offset without repeating records.
+  const secondRes = await fetch(`${base}/api/observe/shell?limit=10&cursor=${encodeURIComponent(first.page.next)}`);
+  assert.equal(secondRes.status, 200);
+  const second = await secondRes.json();
+  assert.equal(second.page.offset, 10);
+  const seen = new Set(first.records.map((record) => record.id));
+  assert.ok(second.records.every((record) => !seen.has(record.id)));
+
+  // The same token under a different band is an explicit mismatch, not a guess.
+  const staleRes = await fetch(`${base}/api/observe/shell?radius=250&limit=10&cursor=${encodeURIComponent(first.page.next)}`);
+  assert.equal(staleRes.status, 400);
+  const stale = await staleRes.json();
+  assert.equal(stale.code, 'invalid-cursor');
+  assert.equal(stale.reason, 'mismatch');
 });
 
 test('GET /api/observe/shell exposes the unknown/directional layer honestly', async () => {

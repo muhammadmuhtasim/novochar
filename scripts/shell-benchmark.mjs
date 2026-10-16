@@ -21,6 +21,7 @@ import os from 'node:os';
 
 import {
   MAX_SHELL_PAGE_LIMIT,
+  encodeShellCursor,
   normalizeShellQueryParams,
   queryShell,
 } from '../server/shell/query.js';
@@ -128,8 +129,11 @@ for (const n of sizes) {
   const n = sizes[sizes.length - 1];
   const sources = [sourceOf('benchmark', makeRows(n))];
   const params = { radius: 10000, thickness: 1000, include: 'located,uncertain,unknown', limit: 300 };
-  const first = timeQuery(sources, { ...params, cursor: 0 });
-  const deep = timeQuery(sources, { ...params, cursor: Math.floor(n / 2) });
+  // Cursors are opaque, query-bound tokens now; encode a deep offset against the
+  // same normalized parameters before timing it.
+  const deepCursor = encodeShellCursor(Math.floor(n / 2), normalizeShellQueryParams(params));
+  const first = timeQuery(sources, { ...params, cursor: '' });
+  const deep = timeQuery(sources, { ...params, cursor: deepCursor });
   report.pagination = {
     rows: n,
     limit: 300,

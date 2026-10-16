@@ -8,7 +8,16 @@ const DATA = '/data';
 
 async function getJSON(path, { signal } = {}) {
   const res = await fetch(`${BASE}${path}`, { signal });
-  if (!res.ok) throw new Error(`API ${path} -> ${res.status}`);
+  if (!res.ok) {
+    // Carry the server's error code through so callers can react to specific
+    // failures (e.g. a superseded shell cursor) instead of matching on text.
+    const body = await res.json().catch(() => ({}));
+    const error = new Error(body.error || `API ${path} -> ${res.status}`);
+    error.status = res.status;
+    error.code = body.code ?? null;
+    error.reason = body.reason ?? null;
+    throw error;
+  }
   return res.json();
 }
 

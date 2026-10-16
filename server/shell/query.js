@@ -11,6 +11,13 @@
 // All the science lives in `@novochar/astro` (shell geometry + distance quality);
 // this module only sequences sources, isolates failures, pages results and
 // reports honestly what was and was not covered.
+//
+// Pagination cursors are opaque tokens bound to the exact normalized query that
+// produced them (band geometry, unit, layer policy, source selection, ordering).
+// A cursor from a different query is rejected rather than applied to a different
+// result set — see {@link decodeShellCursor}.
+
+import { createHash } from 'node:crypto';
 
 import {
   DISTANCE_CLASS,
@@ -58,11 +65,79 @@ function parseLimit(limit) {
   return Math.min(number, MAX_SHELL_PAGE_LIMIT);
 }
 
-function parseCursor(cursor) {
+// --- Query-bound pagination cursors -----------------------------------------
+//
+// A cursor carries the numeric offset into the ordered member list AND a
+// fingerprint of the data-affecting query inputs. Posting a cursor back under a
+// different band, unit, layer policy or source set is a mismatch and is refused,
+// so an offset can never be silently applied to a different result set. The
+// fingerprint is a consistency check, not a secret; it makes staleness explicit.
+
+const CURSOR_VERSION = 1;
+const CURSOR_ORDER = 'id';
+
+/** A malformed or query-mismatched cursor. Distinguishable by `code`. */
+export class ShellCursorError extends RangeError {
+  constructor(message, reason) {
+    super(message);
+    this.name = 'ShellCursorError';
+    this.code = 'invalid-cursor';
+    this.reason = reason;
+  }
+}
+
+/** Canonical description of the inputs a cursor is valid for. */
+function cursorKey(plan) {
+  const layers = SHELL_LAYER_IDS.filter((id) => plan.layers?.[id]).join(',');
+  const sources = plan.sources ? [...plan.sources].join(',') : '';
+  return JSON.stringify({
+    v: CURSOR_VERSION,
+    radius: plan.radius,
+    thickness: plan.thickness,
+    unit: plan.unit,
+    layers,
+    sources,
+    order: CURSOR_ORDER,
+  });
+}
+
+function cursorFingerprint(plan) {
+  return createHash('sha256').update(cursorKey(plan)).digest('hex').slice(0, 16);
+}
+
+/** Encode the next offset for a query into an opaque, query-bound token. */
+export function encodeShellCursor(offset, plan) {
+  const payload = { v: CURSOR_VERSION, o: offset, k: cursorFingerprint(plan) };
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+/**
+ * Decode a cursor token against the query that is asking to continue it. An
+ * absent cursor is page one (offset 0). Anything malformed, or bound to a
+ * different query, throws {@link ShellCursorError} rather than guessing.
+ */
+export function decodeShellCursor(cursor, plan) {
   if (cursor === undefined || cursor === null || cursor === '') return 0;
-  const number = Number.parseInt(cursor, 10);
-  if (!Number.isFinite(number) || number < 0) throw new RangeError('cursor must be a non-negative integer');
-  return number;
+  if (typeof cursor !== 'string') {
+    throw new ShellCursorError('cursor must be a token', 'malformed');
+  }
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+  } catch {
+    throw new ShellCursorError('cursor is not a valid token', 'malformed');
+  }
+  const shapeOk = payload
+    && typeof payload === 'object'
+    && payload.v === CURSOR_VERSION
+    && Number.isInteger(payload.o)
+    && payload.o >= 0
+    && typeof payload.k === 'string';
+  if (!shapeOk) throw new ShellCursorError('cursor is malformed', 'malformed');
+  if (payload.k !== cursorFingerprint(plan)) {
+    throw new ShellCursorError('cursor does not belong to this query', 'mismatch');
+  }
+  return payload.o;
 }
 
 function parseSources(sources) {
@@ -79,14 +154,20 @@ export function normalizeShellQueryParams(params = {}) {
   const thickness = nonNegativeNumber(params.thickness, 'thickness', 20);
   const unit = params.unit ?? 'ly';
   if (!isKnownDistanceUnit(unit)) throw new RangeError(`unknown unit "${unit}"`);
+  const layers = parseLayers(params.include);
+  const limit = parseLimit(params.limit);
+  const sources = parseSources(params.sources);
+  // The cursor is decoded last, against the normalized inputs above, so it is
+  // validated against the query it claims to continue.
+  const cursor = decodeShellCursor(params.cursor, { radius, thickness, unit, layers, sources });
   return {
     radius,
     thickness,
     unit,
-    layers: parseLayers(params.include),
-    limit: parseLimit(params.limit),
-    cursor: parseCursor(params.cursor),
-    sources: parseSources(params.sources),
+    layers,
+    limit,
+    cursor,
+    sources,
   };
 }
 
@@ -230,7 +311,8 @@ export function queryShell(plan, { world = {}, sources = SHELL_SOURCES, now = ()
     page: {
       limit: plan.limit,
       offset: plan.cursor,
-      next: nextCursor,
+      // Opaque and query-bound: a client may only continue the query that made it.
+      next: nextCursor === null ? null : encodeShellCursor(nextCursor, plan),
       complete: nextCursor === null,
     },
   };

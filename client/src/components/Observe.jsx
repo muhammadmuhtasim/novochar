@@ -11,6 +11,7 @@ import {
   SHELL_UNIT_OPTIONS,
   distanceNote,
   formatDistance,
+  isStaleCursorError,
   isSuperseded,
   mergeShellResults,
   shellQueryParams,
@@ -143,8 +144,9 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
     // effect does not re-run when an unrelated `shell` field changes identity.
   }, [shell.radius, shell.thickness, shell.unit, layerKey, reload]);
 
-  // Append the next page. The cursor comes from the server, so paging always
-  // continues the exact same query; results are de-duplicated by id on merge.
+  // Append the next page. The cursor is an opaque token the server bound to this
+  // exact query, so paging cannot continue a different one; results are
+  // de-duplicated by id on merge, and a refused cursor resets to page one.
   const loadMore = () => {
     const next = result?.page?.next;
     if (next === null || next === undefined || loadingMoreRef.current || status !== 'ready') return;
@@ -164,9 +166,16 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
       })
       .catch((err) => {
         if (isSuperseded(seq, seqRef.current) || err?.name === 'AbortError') return;
-        setError(err?.message || 'Unable to load more');
         loadingMoreRef.current = false;
         setLoadingMore(false);
+        if (isStaleCursorError(err)) {
+          // Expected race: the band changed while this page was in flight, so the
+          // server refused the now-stale cursor. Restart cleanly from page one
+          // rather than surfacing a fatal error for a query that no longer exists.
+          setReload((n) => n + 1);
+          return;
+        }
+        setError(err?.message || 'Unable to load more');
       });
   };
 

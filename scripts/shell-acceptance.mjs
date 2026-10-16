@@ -7,6 +7,8 @@
 //   * the 3D legend separates located, uncertain (radial range) and the sky dome;
 //   * a unit change converts the band instead of relabelling it;
 //   * cursor pagination surfaces "Load more" and appends records;
+//   * pagination cursors are bound to their query server-side, and a refused
+//     cursor makes the UI reset to page one rather than fail;
 //   * rapid band changes do not let a stale response overwrite the newest;
 //   * the canvases are released when the view unmounts;
 //   * no uncaught page/console errors.
@@ -77,6 +79,27 @@ try {
   }
   assert.ok(ready, 'production server did not become ready');
 
+  // 0. Server contract: a cursor is bound to the query that produced it.
+  const cursorFirst = await (await fetch(`${origin}/api/observe/shell?limit=10`)).json();
+  check('server issues an opaque pagination cursor', typeof cursorFirst.page.next === 'string');
+  const nextRes = await fetch(`${origin}/api/observe/shell?limit=10&cursor=${encodeURIComponent(cursorFirst.page.next)}`);
+  const nextBody = await nextRes.json();
+  check('server continues the query that made the cursor', nextRes.status === 200 && nextBody.page.offset === 10, `status=${nextRes.status} offset=${nextBody.page?.offset}`);
+  const staleRes = await fetch(`${origin}/api/observe/shell?radius=250&limit=10&cursor=${encodeURIComponent(cursorFirst.page.next)}`);
+  const staleBody = await staleRes.json();
+  check(
+    'server refuses a cursor from another query',
+    staleRes.status === 400 && staleBody.code === 'invalid-cursor' && staleBody.reason === 'mismatch',
+    JSON.stringify(staleBody),
+  );
+  const malformedRes = await fetch(`${origin}/api/observe/shell?cursor=not-a-cursor`);
+  const malformedBody = await malformedRes.json();
+  check(
+    'server refuses a malformed cursor',
+    malformedRes.status === 400 && malformedBody.code === 'invalid-cursor' && malformedBody.reason === 'malformed',
+    JSON.stringify(malformedBody),
+  );
+
   const systemChromium = process.env.CHROMIUM_PATH
     || ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'].find(existsSync);
   browser = await chromium.launch({
@@ -87,8 +110,14 @@ try {
 
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const consoleErrors = [];
+  // The browser logs each failed (4xx/5xx) resource load as a generic console
+  // error with no URL, so record the actual shell responses to pair them up.
+  const failedShellLoads = [];
   page.on('console', (message) => { if (message.type() === 'error') consoleErrors.push(message.text()); });
   page.on('pageerror', (error) => consoleErrors.push(`pageerror: ${error.message}`));
+  page.on('response', (response) => {
+    if (response.url().includes('/api/observe/shell') && response.status() >= 400) failedShellLoads.push(response.status());
+  });
 
   await page.goto(`${origin}/#observe/star-sirius`, { waitUntil: 'load' });
   await page.locator('.observe-footer').waitFor({ timeout: 30_000 });
@@ -140,6 +169,32 @@ try {
   const after = await footerCounts(page);
   check('load-more appends records', !!before && !!after && after.returned > before.returned, `${before?.returned} -> ${after?.returned}`);
 
+  // 3b. A cursor the server refuses (band changed mid-flight) resets the view to
+  //     page one instead of surfacing a fatal error. We force the race by
+  //     rewriting only the cursor-bearing request to a token from nowhere.
+  let poisonCursor = false;
+  await page.route('**/api/observe/shell**', async (route) => {
+    const url = new URL(route.request().url());
+    if (poisonCursor && url.searchParams.has('cursor')) {
+      url.searchParams.set('cursor', 'stale-cursor-from-another-query');
+      await route.continue({ url: url.toString() });
+    } else {
+      await route.continue();
+    }
+  });
+  poisonCursor = true;
+  const reloadResponse = page.waitForResponse(
+    (response) => response.url().includes('/api/observe/shell')
+      && !new URL(response.url()).searchParams.has('cursor'),
+  );
+  await loadMore.click();
+  await reloadResponse;
+  await delay(700);
+  const reset = await footerCounts(page);
+  check('a refused cursor resets the view to page one', !!reset && reset.returned === 300, JSON.stringify(reset));
+  poisonCursor = false;
+  await page.unroute('**/api/observe/shell**');
+
   // 4. Rapid band changes must settle on the newest query.
   const targets = [1500, 1650, 1750, 1850];
   const last = targets[targets.length - 1];
@@ -165,7 +220,15 @@ try {
   check('unmount releases the shell canvases', (await page.locator('canvas').count()) === 0);
 
   const realErrors = consoleErrors.filter((message) => !/favicon/i.test(message));
-  check('no uncaught page or console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
+  // Separate the generic "failed resource" notes from real uncaught errors, then
+  // require them to account exactly for the shell 4xx responses we caused.
+  const failedLoadNotes = realErrors.filter((message) => /status of \d{3}/.test(message));
+  const unexpected = realErrors.filter((message) => !/status of \d{3}/.test(message));
+  check(
+    'no uncaught page or console errors',
+    unexpected.length === 0 && failedLoadNotes.length === failedShellLoads.length,
+    `${realErrors.length} error(s), ${failedShellLoads.length} shell 4xx, unexpected: ${unexpected.slice(0, 3).join(' | ')}`,
+  );
 } catch (error) {
   check('acceptance run completed without throwing', false, String(error?.message || error).split('\n')[0]);
 } finally {

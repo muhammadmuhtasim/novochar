@@ -756,7 +756,11 @@ distance outside the band is excluded and is never rendered as "uncertain".
   that populates the uncertain layer.
 - **M3 — `server/shell/query.js` + `GET /api/observe/shell`:** conservative
   candidate pruning, exact classification, stable-id deduplication, cursor
-  pagination, per-source coverage, and HTTP caching of the response.
+  pagination, per-source coverage, and HTTP caching of the response. Cursors are
+  opaque tokens bound to the normalized query that produced them (band geometry,
+  unit, layer policy, source selection, ordering); replaying one under a different
+  query is an explicit `400 invalid-cursor` (`reason: mismatch|malformed`), never
+  a silently offset page.
 - **M4 — `client/src/components/Observe.jsx` and the two renderers:** shell
   radius/thickness/unit controls, layer toggles, linked 2D/3D selection by stable
   id, and a target panel with provenance and quality notes.
@@ -764,8 +768,9 @@ distance outside the band is excluded and is never rendered as "uncertain".
   exact distance (it is shown as a range, and the 3D view draws a radial spoke
   spanning it); direction-only records are parked on a separately drawn, larger
   sky dome so they cannot be read as objects on the outer shell boundary; the
-  client paginates, aborts superseded requests, and drops out-of-order responses
-  by sequence number.
+  client paginates, aborts superseded requests, drops out-of-order responses by
+  sequence number, and — when the server refuses a cursor bound to a superseded
+  query — resets to page one instead of surfacing a fatal error.
 
 ### 17.3 What remains outstanding
 
@@ -842,9 +847,13 @@ labelled direction-only and shows `unknown (direction only)`; the 3D legend
 distinguishes located, `UNCERTAIN (RADIAL RANGE)` and `UNKNOWN · SKY DOME`; two
 linked canvases render; a unit change converts the band (`10 pc / T 1` →
 `9.50 – 10.50 pc`) rather than relabelling it; a wide band exposes `Load 300
-more` and grows the on-screen count (300 → 600); rapid band changes settle on the
-newest query with no stale overwrite; unmounting releases the canvases; and no
-uncaught page or console errors occur.
+more` and grows the on-screen count (300 → 600); the server issues an opaque
+cursor, resumes the same query with it, and refuses a cursor replayed under a
+different band (`invalid-cursor`); a deliberately corrupted in-flight cursor
+makes the UI reset to page one (back to 300 shown) instead of failing; rapid band
+changes settle on the newest query with no stale overwrite; unmounting releases
+the canvases; and no uncaught page or console error occurs beyond the one generic
+note for the deliberately-refused request.
 
 Not asserted by the harness, because no active source yet provides the data:
 open-ended interval labels and real uncertain radial spokes; empty, partial and

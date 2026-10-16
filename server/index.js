@@ -111,7 +111,11 @@ app.get('/api/observe/shell', (req, res) => {
   try {
     plan = normalizeShellQueryParams(req.query);
   } catch (error) {
-    return res.status(400).json({ error: String(error?.message || error) });
+    return res.status(400).json({
+      error: String(error?.message || error),
+      ...(error?.code ? { code: error.code } : {}),
+      ...(error?.reason ? { reason: error.reason } : {}),
+    });
   }
   const result = queryShell(plan, { world: { objects, stars: loadStarCatalog() } });
   res.json(result);

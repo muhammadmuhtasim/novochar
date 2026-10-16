@@ -10,6 +10,9 @@ import {
 import {
   DEFAULT_SHELL_PAGE_LIMIT,
   MAX_SHELL_PAGE_LIMIT,
+  ShellCursorError,
+  decodeShellCursor,
+  encodeShellCursor,
   normalizeShellQueryParams,
   queryShell,
 } from './query.js';
@@ -146,26 +149,83 @@ test('layer selection controls what is returned', () => {
   assert.deepEqual(memberIds(unknownOnly), ['u1']);
 });
 
-test('pagination covers every member once, with a stable cursor', () => {
+test('pagination covers every member once through query-bound cursors', () => {
   const sources = makeDataset();
   const swept = [];
-  let cursor = 0;
+  let cursor;
+  let offset = 0;
   for (let guard = 0; guard < 200; guard++) {
     const page = queryShell(
       normalizeShellQueryParams({ radius: 100, thickness: 20, include: 'located,uncertain', limit: 7, cursor }),
       { sources },
     );
+    assert.equal(page.page.offset, offset, 'the cursor resumes at the next offset');
     assert.ok(page.records.length <= 7);
     swept.push(...page.records.map((record) => record.id));
     if (page.page.complete) {
       assert.equal(page.page.next, null);
       break;
     }
-    assert.equal(page.page.next, cursor + 7);
+    assert.equal(typeof page.page.next, 'string', 'the cursor is an opaque token');
+    offset += 7;
     cursor = page.page.next;
   }
   assert.equal(new Set(swept).size, swept.length, 'no duplicate ids across pages');
   assert.deepEqual(memberIds({ records: swept.map((id) => ({ id })) }), referenceMembers(sources, normalizeShellQueryParams({ radius: 100, thickness: 20, include: 'located,uncertain' })));
+});
+
+test('a cursor is bound to the query that produced it', () => {
+  const sources = makeDataset();
+  const base = { radius: 100, thickness: 20, include: 'located,uncertain', limit: 7 };
+  const first = queryShell(normalizeShellQueryParams(base), { sources });
+  const cursor = first.page.next;
+  assert.equal(typeof cursor, 'string');
+
+  // Continuing the very same query resumes at the right offset.
+  const second = queryShell(normalizeShellQueryParams({ ...base, cursor }), { sources });
+  assert.equal(second.page.offset, 7);
+
+  // Any data-affecting change turns the same token into an explicit mismatch.
+  for (const change of [
+    { radius: 101 },
+    { thickness: 21 },
+    { unit: 'pc' },
+    { include: 'located' },
+    { sources: 'a' },
+  ]) {
+    assert.throws(
+      () => normalizeShellQueryParams({ ...base, cursor, ...change }),
+      (error) => error instanceof ShellCursorError && error.code === 'invalid-cursor' && error.reason === 'mismatch',
+      JSON.stringify(change),
+    );
+  }
+});
+
+test('malformed cursors are rejected rather than guessed', () => {
+  const bad = [
+    'not-a-cursor',
+    '@@@',
+    '300',
+    Buffer.from('{}', 'utf8').toString('base64url'),
+    Buffer.from(JSON.stringify({ v: 999, o: 3, k: 'x' }), 'utf8').toString('base64url'),
+    Buffer.from(JSON.stringify({ v: 1, o: 'x', k: 'y' }), 'utf8').toString('base64url'),
+  ];
+  for (const cursor of bad) {
+    assert.throws(
+      () => normalizeShellQueryParams({ cursor }),
+      (error) => error instanceof ShellCursorError && error.code === 'invalid-cursor' && error.reason === 'malformed',
+      cursor,
+    );
+  }
+});
+
+test('encode and decode round-trip; an absent or non-string cursor is handled', () => {
+  const plan = normalizeShellQueryParams({ radius: 50, thickness: 5, include: 'located', sources: 'stars' });
+  const token = encodeShellCursor(12, plan);
+  assert.equal(decodeShellCursor(token, plan), 12);
+  assert.equal(decodeShellCursor('', plan), 0);
+  assert.equal(decodeShellCursor(undefined, plan), 0);
+  assert.throws(() => decodeShellCursor(5, plan), (error) => error.reason === 'malformed');
 });
 
 test('a failing source is isolated and does not hide the others', () => {

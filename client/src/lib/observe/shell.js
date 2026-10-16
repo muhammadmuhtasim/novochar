@@ -210,6 +210,16 @@ export function isSuperseded(responseSeq, latestSeq) {
 }
 
 /**
+ * True when the server rejected a cursor because it no longer matches the query
+ * that made it — for example a band change while a "load more" was in flight.
+ * The caller should restart from page one rather than show a fatal error; the
+ * server is refusing to apply one query's offset to a different result set.
+ */
+export function isStaleCursorError(error) {
+  return error?.code === 'invalid-cursor';
+}
+
+/**
  * Merge a later page into the accumulated result. Records are de-duplicated by
  * stable id (first occurrence wins), so a cursor that lands twice can never show
  * an object twice; `counts.returned` is recomputed as the number actually on
