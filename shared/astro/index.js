@@ -10,3 +10,6 @@ export * from './epochs.js';
 export * from './frames.js';
 export * from './proper-motion.js';
 export * from './angular-distance.js';
+export * from './distance.js';
+export * from './shell.js';
+export * from './distance-quality.js';
