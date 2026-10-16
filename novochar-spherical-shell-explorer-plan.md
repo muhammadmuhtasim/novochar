@@ -853,17 +853,57 @@ different band (`invalid-cursor`); a deliberately corrupted in-flight cursor
 makes the UI reset to page one (back to 300 shown) instead of failing; rapid band
 changes settle on the newest query with no stale overwrite; unmounting releases
 the canvases; and no uncaught page or console error occurs beyond the one generic
-note for the deliberately-refused request.
+note per deliberately-refused request.
 
-Not asserted by the harness, because no active source yet provides the data:
-open-ended interval labels and real uncertain radial spokes; empty, partial and
-failed-source states; mobile layout; and GPU frame budgets. A separate
-client-side probe measured a shell round trip (control change → response → React
-commit → paint) at ~0.5–0.8 s steady state (~220 ms of which is the query
-debounce), a ~5 s first heavy render when the wide band first loads ~1 700
-objects, and a flat ~7 MB JS heap across repeated band changes — all under
-SwiftShader **software** rendering, so the frame-time numbers are not
-representative of GPU hardware.
+The harness also now closes the remaining gaps from §17.5 by driving three
+separate pages — a desktop happy path (1400 × 900) plus two pages for the
+injected/adversarial and narrow-viewport states (a hash-only navigation is a
+same-document change that neither reloads the app nor re-issues the query, so
+each injected phase sets the route state and then forces a real reload):
+
+- **Open-ended interval, end to end.** A synthetic record whose interval is
+  `{ low: 90, high: null }` — the wire form the server produces for `Infinity` —
+  is injected over the `/api/observe/shell` response. Selected via
+  `#observe/probe-open-interval` it renders `≥ 90.00 ly`, is classified
+  `SHELL UNCERTAIN`, keeps the "only a lower bound" note, and never prints an
+  en-dash range or a fabricated upper bound; switching the unit to `pc` converts
+  the bound to `≥ 27.59 pc` while staying open-ended. The unit/legend/radial
+  rendering stay consistent with the client-side interval logic already unit
+  tested in `client/src/lib/observe/shell.test.js`.
+- **Partial source failure.** An injected coverage entry
+  `{ source: 'stars', status: 'error', error: 'simulated source failure' }`
+  produces the recoverable `Source warning: stars — simulated source failure.`
+  banner while the usable records still render (both canvases present). (The
+  server reports coverage as `ok`/`error` only — there is no distinct `partial`
+  status — so a failing source is modelled by a non-`ok` entry.)
+- **Empty result.** Located-only layers over a band far outside every fixture
+  distance render the `EMPTY SHELL` panel, no canvases, `0 of 0 matched records`,
+  and guidance to widen the band or enable a layer.
+- **Failed request and recovery.** A 500 response renders the recoverable
+  `ERROR` panel with the server message, and `Retry` (after the route is lifted)
+  restores a non-empty result with both canvases.
+- **Mobile layout (390 × 844).** The Observe content does not overflow
+  horizontally (its `main` and document widths stay at 390 px), `.observe-grid`
+  collapses to a single column, every toolbar group, both canvases, the band
+  label, the results caption, the target panel and the on-canvas legend stay
+  inside the viewport, and the pagination and layer controls are usable through
+  real pointer events (not just rendered).
+
+Not asserted by the harness: real uncertain radial spokes and real open intervals
+driven by an active source (the interval probe is a controlled synthetic record,
+because no active source publishes interval evidence yet — §17.3); GPU frame
+budgets; and multi-touch or device-specific gestures. The browser probe also
+recorded a **pre-existing global-chrome** observation that is deliberately not a
+Mode B failure: at a 390 px viewport the sticky header's mobile menu button sits
+at `x ≈ 498`–`529`, i.e. outside the 390 px viewport and clipped by the root's
+`overflow-x: hidden`, so the top-level mode switcher is not reachable on a phone.
+That is `styles.css` global chrome shared with Mode A, is unchanged here, and is
+reported as a `NOTE` line rather than a failing check. A separate client-side
+probe measured a shell round trip (control change → response → React commit →
+paint) at ~0.5–0.8 s steady state (~220 ms of which is the query debounce), a
+~5 s first heavy render when the wide band first loads ~1 700 objects, and a flat
+~7 MB JS heap across repeated band changes — all under SwiftShader **software**
+rendering, so the frame-time numbers are not representative of GPU hardware.
 
 ### 17.6 Evidence boundary
 
@@ -873,6 +913,44 @@ current implementation is correct and honest for the current sources and give a
 comparable starting point; they do **not** establish production-scale latency,
 GPU frame budgets, real-catalogue coverage, or the validity of any source's
 uncertainty model. Those remain tied to §17.3.
+
+**How to reproduce.** `npm test`, then `npm run build -w client`, then
+`npm run check:shell` (the acceptance run needs the fresh client build because
+the server serves `client/dist` only under `NODE_ENV=production`). The run boots
+the production server on a free port and drives it with the first of
+`$CHROMIUM_PATH`, `/usr/bin/chromium`, `/usr/bin/chromium-browser`,
+`/usr/bin/google-chrome` that exists.
+
+**Environment the results above were recorded on.**
+
+| Field | Value |
+| --- | --- |
+| OS / arch | Linux `7.1.5+kali-amd64`, `x86_64` |
+| Runtime | Node.js `v24.19.0` |
+| Browser | Chromium `150.0.7871.181` (`/usr/bin/chromium`; `CHROMIUM_PATH` unset) |
+| Rendering | SwiftShader **software** WebGL (`--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`) |
+| Viewports | desktop `1400 × 900`; mobile `390 × 844` |
+
+**Environment-dependent vs confirmed defects.** Software rendering changes only
+frame timing, not layout or the DOM, so every acceptance assertion above is a
+statement about the product, not the host — with two deliberate exceptions that
+are kept separate:
+
+- The mobile page is created only after the two desktop GL pages, and Chromium
+  sometimes stalls a freshly created software-GL page; the harness waits up to
+  30 s for the first render and, on timeout, reports the page's DOM state so a
+  genuine render regression is distinguishable from an environment stall. Two
+  consecutive green runs were observed; a timeout here is an environment stall,
+  not a product defect.
+- Playwright's built-in click actionability is unreliable at the 390 px viewport
+  (the root sets `overflow-x: hidden`, which derails its scroll-into-view retry
+  loop), so the mobile interactions scroll the target in explicitly, wait for a
+  stable box, and then click real pointer coordinates. This is a harness
+  workaround, not a product condition.
+
+The global-chrome nav overflow noted above is a **confirmed** product defect, but
+one in shared chrome outside Mode B's change boundary, so it is recorded as an
+observation (`NOTE`) rather than fixed or asserted here.
 
 ## 18. Catalogue decision (recorded 2026-10-16)
 
