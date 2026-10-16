@@ -2987,3 +2987,48 @@ html.nc-cursor-on [contenteditable="true"] {
   height: 6px;
   border-radius: 50%;
 }
+
+/* Mode B — Observe: linked 2D Mollweide map + 3D celestial sphere. */
+.observe-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.observe-grid .observe-wide {
+  grid-column: 1 / -1;
+}
+.observe-panel .canvas-wrap {
+  height: clamp(360px, 52vh, 560px);
+}
+.observe-map .sky-canvas {
+  cursor: crosshair;
+}
+.observe-sphere-canvas {
+  cursor: grab;
+}
+.observe-sphere-canvas.is-dragging {
+  cursor: grabbing;
+}
+.observe-target {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.observe-target .target-title {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.observe-target .kv.inline {
+  margin: 0;
+}
+.observe-target .kv.inline div {
+  flex: 1 1 180px;
+}
+@media (max-width: 1000px) {
+  .observe-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

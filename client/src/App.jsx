@@ -5,6 +5,7 @@ import Home from './components/Home.jsx';
 import RetryableModule from './components/RetryableModule.jsx';
 
 const loadSkyViewer = () => import('./components/SkyViewer.jsx');
+const loadObserve = () => import('./components/Observe.jsx');
 const loadBlinkComparator = () => import('./components/BlinkComparator.jsx');
 const loadCatalogue = () => import('./components/Catalogue.jsx');
 const loadDataSources = () => import('./components/DataSources.jsx');
@@ -13,6 +14,7 @@ const loadIvoaLab = () => import('./components/IvoaLab.jsx');
 
 const TAB_MODULES = {
   sky: loadSkyViewer,
+  observe: loadObserve,
   blink: loadBlinkComparator,
   catalogue: loadCatalogue,
   sources: loadDataSources,
@@ -24,6 +26,7 @@ const OBJECT_DATA_TABS = new Set(['blink', 'catalogue', 'spectra']);
 const TABS = [
   { id: 'home', label: 'MISSION', icon: '◉' },
   { id: 'sky', label: 'SKY VIEWER', icon: '⌖' },
+  { id: 'observe', label: 'OBSERVE (β)', icon: '◐' },
   { id: 'blink', label: 'BLINK COMPARATOR', icon: '⧗' },
   { id: 'catalogue', label: 'CATALOGUE', icon: '≋' },
   { id: 'spectra', label: 'SPECTRA', icon: '∿' },
@@ -321,6 +324,7 @@ export default function App() {
       <main className="view" key={tab}>
         {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
         {tab === 'sky' && <RetryableModule loader={loadSkyViewer} label="Loading sky viewer…" componentProps={{ selectedId, onSelect: selectObject, onTarget: goToTarget }} />}
+        {tab === 'observe' && <RetryableModule loader={loadObserve} label="Loading observe view…" componentProps={{ selectedId, onSelect: selectObject }} />}
         {tab === 'blink' && (objectsLoaded
           ? <RetryableModule loader={loadBlinkComparator} label="Loading blink comparator…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
           : <ModuleLoading label="Loading survey objects…" />)}
