@@ -792,3 +792,76 @@ generated-data consistency check; `npm run build -w client` builds the client. A
 live server returns 51 members for the default band (43 located, 8
 unknown-distance fixture stars, 0 uncertain), and a paged sweep of the API
 returns every member exactly once.
+
+### 17.5 Performance and browser-acceptance baseline
+
+The audit asked for a measured performance baseline and an independent browser
+acceptance pass (§8, Steps 3 and 6). Both are now reproducible, on-demand
+commands — deliberately **not** part of `npm test`, because they need a browser
+and their numbers are environment-specific:
+
+| Command | What it does |
+| --- | --- |
+| `npm run bench:shell` | Times the real `queryShell` service over synthetic catalogues and writes a JSON report (`SHELL_BENCH_JSON=<path>` to save). |
+| `npm run check:shell` | Boots the production server and asserts the shell UI in system Chromium via Playwright. |
+
+Harnesses: `scripts/shell-benchmark.mjs` and `scripts/shell-acceptance.mjs`.
+
+#### Server query latency
+
+Environment: Node `v24.19.0`, linux x64, AMD Ryzen 3 3250U (4 cores), 6.1 GB
+RAM; median of 5 runs. Synthetic single source, 10% of rows carry no distance,
+the rest uniform in `[0, 5000]` ly. These are latencies for the **current linear
+scan**, not a target.
+
+| rows | default (R=100, T=20) | wide (R=1000, T=2000) | distant (R=10000, T=1000) |
+| --- | --- | --- | --- |
+| 1 000 | 0.9 ms | 1.6 ms | 0.9 ms |
+| 10 000 | 11.2 ms | 13.8 ms | 6.7 ms |
+| 50 000 | 23.8 ms | 34.8 ms | 30.3 ms |
+| 100 000 | 31.3 ms | 75.4 ms | 57.7 ms |
+| 250 000 | 59.0 ms | 270.1 ms | 144.7 ms |
+| 500 000 | 129.8 ms | 335.9 ms | 233.6 ms |
+
+Cost is linear in catalogue size (a full scan per query); repeated runs varied by
+roughly ±40% on this shared 4-core machine, so treat the figures as orders of
+magnitude, not constants. Supporting 1 000 000 rows costs about 300 MB of heap.
+
+**Pagination does not reduce server work.** At 500 000 rows a first page
+(`cursor=0`) and a deep page (`cursor=250000`) took 269 ms and 235 ms
+respectively — both scanned all 500 000 rows. The cursor only limits the
+returned slice; each page still classifies the whole source and sorts every
+member. This is the concrete motivation for the M5 spatial index, which is
+deferred until a realistic source exists so it can be validated against real
+data rather than optimized in the abstract.
+
+#### Browser acceptance
+
+`npm run check:shell` passes on the built client: an unknown-distance object is
+labelled direction-only and shows `unknown (direction only)`; the 3D legend
+distinguishes located, `UNCERTAIN (RADIAL RANGE)` and `UNKNOWN · SKY DOME`; two
+linked canvases render; a unit change converts the band (`10 pc / T 1` →
+`9.50 – 10.50 pc`) rather than relabelling it; a wide band exposes `Load 300
+more` and grows the on-screen count (300 → 600); rapid band changes settle on the
+newest query with no stale overwrite; unmounting releases the canvases; and no
+uncaught page or console errors occur.
+
+Not asserted by the harness, because no active source yet provides the data:
+open-ended interval labels and real uncertain radial spokes; empty, partial and
+failed-source states; mobile layout; and GPU frame budgets. A separate
+client-side probe measured a shell round trip (control change → response → React
+commit → paint) at ~0.5–0.8 s steady state (~220 ms of which is the query
+debounce), a ~5 s first heavy render when the wide band first loads ~1 700
+objects, and a flat ~7 MB JS heap across repeated band changes — all under
+SwiftShader **software** rendering, so the frame-time numbers are not
+representative of GPU hardware.
+
+### 17.6 Evidence boundary
+
+The latency table and the acceptance results above were produced by the committed
+harnesses in §17.5 on the machine and OS named there. They establish that the
+current implementation is correct and honest for the current sources and give a
+comparable starting point; they do **not** establish production-scale latency,
+GPU frame budgets, real-catalogue coverage, or the validity of any source's
+uncertainty model. Those remain tied to §17.3.
+
