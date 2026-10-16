@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+import { projectGraticuleLine } from '../lib/observe/graticule.js';
 import { pickAt } from '../lib/observe/scene.js';
 
 // Mode B — Observe: the 2D half of the linked sky. This component is a thin
@@ -78,18 +79,23 @@ export default function ObserveMap2D({ scene, selectedId = null, onSelect = () =
       return s.projection.forward(lonRad, latRad, { centralMeridianRad: s.centralMeridianRad });
     };
 
-    // Stroke one graticule line sampled in view-frame lon/lat.
-    const trace = (v, sample) => {
-      ctx.beginPath();
-      let started = false;
-      for (const [lonRad, latRad] of sample) {
-        const p = project(lonRad, latRad);
-        if (!p) { started = false; continue; }
-        const [sx, sy] = toScreen(p, v);
-        if (started) ctx.lineTo(sx, sy);
-        else { ctx.moveTo(sx, sy); started = true; }
+    // Stroke a sampled graticule line as its seam-split polylines, so nothing is
+    // ever drawn straight across the projection seam.
+    const strokeLine = (v, sample) => {
+      const s = sceneRef.current;
+      const polylines = projectGraticuleLine(sample, project, {
+        centralMeridianRad: s.centralMeridianRad,
+      });
+      for (const line of polylines) {
+        if (line.length < 2) continue;
+        ctx.beginPath();
+        line.forEach((p, index) => {
+          const [sx, sy] = toScreen(p, v);
+          if (index === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        });
+        ctx.stroke();
       }
-      ctx.stroke();
     };
 
     const drawGraticule = (v) => {
@@ -100,17 +106,17 @@ export default function ObserveMap2D({ scene, selectedId = null, onSelect = () =
       for (let lat = -60; lat <= 60; lat += GRATICULE_STEP_DEG) {
         const sample = [];
         for (let lon = 0; lon <= 360; lon += 3) sample.push([lon * deg, lat * deg]);
-        trace(v, sample);
+        strokeLine(v, sample);
       }
       for (let lon = 0; lon < 360; lon += GRATICULE_STEP_DEG) {
         const sample = [];
         for (let lat = -90; lat <= 90; lat += 3) sample.push([lon * deg, lat * deg]);
-        trace(v, sample);
+        strokeLine(v, sample);
       }
       ctx.strokeStyle = 'rgba(255,158,90,0.22)';
       const equator = [];
       for (let lon = 0; lon <= 360; lon += 3) equator.push([lon * deg, 0]);
-      trace(v, equator);
+      strokeLine(v, equator);
       ctx.restore();
     };
 
