@@ -121,6 +121,41 @@ test('buildPlaneIndex validates its cell size and handles empty input', () => {
   assert.equal(pickNearest(buildPlaneIndex([]), 0, 0, { radius: 1 }), null);
 });
 
+test('the index is complete for negative coordinates and exact-radius boundaries', () => {
+  const points = [];
+  for (let i = -2; i <= 2; i++) {
+    for (let j = -2; j <= 2; j++) points.push(mk(i, j, `g${i}_${j}`, (i + j) % 2 ? null : 3));
+  }
+  const queries = [[0, 0], [-2.5, 1.5], [2, -2], [-1.25, 0.75]];
+  for (const cellSize of [0.5, 1, 2]) {
+    const index = buildPlaneIndex(points, { cellSize });
+    for (const target of points) {
+      for (const [qx, qy] of queries) {
+        // Snap the radius to the exact distance so the target sits on the
+        // inclusive boundary every time.
+        const radius = Math.hypot(target.x - qx, target.y - qy);
+        const got = pickNearest(index, qx, qy, { radius });
+        const ref = bruteNearestDistance(points, qx, qy, radius);
+        assert.ok(ref !== null, 'expected a boundary hit');
+        assert.ok(got, `missed boundary target ${target.id} at (${qx},${qy}) cell=${cellSize}`);
+        assert.ok(Math.abs(got.distance - ref) < 1e-12, `boundary distance cell=${cellSize}`);
+      }
+    }
+  }
+});
+
+test('the one-cell query expansion never admits out-of-range points', () => {
+  const index = buildPlaneIndex([mk(0, 0, 'a'), mk(3, 0, 'b')], { cellSize: 1 });
+  // b lies in an adjacent cell just outside the radius; the exact filter drops it.
+  const near = pickNearest(index, 0, 0, { radius: 2.9 });
+  assert.equal(near.point.id, 'a');
+  assert.equal(near.distance, 0);
+  assert.deepEqual(
+    pickInBox(index, { xMin: -0.5, xMax: 0.5, yMin: -0.5, yMax: 0.5 }).map((p) => p.id),
+    ['a'],
+  );
+});
+
 test('the plane index never omits candidates (property, vs brute force)', () => {
   const rand = mulberry32(2024);
   const sizes = [0.1, 0.5, 2];

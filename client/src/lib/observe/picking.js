@@ -99,15 +99,14 @@ export function buildPlaneIndex(points, { cellSize } = {}) {
 /** Yield every point in a grid, in cells overlapping the given box. */
 function* pointsInBox(index, minX, maxX, minY, maxY) {
   const { cellSize, minX: baseX, minY: baseY, cells } = index;
-  // Pad the query by a sub-cell amount. Callers filter candidates exactly, so a
-  // slightly wider sweep can only add candidates that are then rejected — it can
-  // never include an out-of-range point — while ensuring a point sitting exactly
-  // on a cell edge (possibly with rounding) is never dropped.
-  const pad = cellSize * 1e-9;
-  const ix0 = Math.floor((minX - pad - baseX) / cellSize);
-  const ix1 = Math.floor((maxX + pad - baseX) / cellSize);
-  const iy0 = Math.floor((minY - pad - baseY) / cellSize);
-  const iy1 = Math.floor((maxY + pad - baseY) / cellSize);
+  // Query one full cell beyond the box on every side. Callers apply the exact
+  // geometric filter, so the surplus candidates are discarded — completeness no
+  // longer depends on any floating-point padding assumption about cellSize vs
+  // radius, only on the queried range covering the box plus one cell.
+  const ix0 = Math.floor((minX - baseX) / cellSize) - 1;
+  const ix1 = Math.floor((maxX - baseX) / cellSize) + 1;
+  const iy0 = Math.floor((minY - baseY) / cellSize) - 1;
+  const iy1 = Math.floor((maxY - baseY) / cellSize) + 1;
   for (let ix = ix0; ix <= ix1; ix++) {
     for (let iy = iy0; iy <= iy1; iy++) {
       const cell = cells.get(`${ix}:${iy}`);

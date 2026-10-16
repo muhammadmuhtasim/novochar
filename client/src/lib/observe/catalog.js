@@ -21,12 +21,16 @@
 // exposes beyond them belongs in `extras` and is never silently promoted into a
 // coordinate: the split between normalized fields and `extras` is explicit.
 //
-// FRAME POLICY: normalization never guesses. A source frame must be stated
-// explicitly, either on the row (`row.frame`) or via the `frame` option, and
-// only an ICRS designation is accepted. FK5/J2000 (or any other) sources must
-// be converted to ICRS by the caller — the shared @novochar/astro core exposes
-// the frame-bias transform — before reaching this module. A missing or
-// unrecognized frame is rejected, never assumed to be ICRS.
+// FRAME POLICY: normalization never guesses. A source frame must be stated,
+// either by the caller (the `frame` option) or on the row (`row.frame`).
+// The `frame` option is the DECLARED source frame: a row may omit its own frame
+// or repeat the same one, but a row that contradicts the declaration is rejected
+// as `conflicting-frame` rather than silently reinterpreted. When no option is
+// given, the row's own `frame` is the declared source frame. Only an ICRS
+// designation is accepted; FK5/J2000 (or any other) sources must be converted to
+// ICRS by the caller — the shared @novochar/astro core exposes the frame-bias
+// transform — before reaching this module. A missing or unrecognized frame is
+// rejected, never assumed to be ICRS.
 
 export const CATALOG_SCHEMA_VERSION = 1;
 
@@ -100,19 +104,27 @@ function normalizeProperMotion(raw) {
 function normalizeRecordDetailed(raw, { frame } = {}) {
   if (!raw || typeof raw !== 'object') return { error: 'not-an-object' };
 
-  // The `frame` option asserts the frame of every row. It is a caller
+  // The `frame` option is the caller's DECLARED source frame. It is a caller
   // assertion, so an unsupported value is a programming error, not bad data.
-  if (frame !== undefined && frame !== null && !isIcrs(frame)) {
+  const hasDeclaredFrame = frame !== undefined && frame !== null && frame !== '';
+  if (hasDeclaredFrame && !isIcrs(frame)) {
     throw new RangeError(
       `normalizeRecord: unsupported frame option "${frame}"; only "${CATALOG_FRAME}" is accepted`,
     );
   }
-  const declaredFrame = frame ?? raw.frame;
-  if (declaredFrame === undefined || declaredFrame === null || declaredFrame === '') {
-    return { error: 'missing-frame' };
-  }
-  if (!isIcrs(declaredFrame)) {
-    return { error: `unsupported-frame:${String(declaredFrame)}` };
+
+  const rowFrame = raw.frame;
+  const hasRowFrame = rowFrame !== undefined && rowFrame !== null && rowFrame !== '';
+
+  if (hasDeclaredFrame) {
+    // A row may omit its own frame or repeat the declared one, but it may not
+    // contradict it: that would silently reinterpret coordinates.
+    if (hasRowFrame && !isIcrs(rowFrame)) {
+      return { error: 'conflicting-frame' };
+    }
+  } else {
+    if (!hasRowFrame) return { error: 'missing-frame' };
+    if (!isIcrs(rowFrame)) return { error: `unsupported-frame:${String(rowFrame)}` };
   }
 
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';

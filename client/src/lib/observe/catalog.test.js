@@ -118,6 +118,25 @@ test('the source frame must be declared and must be ICRS', () => {
   assert.throws(() => normalizeRecord({ id: 'x', ra: 1, dec: 2 }, { frame: 'fk5' }), RangeError);
 });
 
+test('the frame option is a declaration: contradicted row frames are rejected', () => {
+  // Row omits its own frame -> the declared option supplies it.
+  assert.ok(normalizeRecord({ id: 'x', ra: 1, dec: 2 }, { frame: 'icrs' }));
+  // Row repeats the declared frame (any case) -> accepted.
+  assert.ok(normalizeRecord(validRow({ frame: 'ICRS' }), { frame: 'icrs' }));
+  // Row contradicts the declared frame -> rejected, never reinterpreted.
+  assert.equal(validateRecord(validRow({ frame: 'fk5' }), { frame: 'icrs' }), 'conflicting-frame');
+  assert.equal(validateRecord(validRow({ frame: 'galactic' }), { frame: 'icrs' }), 'conflicting-frame');
+  assert.equal(normalizeRecord(validRow({ frame: 'fk5' }), { frame: 'icrs' }), null);
+});
+
+test('rows with no frame field are accepted only with a declared frame', () => {
+  const row = { id: 'x', ra: 1, dec: 2 };
+  assert.equal(validateRecord(row), 'missing-frame');
+  assert.equal(normalizeRecord(row), null);
+  assert.ok(normalizeRecord({ ...row, frame: 'icrs' }));
+  assert.ok(normalizeRecord(row, { frame: 'icrs' }));
+});
+
 test('source-specific fields stay in extras and are never promoted', () => {
   const rec = normalizeRecord(validRow({ ra1950: 1, dec1950: 2, extras: { catalog: 'BSC5' } }));
   assert.deepEqual(rec.extras, { catalog: 'BSC5' });
