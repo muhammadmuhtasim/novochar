@@ -107,6 +107,7 @@ export function shellRecordToRow(record) {
       reason: classification.reason ?? null,
       source: record.provenance?.source ?? null,
       catalog: record.provenance?.catalog ?? null,
+      spectralType: record.spectralType ?? null,
       qualityNotes: Array.isArray(record.qualityNotes) ? record.qualityNotes : [],
       distance: representativeDistance(classification),
       interval: classification.interval ?? null,

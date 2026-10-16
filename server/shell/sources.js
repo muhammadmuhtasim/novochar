@@ -4,11 +4,13 @@
 // records into the canonical shell row. Nothing downstream knows a source's raw
 // schema, and no source is silently reinterpreted:
 //
-//   { id, name, ra, dec, frame, type, evidence, provenance, qualityNotes }
+//   { id, name, ra, dec, frame, type, evidence, provenance, qualityNotes, mag }
 //
 // `evidence` is the input to the shared drift-free distance classifier
 // (`classifyDistanceEvidence`); it is built here, at the ingestion boundary,
-// where the source's own distance semantics are known.
+// where the source's own distance semantics are known. `mag` (and, for stars,
+// `spectralType`) are display-only fields carried through unchanged so the
+// renderers keep sizing and labelling records as the source published them.
 //
 // Two honesty rules are enforced here rather than left to chance:
 //   * the frame policy is applied server-side exactly as the client applies it —
@@ -110,6 +112,8 @@ export function starRows(catalog) {
       dec: star.dec,
       frame: CANONICAL_FRAME,
       type: star.type || 'STAR',
+      mag: Number.isFinite(star.mag) ? star.mag : null,
+      spectralType: star.spectralType ?? null,
       evidence,
       provenance: {
         source: 'stars',
@@ -146,6 +150,7 @@ export function surveyRows(objects) {
       dec: object.dec,
       frame: CANONICAL_FRAME,
       type: object.type || 'OBJECT',
+      mag: Number.isFinite(object.mag) ? object.mag : null,
       evidence,
       provenance: { source: 'survey', sourceId: object.id, catalog: 'SPHEREx survey (simulated)' },
       qualityNotes: evidence.kind === 'point' ? ['heliocentric-distance', 'simulated'] : ['simulated'],

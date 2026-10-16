@@ -23,6 +23,8 @@ const record = (overrides = {}) => ({
   dec: -5,
   frame: 'icrs',
   type: 'HPM',
+  mag: 15.2,
+  spectralType: null,
   status: DISTANCE_CLASS.LOCATED,
   classification: { status: DISTANCE_CLASS.LOCATED, reason: 'inside-shell', distance: 100.5 },
   provenance: { source: 'survey', catalog: 'SPHEREx survey (simulated)' },
@@ -69,14 +71,20 @@ test('a shell record maps to an ICRS row with its shell metadata in extras', () 
   assert.equal(row.ra, 10);
   assert.equal(row.dec, -5);
   assert.equal(row.frame, 'icrs');
+  assert.equal(row.mag, 15.2);
   assert.equal(row.extras.status, DISTANCE_CLASS.LOCATED);
   assert.equal(row.extras.distance, 100.5);
   assert.equal(row.extras.source, 'survey');
   assert.equal(row.extras.reason, 'inside-shell');
+  assert.equal(row.extras.spectralType, null);
   assert.deepEqual(row.extras.qualityNotes, ['heliocentric-distance', 'simulated']);
   // The frame policy sees an ordinary ICRS row.
   assert.equal(shellResultToRows({ records: [record()] }).length, 1);
   assert.deepEqual(shellResultToRows({}), []);
+  // Display-only fields survive the mapping.
+  const star = shellRecordToRow(record({ id: 'star-sirius', mag: -1.46, spectralType: 'A1V' }));
+  assert.equal(star.mag, -1.46);
+  assert.equal(star.extras.spectralType, 'A1V');
 });
 
 test('representative distance uses the value, then the interval midpoint, then null', () => {

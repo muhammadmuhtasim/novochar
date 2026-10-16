@@ -72,6 +72,7 @@ function ShellTarget({ views, viewFrame, unit }) {
         <div><dt>{lonLabel}</dt><dd>{degrees(sky.lonDeg)}</dd></div>
         <div><dt>{latLabel}</dt><dd>{degrees(sky.latDeg)}</dd></div>
         <div><dt>V MAG</dt><dd>{Number.isFinite(record.mag) ? record.mag.toFixed(2) : '—'}</dd></div>
+        <div><dt>SPECTRAL</dt><dd>{extras.spectralType || '—'}</dd></div>
         <div><dt>SHELL</dt><dd>{status ? STATUS_LABEL[status] ?? status.toUpperCase() : '—'}</dd></div>
         <div><dt>DISTANCE</dt><dd>{distance ?? 'unknown (direction only)'}</dd></div>
         <div><dt>SOURCE</dt><dd>{extras.catalog || extras.source || '—'}</dd></div>

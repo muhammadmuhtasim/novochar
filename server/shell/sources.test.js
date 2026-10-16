@@ -41,7 +41,7 @@ test('star distances become point evidence or an honest missing value', () => {
     frame: 'ICRS',
     source: { catalog: 'fixture' },
     stars: [
-      { id: 'a', name: 'A', type: 'STAR', ra: 1, dec: 2, distanceLy: 42 },
+      { id: 'a', name: 'A', type: 'STAR', ra: 1, dec: 2, distanceLy: 42, mag: -1.46, spectralType: 'A1V' },
       { id: 'b', name: 'B', type: 'STAR', ra: 3, dec: 4, parallaxMas: 100 },
       { id: 'c', name: 'C', ra: 5, dec: 6 },
       { id: 'bad', name: 'bad', ra: 'nope', dec: 1 },
@@ -51,6 +51,10 @@ test('star distances become point evidence or an honest missing value', () => {
   assert.equal(rows.length, 3);
   assert.deepEqual(rows[0].evidence, { kind: 'point', value: 42, unit: 'ly' });
   assert.ok(rows[0].qualityNotes.includes('distance-without-uncertainty'));
+  // Display-only fields are carried through, never invented when absent.
+  assert.equal(rows[0].mag, -1.46);
+  assert.equal(rows[0].spectralType, 'A1V');
+  assert.equal(rows[1].mag, null);
   assert.deepEqual(rows[1].evidence.kind, 'point');
   assert.equal(rows[1].evidence.unit, 'ly');
   assert.ok(close(rows[1].evidence.value, 32.61563777, 1e-6));
@@ -76,7 +80,7 @@ test('a distance without a parallax is preferred and flagged, never error-inflat
 
 test('survey objects carry heliocentric point evidence and are marked simulated', () => {
   const objects = [
-    { id: 'NC-0001', name: 'A', type: 'TNO', ra: 10, dec: 5, distanceLy: 0.01 },
+    { id: 'NC-0001', name: 'A', type: 'TNO', ra: 10, dec: 5, distanceLy: 0.01, mag: 12.5 },
     { id: 'NC-0002', name: 'B', type: 'HPM', ra: 20, dec: -5, distanceLy: 50 },
     { id: 'NC-0003', name: 'C', type: 'AST', ra: 30, dec: 0, distanceLy: null },
     { id: '', name: 'bad', ra: 1, dec: 1, distanceLy: 1 },
@@ -84,6 +88,8 @@ test('survey objects carry heliocentric point evidence and are marked simulated'
   const { rows, skipped } = surveyRows(objects);
   assert.equal(rows.length, 3);
   assert.deepEqual(rows[0].evidence, { kind: 'point', value: 0.01, unit: 'ly' });
+  assert.equal(rows[0].mag, 12.5);
+  assert.equal(rows[1].mag, null);
   assert.ok(rows[0].qualityNotes.includes('heliocentric-distance'));
   assert.ok(rows[0].qualityNotes.includes('simulated'));
   assert.deepEqual(rows[2].evidence, { kind: 'missing', reason: 'no-distance' });
