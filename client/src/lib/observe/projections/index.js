@@ -13,9 +13,18 @@
 //     isInsideMap(x, y)             -> boolean,
 //   }
 //
-// `opts` currently carries `centralMeridianRad`. Because every projection owns
-// its own forward/inverse/bounds, a regional projection can be added by
-// exporting another descriptor here without touching the renderer.
+// `opts` currently carries `centralMeridianRad`, which must be finite; a
+// non-finite option makes forward/inverse return null rather than a NaN point.
+// Because every projection owns its own forward/inverse/bounds, a regional
+// projection can be added by exporting another descriptor here without touching
+// the renderer.
+//
+// FRAME NEUTRALITY (contract): a projection consumes `(lonRad, latRad)` and
+// knows nothing about which astronomical frame those coordinates are in. Callers
+// must pass a single consistent frame — the catalog stores canonical ICRS, a
+// frame adapter converts to the selected view frame, and only then are
+// `(lonRad, latRad)` handed to `forward`/`inverse`. Projections must never
+// assume equatorial or Galactic semantics.
 
 import { mollweide } from './mollweide.js';
 

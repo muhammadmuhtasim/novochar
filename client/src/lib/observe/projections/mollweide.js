@@ -18,6 +18,12 @@
 // Invalid or singular inputs return `null` rather than an ambiguous NaN, so
 // callers can distinguish "off the map" from "a real coordinate that happens to
 // be zero".
+//
+// Frame neutrality (contract): this projection consumes a longitude/latitude
+// pair in RADIANS and has no notion of frame. It is the caller's responsibility
+// to supply `(lon, lat)` in one consistent frame (equatorial or Galactic); the
+// projection must never assume or inspect which. This keeps the projection core
+// reusable and free of astronomical frame semantics.
 
 const SQRT2 = Math.SQRT2;
 const TWO_SQRT2 = 2 * SQRT2;
@@ -79,7 +85,7 @@ export function solveTheta(latRad) {
  * @returns {{x:number, y:number}|null} plane coordinates, or null if invalid.
  */
 export function forward(lonRad, latRad, { centralMeridianRad = 0 } = {}) {
-  if (!isValidLonLat(lonRad, latRad)) return null;
+  if (!isValidLonLat(lonRad, latRad) || !Number.isFinite(centralMeridianRad)) return null;
   const lambda = wrapPi(lonRad - centralMeridianRad);
   const theta = solveTheta(latRad);
   return {
@@ -95,7 +101,7 @@ export function forward(lonRad, latRad, { centralMeridianRad = 0 } = {}) {
  *   meridian is returned.
  */
 export function inverse(x, y, { centralMeridianRad = 0 } = {}) {
-  if (!isInsideMap(x, y)) return null;
+  if (!Number.isFinite(centralMeridianRad) || !isInsideMap(x, y)) return null;
   const theta = Math.asin(Math.max(-1, Math.min(1, y / SQRT2)));
   const latRad = Math.asin(
     Math.max(-1, Math.min(1, (2 * theta + Math.sin(2 * theta)) / Math.PI)),
