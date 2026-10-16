@@ -63,11 +63,13 @@ try {
   console.log('browser check: landing page did not fetch catalogue');
 
   const tab = (index) => desktop.locator('.nav-tabs button').nth(index);
-  for (const index of [3, 4, 3, 4, 3]) {
+  // The two object-data tabs used here are Catalogue and Spectra; their indices
+  // follow the navigation order.
+  for (const index of [4, 5, 4, 5, 4]) {
     await tab(index).evaluate((button) => button.click());
     await delay(70);
   }
-  await tab(3).evaluate((button) => button.click());
+  await tab(4).evaluate((button) => button.click());
   await desktop.getByText('1660/1660 SHOWN', { exact: false }).waitFor({ timeout: 15_000 });
   assert.equal(catalogueRequests.length, 1, 'rapid tab switching should issue one catalogue request');
   assert.match(await desktop.locator('.nav-tabs .active').innerText(), /CATALOGUE/);
