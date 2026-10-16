@@ -5,6 +5,7 @@ import {
   SHELL_SOURCES,
   findShellSource,
   isCanonicalFrame,
+  parallaxIntervalLightYears,
   parallaxMasToLightYears,
   shellSourceIds,
   starRows,
@@ -19,6 +20,42 @@ test('parallax converts to a distance, and a non-measurement does not', () => {
   for (const bad of [0, -1, NaN, Infinity, '100', null, undefined]) {
     assert.equal(parallaxMasToLightYears(bad), null);
   }
+});
+
+test('a parallax with its error becomes an asymmetric distance interval', () => {
+  // 100 mas ~ 32.62 ly. The nearer bound uses p+sigma, the farther uses p-sigma.
+  const range = parallaxIntervalLightYears(100, 1);
+  assert.ok(close(range.low, parallaxMasToLightYears(101), 1e-9));
+  assert.ok(close(range.high, parallaxMasToLightYears(99), 1e-9));
+  assert.ok(range.low < range.high);
+  // sigma >= p leaves the far side genuinely unbounded, not capped.
+  assert.equal(parallaxIntervalLightYears(1, 1).high, Infinity);
+  // No usable error (or no parallax) means no interval at all.
+  for (const bad of [0, -1, NaN, Infinity, null, undefined, '1']) {
+    assert.equal(parallaxIntervalLightYears(100, bad), null);
+  }
+  assert.equal(parallaxIntervalLightYears(0, 1), null);
+});
+
+test('star rows carry interval evidence only when a parallax error is present', () => {
+  const catalog = {
+    frame: 'ICRS',
+    source: { catalog: 'fixture' },
+    stars: [
+      { id: 'i', name: 'I', ra: 1, dec: 2, parallaxMas: 100, parallaxErrorMas: 1 },
+      // An error with no parallax is still nothing.
+      { id: 'n', name: 'N', ra: 3, dec: 4, parallaxErrorMas: 1 },
+      // A parallax without an error stays a point, flagged without uncertainty.
+      { id: 'p', name: 'P', ra: 5, dec: 6, parallaxMas: 100 },
+    ],
+  };
+  const { rows } = starRows(catalog);
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  assert.equal(byId.get('i').evidence.kind, 'interval');
+  assert.ok(byId.get('i').qualityNotes.includes('distance-interval'));
+  assert.equal(byId.get('n').evidence.kind, 'missing');
+  assert.equal(byId.get('p').evidence.kind, 'point');
+  assert.ok(byId.get('p').qualityNotes.includes('distance-without-uncertainty'));
 });
 
 test('the frame policy is applied to a whole non-ICRS catalogue', () => {

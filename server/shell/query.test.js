@@ -13,6 +13,7 @@ import {
   normalizeShellQueryParams,
   queryShell,
 } from './query.js';
+import { starRows } from './sources.js';
 
 function pointRow(id, ly, extra = {}) {
   return {
@@ -207,4 +208,80 @@ test('coverage and counts report what was actually searched', () => {
   assert.equal(result.coverage[0].source, 'a');
   assert.equal(result.coverage[0].status, 'ok');
   assert.equal(result.coverage[0].candidates, result.counts.candidates);
+});
+
+test('a distance-bearing catalogue populates located, uncertain, outside and unknown', () => {
+  // The real production code path, exercised through the actual star adapter: a
+  // parallax converts to a distance, and a parallax *with its error* converts to
+  // an interval that can straddle the band. The bundled CC0 fixture carries no
+  // parallax at all, so this synthetic catalogue stands in for a real
+  // distance-bearing source until its redistribution terms are settled.
+  const catalog = {
+    frame: 'ICRS',
+    source: { catalog: 'acceptance-test' },
+    stars: [
+      // ~100 ly within ±0.03 ly -> wholly inside [90, 110] -> located.
+      { id: 'located', ra: 10, dec: 0, parallaxMas: 32.6156, parallaxErrorMas: 0.01 },
+      // ±4 mas straddles the inner edge -> interval overlaps -> uncertain.
+      { id: 'uncertain', ra: 20, dec: 0, parallaxMas: 32.6156, parallaxErrorMas: 4 },
+      // Far outside the band -> outside, never a visible layer.
+      { id: 'outside', ra: 30, dec: 0, distanceLy: 500 },
+      // No distance at all -> unknown (direction only).
+      { id: 'unknown', ra: 40, dec: 0 },
+    ],
+  };
+  const { rows, skipped } = starRows(catalog);
+  assert.equal(skipped.length, 0);
+  const sources = [sourceOf('stars', rows)];
+  const plan = normalizeShellQueryParams({
+    radius: 100, thickness: 20, include: 'located,uncertain,unknown', limit: MAX_SHELL_PAGE_LIMIT,
+  });
+  const result = queryShell(plan, { sources });
+  const byId = new Map(result.records.map((record) => [record.id, record]));
+
+  assert.equal(byId.get('located').status, DISTANCE_CLASS.LOCATED);
+  assert.equal(byId.get('uncertain').status, DISTANCE_CLASS.UNCERTAIN);
+  assert.equal(byId.get('unknown').status, DISTANCE_CLASS.UNKNOWN);
+  assert.equal(byId.has('outside'), false, 'outside is excluded from every layer');
+  assert.equal(result.counts.outside, 1);
+  // The uncertain record keeps its interval; no midpoint is invented.
+  assert.ok(byId.get('uncertain').classification.interval.high > result.bounds.rMax);
+  assert.equal(byId.get('uncertain').classification.distance, undefined);
+  assert.deepEqual(memberIds(result), referenceMembers(sources, normalizeShellQueryParams({
+    radius: 100, thickness: 20, include: 'located,uncertain,unknown',
+  })));
+});
+
+test('a large synthetic catalogue is pruned conservatively and matches brute force', () => {
+  const N = 20000;
+  const rows = [];
+  for (let i = 0; i < N; i++) {
+    // Deterministic distances 0..2000 ly, with every tenth row distance-less.
+    const distance = i % 10 === 0 ? null : (i / N) * 2000;
+    rows.push({
+      id: `s${String(i).padStart(6, '0')}`,
+      name: `s${i}`,
+      ra: (i * 7) % 360,
+      dec: ((i * 13) % 180) - 90,
+      frame: 'icrs',
+      type: 'X',
+      evidence: distance === null
+        ? { kind: 'missing', reason: 'no-distance' }
+        : { kind: 'point', value: distance, unit: 'ly' },
+      provenance: { source: 'test', sourceId: `s${i}` },
+      qualityNotes: [],
+    });
+  }
+  const sources = [sourceOf('big', rows)];
+  const plan = normalizeShellQueryParams({
+    radius: 100, thickness: 20, include: 'located,uncertain,unknown', limit: MAX_SHELL_PAGE_LIMIT,
+  });
+  const started = Date.now();
+  const result = queryShell(plan, { sources });
+  const elapsed = Date.now() - started;
+  assert.deepEqual(memberIds(result), referenceMembers(sources, plan));
+  assert.equal(result.counts.unknown, N / 10);
+  assert.ok(result.counts.candidates < N / 4, `pruned to ${result.counts.candidates} of ${N}`);
+  // A smoke bound only; the point of this test is correctness at scale.
+  assert.ok(elapsed < 15000, `query took ${elapsed}ms`);
 });

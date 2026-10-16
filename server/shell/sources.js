@@ -15,9 +15,10 @@
 // Two honesty rules are enforced here rather than left to chance:
 //   * the frame policy is applied server-side exactly as the client applies it —
 //     a non-ICRS catalogue is reported, never treated as ICRS;
-//   * a parallax is converted to a distance or becomes nothing at all. It is
-//     never turned into a symmetric uncertainty, and a distance carried without
-//     an uncertainty is flagged so the UI cannot imply more than the source says.
+//   * a parallax is converted to a distance, or — when its measurement error is
+//     also published — to an asymmetric distance interval. It is never turned
+//     into a symmetric uncertainty, and a distance carried without an uncertainty
+//     is flagged so the UI cannot imply more than the source actually says.
 
 import { LIGHT_YEARS_PER_PARSEC } from '@novochar/astro';
 import { loadStarCatalog } from '../catalog/index.js';
@@ -53,12 +54,42 @@ function finitePositive(value) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+/**
+ * Asymmetric distance interval from a parallax and its standard error, in
+ * canonical light-years. Because distance varies as 1/parallax, the interval
+ * runs from the distance at (parallax + error) up to the distance at
+ * (parallax − error): the *larger* parallax is the *nearer* bound. If the lower
+ * parallax is not positive the far side is unbounded, so the upper bound is
+ * Infinity — said plainly rather than capped into a fake finite number.
+ *
+ * @returns {{low:number, high:number}|null}
+ */
+export function parallaxIntervalLightYears(parallaxMas, parallaxErrorMas) {
+  if (!finitePositive(parallaxMas) || typeof parallaxErrorMas !== 'number'
+    || !Number.isFinite(parallaxErrorMas) || parallaxErrorMas <= 0) {
+    return null;
+  }
+  const low = parallaxMasToLightYears(parallaxMas + parallaxErrorMas);
+  if (!finitePositive(low)) return null;
+  const high = parallaxMas - parallaxErrorMas > 0
+    ? parallaxMasToLightYears(parallaxMas - parallaxErrorMas)
+    : Infinity;
+  return { low, high };
+}
+
 /** Pick the best distance evidence a star artifact offers, with its caveat. */
 function starEvidence(star) {
   if (finitePositive(star.distanceLy)) {
     return {
       evidence: { kind: 'point', value: star.distanceLy, unit: SHELL_DISTANCE_UNIT },
       notes: ['distance-without-uncertainty'],
+    };
+  }
+  const interval = parallaxIntervalLightYears(star.parallaxMas, star.parallaxErrorMas);
+  if (interval) {
+    return {
+      evidence: { kind: 'interval', low: interval.low, high: interval.high, unit: SHELL_DISTANCE_UNIT },
+      notes: ['distance-from-parallax', 'distance-interval'],
     };
   }
   const derived = parallaxMasToLightYears(star.parallaxMas);
@@ -184,12 +215,16 @@ export const SHELL_SOURCES = Object.freeze([
     label: 'Bright-star catalogue',
     kind: 'catalogue',
     capabilities: Object.freeze({
-      distance: 'parallax-when-present',
+      distance: 'parallax-and-interval-when-present',
       distanceUnit: SHELL_DISTANCE_UNIT,
-      uncertainty: false,
+      // The adapter carries an uncertainty whenever the catalogue publishes a
+      // parallax error (as an asymmetric interval). The bundled CC0 fixture
+      // publishes neither a parallax nor an error, so today this layer is empty
+      // until a distance-bearing catalogue is enabled.
+      uncertainty: true,
       frame: CANONICAL_FRAME,
       query: 'local-index',
-      note: 'Distances only where the catalogue supplies a parallax or a derived distance.',
+      note: 'Distance from an adopted value, or a parallax (with its error as an interval) when present.',
     }),
     load: (world = {}) => starRows(world.stars ?? loadStarCatalog()),
   }),
