@@ -6,6 +6,7 @@ import { generateSurvey, buildFrames, fetchNEO } from './data.js';
 import { buildSpectrum } from './spectra.js';
 import { buildHeatmap } from './heatmap.js';
 import { loadStarCatalog } from './catalog/index.js';
+import { normalizeShellQueryParams, queryShell } from './shell/index.js';
 import {
   tapQuery,
   tapTables,
@@ -39,7 +40,7 @@ app.use(express.json());
 
 // Deterministic GET endpoints never change per-request, so allow the browser and
 // Vercel's edge to cache them (repeat loads avoid a serverless cold start).
-const CACHEABLE_API = /^\/api\/(survey|objects|stats|presets|spectra\/|field\/heatmap|catalog\/stars)/;
+const CACHEABLE_API = /^\/api\/(survey|objects|stats|presets|spectra\/|field\/heatmap|catalog\/stars|observe\/shell)/;
 app.use((req, res, next) => {
   if (req.method === 'GET' && CACHEABLE_API.test(req.path || req.url)) {
     res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=86400');
@@ -98,6 +99,22 @@ app.get('/api/catalog/stars/:id', (req, res) => {
   const star = loadStarCatalog().stars.find((s) => s.id === req.params.id);
   if (!star) return res.status(404).json({ error: 'star not found' });
   res.json(star);
+});
+
+// Spherical-shell explorer (Mode B Observe). Selects records in a hollow,
+// Sun-centred distance band. Candidate retrieval and exact membership are done
+// server-side from the shared @novochar/astro predicates, so the browser never
+// downloads a whole catalogue to filter it. A precise distance that falls
+// outside the band stays 'outside' — it is never blurred into 'uncertain'.
+app.get('/api/observe/shell', (req, res) => {
+  let plan;
+  try {
+    plan = normalizeShellQueryParams(req.query);
+  } catch (error) {
+    return res.status(400).json({ error: String(error?.message || error) });
+  }
+  const result = queryShell(plan, { world: { objects, stars: loadStarCatalog() } });
+  res.json(result);
 });
 
 app.get('/api/objects/:id/blink', (req, res) => {

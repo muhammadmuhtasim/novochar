@@ -75,6 +75,52 @@ test('GET /api/objects/:id/blink returns frames for the selected object', async 
   assert.ok(data.frames[0].epochISO);
 });
 
+test('GET /api/objects/:id/blink returns frames for the selected object', async () => {
+  const res = await fetch(`${base}/api/objects/NC-0001/blink?count=6`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.object.id, 'NC-0001');
+  assert.equal(data.frames.length, 6);
+  assert.ok(data.frames[0].epochISO);
+});
+
+test('GET /api/observe/shell returns a band with bounds and coverage', async () => {
+  const res = await fetch(`${base}/api/observe/shell`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('cache-control') || '', /max-age/);
+  const data = await res.json();
+  assert.deepEqual(data.bounds, { rMin: 90, rMax: 110, unit: 'ly' });
+  assert.ok(Array.isArray(data.records));
+  assert.ok(Array.isArray(data.coverage));
+  assert.ok(data.counts.rows > 0);
+});
+
+test('GET /api/observe/shell honours the query unit and layer selection', async () => {
+  const res = await fetch(`${base}/api/observe/shell?radius=10&thickness=1&unit=pc&include=located&sources=survey`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.selection.unit, 'pc');
+  assert.ok(Math.abs(data.bounds.rMin - 9.5 * 3.261563777) < 1e-6);
+  assert.equal(data.bounds.unit, 'ly');
+  assert.ok(data.records.every((record) => record.status === 'located'));
+});
+
+test('GET /api/observe/shell validates its parameters', async () => {
+  assert.equal((await fetch(`${base}/api/observe/shell?unit=furlong`)).status, 400);
+  assert.equal((await fetch(`${base}/api/observe/shell?include=nope`)).status, 400);
+  assert.equal((await fetch(`${base}/api/observe/shell?radius=-1`)).status, 400);
+});
+
+test('GET /api/observe/shell exposes the unknown/directional layer honestly', async () => {
+  const res = await fetch(`${base}/api/observe/shell?include=unknown&sources=stars&limit=50`);
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.selection.layers.unknown, true);
+  assert.equal(data.selection.layers.located, false);
+  assert.ok(data.records.every((record) => record.status === 'unknown'));
+  assert.ok(data.coverage.every((coverage) => coverage.source !== 'survey'));
+});
+
 test('GET /api/ivoa exposes the registry', async () => {
   const res = await fetch(`${base}/api/ivoa`);
   const j = await res.json();
