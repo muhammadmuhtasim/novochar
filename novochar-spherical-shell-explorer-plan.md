@@ -906,4 +906,8 @@ uncertainty model. Those remain tied to §17.3.
 - **M5 stays deferred** until a real source is integrated, so the index is
   designed against measured access patterns (the current linear-scan baseline is
   §17.4) rather than a guess.
+- **Owner decision (2026-10-16): stay on the fixture for now.** No Gaia
+  ingestion is started; the CC BY-NC 3.0 IGO gate is recorded as an accepted,
+  open risk. The review is the document to act on if the use is confirmed
+  non-commercial or ESA authorisation is obtained.
 

@@ -244,6 +244,15 @@ uncertainties.
 - **M5 stays deferred** until a real source is integrated and measured, so the
   index is built against real access patterns rather than a guess.
 
+### Owner decision (2026-10-16)
+
+**Stay on the fixture for now.** The CC0 fixture remains the active source; no
+Gaia ingestion is started. The CC BY-NC 3.0 IGO licence gate is recorded as an
+**accepted, open risk** rather than a resolved item: Gaia DR3 is chosen as the
+primary candidate *if and when* the use is confirmed non-commercial or ESA
+authorisation is obtained, and this document is the review to act on at that
+point. BSC5 remains a gated cross-check as above.
+
 ## 5. Acceptance criteria for the first real source
 
 These are the tests and properties the first real source must satisfy before it
