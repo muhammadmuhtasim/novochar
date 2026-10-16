@@ -874,3 +874,36 @@ comparable starting point; they do **not** establish production-scale latency,
 GPU frame budgets, real-catalogue coverage, or the validity of any source's
 uncertainty model. Those remain tied to §17.3.
 
+## 18. Catalogue decision (recorded 2026-10-16)
+
+> Added after the plan was under version control, to unblock the M2 real-source
+> step and the M5 design. It records a decision and its conditions; it does not
+> enable a source and does not alter §1–§17. The full review, with verified
+> sources, lives in `novochar-spherical-shell-explorer-catalogue-review.md`.
+
+- **Primary radial source: Gaia DR3** (ESA), read as the published
+  `parallax` / `parallax_error` in `gaia_source` (ICRS, reference epoch
+  **J2016.0**, milliarcseconds). It is frame-native (shell frame is ICRS, so no
+  transform), it carries honest distance uncertainty, and it has a stable 64-bit
+  `source_id`. Distance is derived (`1000/ϖ`, interval `[1000/(ϖ+σ),
+  1000/(ϖ−σ)]`), never read: Gaia publishes no distance column, and negative or
+  zero parallaxes stay `unknown` (direction-only).
+- **Secondary source: BSC5 (VizieR V/50)** — a bright-sky **cross-check only**.
+  It is FK5/J2000 (needs a tested FK5→ICRS transform, which the current frame
+  policy refuses until then) and publishes an optional parallax with **no**
+  error, so it cannot populate the `uncertain` layer and must not be given a
+  fabricated one.
+- **Blocking gate:** Gaia data are **CC BY-NC 3.0 IGO**, and commercial use
+  requires prior written ESA authorisation. The source may not be enabled until
+  Novochar's use is confirmed non-commercial **or** that authorisation is
+  obtained. Until then the active source stays the CC0 fixture
+  (`data/catalog/PROVENANCE.md`).
+- **Enablement** additionally requires a bounded, reproducible ingestion
+  artifact and the acceptance criteria in the review (§5): point-vs-interval,
+  open intervals, non-positive parallax → `unknown`, outside → excluded,
+  frame/epoch preserved, known-record tests keyed on `source_id`, and a
+  brute-force cross-check.
+- **M5 stays deferred** until a real source is integrated, so the index is
+  designed against measured access patterns (the current linear-scan baseline is
+  §17.4) rather than a guess.
+
