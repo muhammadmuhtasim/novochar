@@ -58,18 +58,14 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
     view.background = new THREE.Color(0x02030a);
     const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
 
-    const pointsGeometry = new THREE.BufferGeometry();
     const pointsMaterial = new THREE.PointsMaterial({
       size: 3.4, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0.95, depthWrite: false,
     });
-    const points = new THREE.Points(pointsGeometry, pointsMaterial);
+    const points = new THREE.Points(new THREE.BufferGeometry(), pointsMaterial);
     view.add(points);
 
-    const gridGeometry = new THREE.BufferGeometry();
-    const grid = new THREE.LineSegments(
-      gridGeometry,
-      new THREE.LineBasicMaterial({ color: 0x223247, transparent: true, opacity: 0.7 }),
-    );
+    const gridMaterial = new THREE.LineBasicMaterial({ color: 0x223247, transparent: true, opacity: 0.7 });
+    const grid = new THREE.LineSegments(new THREE.BufferGeometry(), gridMaterial);
     view.add(grid);
 
     const marker = new THREE.Mesh(
@@ -100,7 +96,18 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       renderer.render(view, camera);
     };
 
-    const buildGrid = () => {
+    // Replacing attributes on a live geometry (e.g. with `setAttribute`) leaves
+    // the previous attribute's GPU buffer allocated, because three.js frees
+    // buffers per geometry on dispose, not per attribute on replacement. So every
+    // rebuild swaps in a fresh geometry and disposes the one it replaces, which
+    // releases its buffers.
+    const replaceGeometry = (object3d, geometry) => {
+      const previous = object3d.geometry;
+      object3d.geometry = geometry;
+      if (previous && previous !== geometry) previous.dispose();
+    };
+
+    const buildGridGeometry = () => {
       const deg = Math.PI / 180;
       const r = SPHERE_RADIUS * 1.001;
       const at = (lonDeg, latDeg) => {
@@ -115,7 +122,9 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       for (let lon = 0; lon < 360; lon += 30) {
         for (let lat = -90; lat < 90; lat += 4) verts.push(...at(lon, lat), ...at(lon, lat + 4));
       }
-      gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      return geometry;
     };
 
     const setSelected = (id) => {
@@ -138,9 +147,11 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
         writeColor(record.mag, colors, index * 3);
         return { record, dir };
       });
-      pointsGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      pointsGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-      buildGrid();
+      const nextPoints = new THREE.BufferGeometry();
+      nextPoints.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      nextPoints.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      replaceGeometry(points, nextPoints);
+      replaceGeometry(grid, buildGridGeometry());
       setSelected(selectedRef.current);
     };
 
@@ -255,7 +266,6 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
 
     engineRef.current = { setCatalog, setSelected };
     updateCamera();
-    buildGrid();
     resize();
     setCatalog(sceneRef.current);
     setSelected(selectedRef.current);
