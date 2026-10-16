@@ -16,6 +16,8 @@ import {
   angularSeparationArcsec,
   propagateProperMotion,
   julianYearToJD,
+  equatorialToGalacticMatrix,
+  sphericalToUnit,
 } from './index.js';
 import { J2000_JD, JULIAN_YEAR_DAYS } from './epochs.js';
 
@@ -23,42 +25,57 @@ const ref = JSON.parse(
   readFileSync(new URL('./reference/astropy-reference.json', import.meta.url), 'utf8'),
 );
 
+function matVec(m, v) {
+  return [
+    m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+    m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+    m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+  ];
+}
+
 function lonDiffDeg(a, b) {
   const d = Math.abs(a - b) % 360;
   return Math.min(d, 360 - d);
 }
 
-test('equatorial (FK5 J2000) -> galactic matches Astropy to machine precision', () => {
-  let worstB = 0;
-  let worstL = 0;
-  let compared = 0;
-  for (const { ra, dec, l, b } of ref.galactic) {
-    const g = raDecToGalactic(ra, dec);
-    worstB = Math.max(worstB, Math.abs(g.b - b));
-    // At the galactic poles the longitude is degenerate; compare latitude only.
-    if (Math.abs(b) > 89.999) continue;
-    worstL = Math.max(worstL, lonDiffDeg(g.l, l));
-    compared++;
+test('equatorial (ICRS) -> galactic matches Astropy to machine precision', () => {
+  let worstVec = 0;
+  let worstCoords = 0;
+  let coordCompared = 0;
+  for (const s of ref.galactic) {
+    // Primary check: the transformed unit vector. Well-conditioned everywhere.
+    const v = matVec(equatorialToGalacticMatrix, sphericalToUnit(s.ra, s.dec));
+    worstVec = Math.max(worstVec, Math.hypot(v[0] - s.x, v[1] - s.y, v[2] - s.z));
+
+    // Secondary check: the returned (l, b) coordinates. Near a galactic pole
+    // arcsin is ill-conditioned (a ~1e-16 vector error produces ~1e-7 deg in b),
+    // so (l, b) is only compared away from the poles; the vector check above
+    // already covers those samples.
+    if (Math.abs(s.b) < 89.99) {
+      const g = raDecToGalactic(s.ra, s.dec);
+      worstCoords = Math.max(
+        worstCoords,
+        angularSeparationArcsec(g.l, g.b, s.l, s.b),
+      );
+      coordCompared++;
+    }
   }
-  assert.ok(compared > ref.galactic.length - 5, `compared ${compared}`);
-  assert.ok(worstB < 1e-9, `worst |b| ${worstB}`);
-  assert.ok(worstL < 1e-9, `worst l ${worstL}`);
+  assert.ok(worstVec < 1e-12, `worst output-vector error ${worstVec}`);
+  assert.ok(worstCoords < 1e-6, `worst (l,b) separation ${worstCoords} arcsec`);
+  assert.ok(coordCompared >= ref.galactic.length - 2, `coordCompared ${coordCompared}`);
 });
 
-test('galactic -> equatorial round-trips against Astropy', () => {
+test('galactic -> equatorial round-trips against Astropy (angular separation)', () => {
+  // Compare on the sphere rather than per-coordinate: raw RA differences are
+  // numerically degenerate near the celestial poles (where every RA meets), so a
+  // raw RA residual would be meaningless there. Angular separation is
+  // coordinate-independent and remains valid at the poles.
   let worst = 0;
-  let compared = 0;
   for (const { l, b, ra, dec } of ref.galactic) {
-    // The round-trip is only deterministic away from the galactic poles (where
-    // galactic longitude is degenerate) and the celestial poles (where the input
-    // right ascension is degenerate).
-    if (Math.abs(b) > 89.999 || Math.abs(dec) > 89.999) continue;
     const eq = galacticToRaDec(l, b);
-    worst = Math.max(worst, lonDiffDeg(eq.ra, ra), Math.abs(eq.dec - dec));
-    compared++;
+    worst = Math.max(worst, angularSeparationArcsec(eq.ra, eq.dec, ra, dec));
   }
-  assert.ok(compared > ref.galactic.length - 6, `compared ${compared}`);
-  assert.ok(worst < 1e-9, `worst round-trip ${worst}`);
+  assert.ok(worst < 1e-6, `worst round-trip separation ${worst} arcsec`);
 });
 
 test('angular separation matches Astropy (sub-microarcsecond)', () => {
@@ -96,17 +113,16 @@ test('epochs match Astropy Time(jyear)', () => {
   }
 });
 
-test('the ICRS<->FK5 frame bias stays small and documented', () => {
-  // The core applies the classic (FK5 J2000) galactic constants. Astropy's
-  // default Galactic frame is ICRS-native, so it differs from us by the
-  // ICRS<->FK5 frame bias only. Assert (a) we reproduce Astropy's FK5 result,
-  // and (b) the ICRS/FK5 bias itself is bounded at the tens-of-mas level.
+test('ICRS-native transform matches Astropy ICRS, and the FK5 bias stays small', () => {
+  // The core applies the IAU ICRS-native Galactic transform. It must match
+  // Astropy's ICRS result to machine precision; the FK5(J2000) difference
+  // recorded alongside is informational and stays at the tens-of-mas level.
   let worstBias = 0;
   for (const s of ref.frameBias) {
     const ours = raDecToGalactic(s.ra, s.dec);
-    assert.ok(lonDiffDeg(ours.l, s.fk5L) < 1e-9, `fk5 l at ${s.ra},${s.dec}`);
-    assert.ok(Math.abs(ours.b - s.fk5B) < 1e-9, `fk5 b at ${s.ra},${s.dec}`);
+    assert.ok(lonDiffDeg(ours.l, s.icrsL) < 1e-9, `icrs l at ${s.ra},${s.dec}`);
+    assert.ok(Math.abs(ours.b - s.icrsB) < 1e-9, `icrs b at ${s.ra},${s.dec}`);
     worstBias = Math.max(worstBias, s.biasArcsec);
   }
-  assert.ok(worstBias < 0.1, `frame bias ${worstBias} arcsec exceeds the documented bound`);
+  assert.ok(worstBias < 0.1, `frame bias ${worstBias} arcsec exceeds the expected bound`);
 });

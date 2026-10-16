@@ -26,15 +26,17 @@ test('Galactic centre in equatorial coordinates', () => {
   assert.ok(close(back.b, 0, 1e-3), `b ${back.b}`);
 });
 
-test('Galactic north pole maps to b = +90 (astropy _ngp_J2000)', () => {
-  const g = raDecToGalactic(192.8594812065348, 27.12825118085622);
-  assert.ok(close(g.b, 90, 1e-6), `b ${g.b}`);
-});
+test('ICRS-native transform: galactic north pole and NCP match Astropy', () => {
+  // Astropy 8.0.2 ICRS values. The FK5(J2000) pole no longer maps to exactly
+  // b = +90 under the ICRS-native transform: it is offset by the ~20 mas
+  // ICRS<->FK5 frame bias.
+  const pole = raDecToGalactic(192.8594812065348, 27.12825118085622);
+  assert.ok(close(pole.l, 10.212458678456704, 1e-6), `pole l ${pole.l}`);
+  assert.ok(close(pole.b, 89.99999680463607, 1e-6), `pole b ${pole.b}`);
 
-test('North Celestial Pole galactic longitude equals astropy _lon0_J2000', () => {
-  const g = raDecToGalactic(0, 90);
-  assert.ok(close(g.l, 122.9319185680026, 1e-6), `l ${g.l}`);
-  assert.ok(close(g.b, 27.12825118085622, 1e-6), `b ${g.b}`);
+  const ncp = raDecToGalactic(0, 90);
+  assert.ok(close(ncp.l, 122.93192525541662, 1e-6), `ncp l ${ncp.l}`);
+  assert.ok(close(ncp.b, 27.128252414968, 1e-6), `ncp b ${ncp.b}`);
 });
 
 test('forward/reverse round-trips are lossless across the sky', () => {

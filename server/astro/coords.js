@@ -1,14 +1,14 @@
 // Coordinate conversion utilities for the Processing/Matching layer.
 //
 // The authoritative implementation now lives in the shared @novochar/astro
-// package so the server, the tests and the Mode B client all share ONE
-// equatorial (RA/Dec) <-> Galactic (l, b) transform and one angular-separation
-// convention. See shared/astro/frames.js for the Astropy-matched rotation
-// matrix, constants and rotation-convention notes.
+// package so the server, tests, and client share one equatorial (RA/Dec, ICRS)
+// <-> Galactic (l, b) transform and one angular-separation convention. See
+// shared/astro/frames.js for the IAU ICRS-native Galactic rotation matrix,
+// constants, and rotation-convention notes.
 //
 // This module is kept as the server-facing entry point with a stable import
 // path; it re-exports the shared implementation unchanged, so existing callers
-// (`server/astro/index.js`, `server/astro/crossmatch.js`, tests) are unaffected.
+// remain unaffected.
 
 export {
   DEG2RAD,
