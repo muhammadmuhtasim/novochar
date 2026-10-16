@@ -115,7 +115,17 @@ function classifyPosterior(evidence, bounds, policy) {
   if (!Number.isFinite(cdfLow) || !Number.isFinite(cdfHigh)) {
     return classification(DISTANCE_CLASS.UNKNOWN, 'non-finite-probability');
   }
-  const probability = Math.min(1, Math.max(0, cdfHigh - cdfLow));
+  // A CDF is a probability in [0, 1] and must not decrease with distance. A
+  // malformed posterior is not evidence: it must never be silently clamped into
+  // a scientific membership result (a decreasing CDF would otherwise read as an
+  // "outside" claim). Report it as unknown, with the reason preserved.
+  if (cdfLow < 0 || cdfLow > 1 || cdfHigh < 0 || cdfHigh > 1) {
+    return classification(DISTANCE_CLASS.UNKNOWN, 'invalid-posterior-cdf');
+  }
+  if (cdfHigh < cdfLow) {
+    return classification(DISTANCE_CLASS.UNKNOWN, 'invalid-posterior-cdf');
+  }
+  const probability = cdfHigh - cdfLow;
   if (probability >= policy.locatedProbability) {
     return classification(DISTANCE_CLASS.LOCATED, 'posterior-within-shell', { probability });
   }

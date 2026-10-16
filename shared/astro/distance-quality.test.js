@@ -102,6 +102,17 @@ test('posterior evidence that is not a usable CDF is unknown', () => {
   assert.equal(classifyDistanceEvidence(posterior(() => { throw new Error('boom'); }), BOUNDS).status, DISTANCE_CLASS.UNKNOWN);
 });
 
+test('a malformed posterior CDF is unknown, never silently clamped into a claim', () => {
+  // A CDF value outside [0, 1] is not a probability.
+  assert.equal(classifyDistanceEvidence(posterior(() => 1.5), BOUNDS).status, DISTANCE_CLASS.UNKNOWN);
+  assert.equal(classifyDistanceEvidence(posterior(() => -0.2), BOUNDS).status, DISTANCE_CLASS.UNKNOWN);
+  // A decreasing CDF must not be read as "outside" via a clamped difference.
+  const decreasing = (d) => (d <= 90 ? 1 : 0);
+  const c = classifyDistanceEvidence(posterior(decreasing), BOUNDS);
+  assert.equal(c.status, DISTANCE_CLASS.UNKNOWN);
+  assert.equal(c.reason, 'invalid-posterior-cdf');
+});
+
 test('classification is deterministic and computes bounds from radius/thickness', () => {
   assert.deepEqual(
     classifyDistanceMembership(point(100), 100, 20),

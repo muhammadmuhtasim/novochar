@@ -77,12 +77,22 @@ export function shellQueryParams(view, { limit = 1000 } = {}) {
   };
 }
 
-/** A representative distance (canonical ly) for a classification, or null. */
-export function representativeDistance(classification) {
+/**
+ * The radial interval the distance evidence supports, in canonical light-years,
+ * for the 3D view. A point distance is a zero-width range; an interval keeps its
+ * own extent (an open upper bound stays +Infinity). Anything with no distance — a
+ * direction-only record, or a posterior whose CDF has no inverse — returns null,
+ * so the renderer never invents a radius. An interval is NEVER collapsed to a
+ * midpoint here: the range itself is what the evidence actually says.
+ */
+export function radialRange(classification) {
   if (!classification) return null;
-  if (Number.isFinite(classification.distance)) return classification.distance;
-  if (classification.interval && Number.isFinite(classification.interval.low) && Number.isFinite(classification.interval.high)) {
-    return (classification.interval.low + classification.interval.high) / 2;
+  if (Number.isFinite(classification.distance)) {
+    return { low: classification.distance, high: classification.distance };
+  }
+  const interval = classification.interval;
+  if (interval && Number.isFinite(interval.low)) {
+    return { low: interval.low, high: Number.isFinite(interval.high) ? interval.high : Infinity };
   }
   return null;
 }
@@ -109,8 +119,11 @@ export function shellRecordToRow(record) {
       catalog: record.provenance?.catalog ?? null,
       spectralType: record.spectralType ?? null,
       qualityNotes: Array.isArray(record.qualityNotes) ? record.qualityNotes : [],
-      distance: representativeDistance(classification),
+      // `distance` is a real point measurement only. An interval never becomes a
+      // scalar here — it is carried in `interval` (and `radialRange`) instead.
+      distance: Number.isFinite(classification.distance) ? classification.distance : null,
       interval: classification.interval ?? null,
+      radialRange: radialRange(classification),
       probability: Number.isFinite(classification.probability) ? classification.probability : null,
     },
   };
@@ -141,10 +154,17 @@ export function shellSceneMeta(result) {
 export function formatDistance(extras, unit = 'ly') {
   if (!extras) return null;
   const convert = (ly) => fromLightYears(ly, unit);
-  if (Number.isFinite(extras.distance)) return `${convert(extras.distance).toFixed(2)} ${unit}`;
-  if (extras.interval && Number.isFinite(extras.interval.low) && Number.isFinite(extras.interval.high)) {
-    return `${convert(extras.interval.low).toFixed(2)}–${convert(extras.interval.high).toFixed(2)} ${unit}`;
+  // The interval is the honest primary value: an interval must never be shown as
+  // one exact distance. A point distance is shown only when there is no interval
+  // to report.
+  const { interval, distance } = extras;
+  if (interval && Number.isFinite(interval.low)) {
+    if (Number.isFinite(interval.high)) {
+      return `${convert(interval.low).toFixed(2)}–${convert(interval.high).toFixed(2)} ${unit}`;
+    }
+    return `≥ ${convert(interval.low).toFixed(2)} ${unit}`;
   }
+  if (Number.isFinite(distance)) return `${convert(distance).toFixed(2)} ${unit}`;
   return null;
 }
 
@@ -158,11 +178,58 @@ export function distanceNote(extras) {
   if (extras.status === SHELL_LAYERS.UNKNOWN || extras.reason === 'no-distance') {
     return 'No usable distance: position is known, 3D shell membership is not.';
   }
+  if (extras.status === SHELL_LAYERS.UNCERTAIN) {
+    if (extras.interval && !Number.isFinite(extras.interval.high)) {
+      return 'Distance evidence is only a lower bound that reaches the band; membership is not definite.';
+    }
+    return 'Distance evidence is an interval that overlaps the band; the object is not definitely inside it.';
+  }
   if (Array.isArray(extras.qualityNotes) && extras.qualityNotes.includes('simulated')) {
     return 'Simulated source: distances are model values, not measurements.';
   }
   if (Array.isArray(extras.qualityNotes) && extras.qualityNotes.includes('distance-without-uncertainty')) {
     return 'Distance is carried without an uncertainty; membership is shown as adopted.';
   }
+  if (extras.interval) {
+    return 'Distance is an interval from the source, wholly inside the band.';
+  }
   return null;
+}
+
+/** Page size the Observe client requests; the server paginates the remainder. */
+export const SHELL_PAGE_SIZE = 300;
+
+/**
+ * True when a response arriving out of order must be dropped. Requests are
+ * tagged with a monotonically increasing sequence number and only the newest one
+ * may commit to state, so a slow earlier response can never overwrite a faster
+ * later one — which would leave the displayed catalogue stale.
+ */
+export function isSuperseded(responseSeq, latestSeq) {
+  return responseSeq !== latestSeq;
+}
+
+/**
+ * Merge a later page into the accumulated result. Records are de-duplicated by
+ * stable id (first occurrence wins), so a cursor that lands twice can never show
+ * an object twice; `counts.returned` is recomputed as the number actually on
+ * screen while the server's authoritative `members`/`pending` figures pass
+ * through unchanged.
+ */
+export function mergeShellResults(current, incoming) {
+  if (!current) return incoming ?? null;
+  if (!incoming) return current;
+  const existing = Array.isArray(current.records) ? current.records : [];
+  const seen = new Set(existing.map((record) => record.id));
+  const appended = (Array.isArray(incoming.records) ? incoming.records : []).filter(
+    (record) => !seen.has(record.id),
+  );
+  const records = [...existing, ...appended];
+  return {
+    ...current,
+    records,
+    counts: incoming.counts ? { ...incoming.counts, returned: records.length } : current.counts,
+    coverage: incoming.coverage ?? current.coverage,
+    page: incoming.page ?? current.page,
+  };
 }

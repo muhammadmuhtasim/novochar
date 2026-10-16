@@ -1127,6 +1127,53 @@ main.view {
   pointer-events: none;
 }
 
+/* Observe 3D layer legend: makes the shell/dome conventions explicit. */
+.observe-legend {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim, #8a93a6);
+  background: rgba(4, 5, 8, 0.82);
+  border: 1px solid var(--border-bright);
+  padding: 4px 10px;
+  pointer-events: none;
+}
+
+.observe-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.observe-legend .lg {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.observe-legend .lg-located { background: #66d9ff; }
+.observe-legend .lg-uncertain { background: #ffb266; }
+.observe-legend .lg-unknown { background: #5c6b7a; }
+
+/* Observe result footer: coverage counts plus progressive loading. */
+.observe-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.observe-footer .caption {
+  margin: 0;
+}
+
 .hover-tip {
   position: absolute;
   z-index: 30;

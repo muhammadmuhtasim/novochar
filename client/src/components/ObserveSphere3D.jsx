@@ -16,8 +16,19 @@ const ORBIT_RADIUS = 3;
 const MIN_FOV = 26;
 const MAX_FOV = 105;
 const SPHERE_RADIUS = 1;
+// Direction-only records are parked on a separate, clearly larger sky dome so
+// they can never be mistaken for objects sitting on the outer shell boundary.
+const SKY_DOME_FACTOR = 1.32;
+const MIN_RADIUS_FACTOR = 0.03;
+const MAX_RADIUS_FACTOR = 1.35;
 
 const MAG_KEY = (record) => (Number.isFinite(record?.mag) ? record.mag : Infinity);
+
+/** The radial interval a shell row carries, or null when it has no distance. */
+const radialRangeOf = (record) => {
+  const range = record?.extras?.radialRange;
+  return range && Number.isFinite(range.low) ? range : null;
+};
 
 /** White-hot for bright stars, dim blue for faint ones. */
 function writeColor(mag, target, offset) {
@@ -117,6 +128,22 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
     shellOuter.visible = false;
     view.add(shellInner, shellOuter);
 
+    // Direction-only records live on this dim sky dome — visually separate from
+    // the spatial shell, so a missing distance never looks like a real radius.
+    const skyDome = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0x5c6b7a, transparent: true, opacity: 0.16 }),
+    );
+    // Uncertain records are drawn as a radial spoke spanning their distance
+    // interval, rather than as a point at some representative distance.
+    const uncertainSpokes = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xffb266, transparent: true, opacity: 0.5 }),
+    );
+    skyDome.visible = false;
+    uncertainSpokes.visible = false;
+    view.add(skyDome, uncertainSpokes);
+
     let yaw = 0.7;
     let pitch = 0.3;
     let stars = [];
@@ -170,21 +197,48 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
 
     let currentShell = shellRef.current ?? null;
 
-    /**
-     * Radial position for a record. A located or uncertain record with a
-     * representative distance is placed at that radius (scaled so the outer band
-     * sits on the reference sphere). A direction-only record has no distance and
-     * stays on the surface — it is never given a fabricated radius.
-     */
-    const radiusFor = (record) => {
+    /** Map a canonical-light-year distance onto the reference-sphere scale. */
+    const scaledRadius = (ly) => {
       const meta = currentShell;
       if (!meta || !(meta.rMax > 0)) return SPHERE_RADIUS;
-      const status = record?.extras?.status;
-      const distance = record?.extras?.distance;
-      if ((status === 'located' || status === 'uncertain') && Number.isFinite(distance)) {
-        return SPHERE_RADIUS * Math.max(0.03, Math.min(1.3, distance / meta.rMax));
+      return SPHERE_RADIUS * Math.max(MIN_RADIUS_FACTOR, Math.min(MAX_RADIUS_FACTOR, ly / meta.rMax));
+    };
+
+    /**
+     * Radial position for a record. A record with distance evidence is placed on
+     * the band scale: a point at its distance, an interval marker at the span's
+     * midpoint (the span itself is drawn by `buildSpokes`). A direction-only
+     * record has no distance and is parked on the separate sky dome — it is never
+     * given a fabricated radius inside the shell.
+     */
+    const radiusFor = (record) => {
+      if (!currentShell || !(currentShell.rMax > 0)) return SPHERE_RADIUS;
+      const range = radialRangeOf(record);
+      if (!range) return SPHERE_RADIUS * SKY_DOME_FACTOR;
+      if (record?.extras?.status === 'uncertain' && Number.isFinite(range.high)) {
+        return scaledRadius((range.low + range.high) / 2);
       }
-      return SPHERE_RADIUS;
+      return scaledRadius(range.low);
+    };
+
+    /** Radial spokes spanning the distance interval of each uncertain record. */
+    const buildSpokes = (records, dirs) => {
+      const verts = [];
+      if (currentShell && currentShell.rMax > 0) {
+        records.forEach((record, index) => {
+          if (record?.extras?.status !== 'uncertain') return;
+          const range = radialRangeOf(record);
+          if (!range || !Number.isFinite(range.high) || range.high <= range.low) return;
+          const lo = scaledRadius(range.low);
+          const hi = scaledRadius(range.high);
+          const dir = dirs[index];
+          verts.push(dir[0] * lo, dir[1] * lo, dir[2] * lo);
+          verts.push(dir[0] * hi, dir[1] * hi, dir[2] * hi);
+        });
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      return geometry;
     };
 
     const setSelected = (id) => {
@@ -199,8 +253,10 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       const records = nextScene?.catalog?.records ?? [];
       const positions = new Float32Array(records.length * 3);
       const colors = new Float32Array(records.length * 3);
+      const dirs = new Array(records.length);
       stars = records.map((record, index) => {
         const dir = skyDirectionOf(nextScene, record);
+        dirs[index] = dir;
         const radius = radiusFor(record);
         positions[index * 3] = dir[0] * radius;
         positions[index * 3 + 1] = dir[1] * radius;
@@ -213,6 +269,23 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       nextPoints.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       replaceGeometry(points, nextPoints);
       replaceGeometry(grid, buildWireSphere(SPHERE_RADIUS * 1.001));
+
+      // The sky dome is shown only when there is a band and at least one record
+      // has no distance to place; its size makes the directional convention
+      // unmistakable against the spatial shell.
+      const showDome = Boolean(
+        currentShell && currentShell.rMax > 0 && records.some((record) => !radialRangeOf(record)),
+      );
+      replaceGeometry(
+        skyDome,
+        showDome ? buildWireSphere(SPHERE_RADIUS * SKY_DOME_FACTOR) : new THREE.BufferGeometry(),
+      );
+      skyDome.visible = showDome;
+
+      const spokes = buildSpokes(records, dirs);
+      replaceGeometry(uncertainSpokes, spokes);
+      uncertainSpokes.visible = spokes.getAttribute('position').count > 0;
+
       setSelected(selectedRef.current);
     };
 
@@ -373,6 +446,11 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
     <div className="canvas-wrap observe-sphere" ref={wrapRef}>
       <canvas ref={canvasRef} className="sky-canvas observe-sphere-canvas" aria-label="Celestial sphere (3D)" />
       <div className="readout">3D SPHERE · drag to orbit · scroll to zoom · click to select</div>
+      <div className="observe-legend" aria-hidden="true">
+        <span className="observe-legend-item"><i className="lg lg-located" />located</span>
+        <span className="observe-legend-item"><i className="lg lg-uncertain" />uncertain (radial range)</span>
+        <span className="observe-legend-item"><i className="lg lg-unknown" />unknown · sky dome</span>
+      </div>
     </div>
   );
 }

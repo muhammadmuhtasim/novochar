@@ -8,7 +8,9 @@ import {
   LAYER_ORDER,
   distanceNote,
   formatDistance,
-  representativeDistance,
+  isSuperseded,
+  mergeShellResults,
+  radialRange,
   shellQueryParams,
   shellRecordToRow,
   shellResultToRows,
@@ -87,12 +89,29 @@ test('a shell record maps to an ICRS row with its shell metadata in extras', () 
   assert.equal(star.extras.spectralType, 'A1V');
 });
 
-test('representative distance uses the value, then the interval midpoint, then null', () => {
-  assert.equal(representativeDistance({ distance: 12 }), 12);
-  assert.equal(representativeDistance({ interval: { low: 90, high: 110 } }), 100);
-  assert.equal(representativeDistance({ interval: { low: 90, high: Infinity } }), null);
-  assert.equal(representativeDistance({}), null);
-  assert.equal(representativeDistance(null), null);
+test('radial range keeps a point as a zero-width span and an interval as itself', () => {
+  assert.deepEqual(radialRange({ distance: 12 }), { low: 12, high: 12 });
+  // An interval is passed through; it is never collapsed to a midpoint.
+  assert.deepEqual(radialRange({ interval: { low: 90, high: 110 } }), { low: 90, high: 110 });
+  assert.deepEqual(radialRange({ interval: { low: 90, high: Infinity } }), { low: 90, high: Infinity });
+  assert.equal(radialRange({}), null);
+  assert.equal(radialRange(null), null);
+});
+
+test('an interval record never exposes a scalar distance', () => {
+  const row = shellRecordToRow(
+    record({
+      status: DISTANCE_CLASS.UNCERTAIN,
+      classification: {
+        status: DISTANCE_CLASS.UNCERTAIN,
+        reason: 'interval-overlaps-shell',
+        interval: { low: 80, high: 130 },
+      },
+    }),
+  );
+  assert.equal(row.extras.distance, null);
+  assert.deepEqual(row.extras.interval, { low: 80, high: 130 });
+  assert.deepEqual(row.extras.radialRange, { low: 80, high: 130 });
 });
 
 test('unknown records keep no invented distance', () => {
@@ -120,14 +139,47 @@ test('shellSceneMeta carries bounds, counts and coverage for the UI', () => {
 test('formatDistance renders a value or an interval, and nothing for unknown', () => {
   assert.equal(formatDistance({ distance: 12.345 }), '12.35 ly');
   assert.equal(formatDistance({ interval: { low: 90, high: 110 } }), '90.00–110.00 ly');
+  assert.equal(formatDistance({ interval: { low: 120, high: Infinity } }), '≥ 120.00 ly');
   // Converting, not relabelling: 3.261563777 ly is exactly one parsec.
   assert.equal(formatDistance({ distance: 3.261563777 }, 'pc'), '1.00 pc');
   assert.equal(formatDistance({}), null);
   assert.equal(formatDistance(null), null);
 });
 
+test('an interval is shown as a range even when a scalar distance is also present', () => {
+  // Regression: the display must never collapse an interval to its midpoint.
+  assert.equal(
+    formatDistance({ distance: 100, interval: { low: 80, high: 130 } }),
+    '80.00–130.00 ly',
+  );
+});
+
+test('pagination never double-counts an id, and superseded responses are dropped', () => {
+  const page = (records, counts, next) => ({
+    records,
+    counts,
+    page: { limit: 2, offset: 0, next, complete: next === null },
+  });
+  const first = page([{ id: 'a' }, { id: 'b' }], { members: 3, returned: 2, pending: 1 }, 2);
+  const second = page([{ id: 'b' }, { id: 'c' }], { members: 3, returned: 2, pending: 0 }, null);
+  const merged = mergeShellResults(first, second);
+  assert.deepEqual(merged.records.map((r) => r.id), ['a', 'b', 'c']);
+  assert.equal(merged.counts.returned, 3, 'returned reflects what is on screen');
+  assert.equal(merged.counts.members, 3);
+  assert.equal(merged.counts.pending, 0);
+  assert.equal(merged.page.complete, true);
+  // A first page has nothing to merge with.
+  assert.equal(mergeShellResults(null, first), first);
+
+  // Sequence guard: a slow earlier response must not overwrite a newer one.
+  assert.equal(isSuperseded(1, 2), true);
+  assert.equal(isSuperseded(2, 2), false);
+});
+
 test('distanceNote explains how a distance was obtained, honestly', () => {
   assert.match(distanceNote({ status: 'unknown' }), /No usable distance/);
+  assert.match(distanceNote({ status: 'uncertain', interval: { low: 80, high: 130 } }), /overlaps the band/);
+  assert.match(distanceNote({ status: 'uncertain', interval: { low: 10, high: Infinity } }), /lower bound/);
   assert.match(distanceNote({ status: 'located', qualityNotes: ['simulated'] }), /Simulated/);
   assert.match(distanceNote({ status: 'located', qualityNotes: ['distance-without-uncertainty'] }), /without an uncertainty/);
   assert.equal(distanceNote({ status: 'located' }), null);

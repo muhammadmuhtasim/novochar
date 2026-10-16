@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fromLightYears } from '@novochar/astro';
 import { api } from '../lib/api.js';
@@ -7,9 +7,12 @@ import {
   DEFAULT_SHELL_VIEW,
   LAYER_META,
   LAYER_ORDER,
+  SHELL_PAGE_SIZE,
   SHELL_UNIT_OPTIONS,
   distanceNote,
   formatDistance,
+  isSuperseded,
+  mergeShellResults,
   shellQueryParams,
   shellResultToRows,
   shellSceneMeta,
@@ -92,34 +95,80 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
   const [reload, setReload] = useState(0);
   const [viewFrame, setViewFrame] = useState(VIEW_FRAMES.ICRS);
   const [shell, setShell] = useState(DEFAULT_SHELL_VIEW);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Every request gets a monotonically increasing sequence number and its own
+  // AbortController. Only the newest sequence may commit to state, so a slow
+  // earlier response can never overwrite a faster later one — and the superseded
+  // request is aborted rather than left hanging.
+  const seqRef = useRef(0);
+  const abortRef = useRef(null);
+  const loadingMoreRef = useRef(false);
+
+  // Abort whatever is in flight when the view unmounts.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const layerKey = LAYER_ORDER.map((id) => (shell.layers[id] ? '1' : '0')).join('');
 
   useEffect(() => {
-    let cancelled = false;
+    // Abandon anything still in flight (including a "load more") before the next
+    // page-one request, so a superseded response is aborted, not just ignored.
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const seq = ++seqRef.current;
     setError('');
-    const params = shellQueryParams(shell, { limit: 1000 });
+    setLoadingMore(false);
+    loadingMoreRef.current = false;
+    const params = shellQueryParams(shell, { limit: SHELL_PAGE_SIZE });
     const timer = setTimeout(() => {
       api
-        .shell(params)
+        .shell(params, { signal: controller.signal })
         .then((data) => {
-          if (cancelled) return;
+          if (isSuperseded(seq, seqRef.current)) return;
           setResult(data);
           setStatus('ready');
         })
         .catch((err) => {
-          if (cancelled) return;
+          if (isSuperseded(seq, seqRef.current) || err?.name === 'AbortError') return;
           setError(err?.message || 'Unable to query the shell');
           setStatus('error');
         });
     }, 220);
     return () => {
-      cancelled = true;
       clearTimeout(timer);
+      controller.abort();
     };
     // `layerKey` collapses the three layer toggles into one dependency so the
     // effect does not re-run when an unrelated `shell` field changes identity.
   }, [shell.radius, shell.thickness, shell.unit, layerKey, reload]);
+
+  // Append the next page. The cursor comes from the server, so paging always
+  // continues the exact same query; results are de-duplicated by id on merge.
+  const loadMore = () => {
+    const next = result?.page?.next;
+    if (next === null || next === undefined || loadingMoreRef.current || status !== 'ready') return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const seq = ++seqRef.current;
+    const params = { ...shellQueryParams(shell, { limit: SHELL_PAGE_SIZE }), cursor: next };
+    api
+      .shell(params, { signal: controller.signal })
+      .then((data) => {
+        if (isSuperseded(seq, seqRef.current)) return;
+        setResult((prev) => mergeShellResults(prev, data));
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      })
+      .catch((err) => {
+        if (isSuperseded(seq, seqRef.current) || err?.name === 'AbortError') return;
+        setError(err?.message || 'Unable to load more');
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      });
+  };
 
   const baseScene = useMemo(
     () => (result ? createObserveScene(shellResultToRows(result), {
@@ -289,12 +338,19 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
       )}
 
       {counts && (
-        <p className="muted caption">
-          {counts.returned} of {counts.members} matched records shown
-          {' · '}
-          {counts.located} located · {counts.uncertain} uncertain · {counts.unknown} unknown
-          {counts.pending > 0 ? ` · ${counts.pending} more available` : ''}.
-        </p>
+        <div className="observe-footer">
+          <p className="muted caption">
+            {counts.returned} of {counts.members} matched records shown
+            {' · '}
+            {counts.located} located · {counts.uncertain} uncertain · {counts.unknown} unknown
+            {counts.pending > 0 ? ` · ${counts.pending} not yet loaded` : ' · complete'}.
+          </p>
+          {counts.pending > 0 && (
+            <button className="btn sm" onClick={loadMore} disabled={loadingMore || status !== 'ready'}>
+              {loadingMore ? 'Loading…' : `Load ${Math.min(SHELL_PAGE_SIZE, counts.pending)} more`}
+            </button>
+          )}
+        </div>
       )}
     </>
   );
