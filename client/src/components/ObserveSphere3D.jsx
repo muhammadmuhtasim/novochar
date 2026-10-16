@@ -29,21 +29,49 @@ function writeColor(mag, target, offset) {
   target[offset + 2] = 0.75 + 0.25 * t;
 }
 
-export default function ObserveSphere3D({ scene, selectedId = null, onSelect = () => {} }) {
+/**
+ * Marker colour by distance layer, matching the 2D map: located bright cyan,
+ * uncertain amber, unknown a dim neutral grey. The unknown colour is deliberately
+ * muted — it is the visual counterpart of not having a distance. Falls back to
+ * magnitude for records that carry no shell classification (e.g. a future source).
+ */
+function writeShellColor(record, target, offset) {
+  const status = record?.extras?.status;
+  if (status === 'located') {
+    target[offset] = 0.58;
+    target[offset + 1] = 0.88;
+    target[offset + 2] = 1;
+  } else if (status === 'uncertain') {
+    target[offset] = 1;
+    target[offset + 1] = 0.74;
+    target[offset + 2] = 0.42;
+  } else if (status === 'unknown') {
+    target[offset] = 0.45;
+    target[offset + 1] = 0.49;
+    target[offset + 2] = 0.57;
+  } else {
+    writeColor(record?.mag, target, offset);
+  }
+}
+
+export default function ObserveSphere3D({ scene, selectedId = null, onSelect = () => {}, shell = null }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
   const engineRef = useRef(null);
   const selectRef = useRef(onSelect);
   const sceneRef = useRef(scene);
   const selectedRef = useRef(selectedId);
+  const shellRef = useRef(shell);
   sceneRef.current = scene;
   selectedRef.current = selectedId;
+  shellRef.current = shell;
 
   useEffect(() => { selectRef.current = onSelect; }, [onSelect]);
 
   // Prop changes are forwarded to the live engine (if it exists yet).
   useEffect(() => { engineRef.current?.setCatalog(scene); }, [scene]);
   useEffect(() => { engineRef.current?.setSelected(selectedId); }, [selectedId]);
+  useEffect(() => { engineRef.current?.setShell(shell); }, [shell]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -74,6 +102,20 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
     );
     marker.visible = false;
     view.add(marker);
+
+    // Shell band: an inner and an outer wireframe bound the selected band. Both
+    // stay hidden until a band arrives, so a scene without one is unchanged.
+    const shellInner = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xffb266, transparent: true, opacity: 0.3 }),
+    );
+    const shellOuter = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0x66d9ff, transparent: true, opacity: 0.35 }),
+    );
+    shellInner.visible = false;
+    shellOuter.visible = false;
+    view.add(shellInner, shellOuter);
 
     let yaw = 0.7;
     let pitch = 0.3;
@@ -107,13 +149,12 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       if (previous && previous !== geometry) previous.dispose();
     };
 
-    const buildGridGeometry = () => {
+    const buildWireSphere = (radius) => {
       const deg = Math.PI / 180;
-      const r = SPHERE_RADIUS * 1.001;
       const at = (lonDeg, latDeg) => {
         const la = latDeg * deg;
         const lo = lonDeg * deg;
-        return [r * Math.cos(la) * Math.cos(lo), r * Math.cos(la) * Math.sin(lo), r * Math.sin(la)];
+        return [radius * Math.cos(la) * Math.cos(lo), radius * Math.cos(la) * Math.sin(lo), radius * Math.sin(la)];
       };
       const verts = [];
       for (let lat = -60; lat <= 60; lat += 30) {
@@ -127,10 +168,29 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       return geometry;
     };
 
+    let currentShell = shellRef.current ?? null;
+
+    /**
+     * Radial position for a record. A located or uncertain record with a
+     * representative distance is placed at that radius (scaled so the outer band
+     * sits on the reference sphere). A direction-only record has no distance and
+     * stays on the surface — it is never given a fabricated radius.
+     */
+    const radiusFor = (record) => {
+      const meta = currentShell;
+      if (!meta || !(meta.rMax > 0)) return SPHERE_RADIUS;
+      const status = record?.extras?.status;
+      const distance = record?.extras?.distance;
+      if ((status === 'located' || status === 'uncertain') && Number.isFinite(distance)) {
+        return SPHERE_RADIUS * Math.max(0.03, Math.min(1.3, distance / meta.rMax));
+      }
+      return SPHERE_RADIUS;
+    };
+
     const setSelected = (id) => {
       const star = id ? stars.find((s) => s.record.id === id) : null;
       if (!star) { marker.visible = false; render(); return; }
-      marker.position.set(star.dir[0], star.dir[1], star.dir[2]).multiplyScalar(SPHERE_RADIUS * 1.004);
+      marker.position.set(star.dir[0], star.dir[1], star.dir[2]).multiplyScalar(star.radius * 1.004);
       marker.visible = true;
       render();
     };
@@ -141,18 +201,39 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       const colors = new Float32Array(records.length * 3);
       stars = records.map((record, index) => {
         const dir = skyDirectionOf(nextScene, record);
-        positions[index * 3] = dir[0] * SPHERE_RADIUS;
-        positions[index * 3 + 1] = dir[1] * SPHERE_RADIUS;
-        positions[index * 3 + 2] = dir[2] * SPHERE_RADIUS;
-        writeColor(record.mag, colors, index * 3);
-        return { record, dir };
+        const radius = radiusFor(record);
+        positions[index * 3] = dir[0] * radius;
+        positions[index * 3 + 1] = dir[1] * radius;
+        positions[index * 3 + 2] = dir[2] * radius;
+        writeShellColor(record, colors, index * 3);
+        return { record, dir, radius };
       });
       const nextPoints = new THREE.BufferGeometry();
       nextPoints.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       nextPoints.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       replaceGeometry(points, nextPoints);
-      replaceGeometry(grid, buildGridGeometry());
+      replaceGeometry(grid, buildWireSphere(SPHERE_RADIUS * 1.001));
       setSelected(selectedRef.current);
+    };
+
+    /**
+     * Show (or hide) the shell band. The outer wireframe sits on the reference
+     * sphere; the inner one contracts by rMin/rMax. Rebuilding the point radii is
+     * part of the same operation, because a record's radius depends on the band.
+     */
+    const setShell = (meta) => {
+      currentShell = meta ?? null;
+      if (!currentShell || !(currentShell.rMax > 0)) {
+        shellInner.visible = false;
+        shellOuter.visible = false;
+      } else {
+        const innerRadius = SPHERE_RADIUS * Math.max(0, Math.min(1, currentShell.rMin / currentShell.rMax));
+        replaceGeometry(shellInner, buildWireSphere(innerRadius));
+        replaceGeometry(shellOuter, buildWireSphere(SPHERE_RADIUS));
+        shellInner.visible = innerRadius > 0.002;
+        shellOuter.visible = true;
+      }
+      setCatalog(sceneRef.current);
     };
 
     // Nearest star to a screen position, restricted to the hemisphere facing the
@@ -168,7 +249,7 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
         const facing =
           star.dir[0] * camDir.x + star.dir[1] * camDir.y + star.dir[2] * camDir.z;
         if (facing <= 0.05) continue;
-        v.set(star.dir[0], star.dir[1], star.dir[2]).multiplyScalar(SPHERE_RADIUS).project(camera);
+        v.set(star.dir[0], star.dir[1], star.dir[2]).multiplyScalar(star.radius).project(camera);
         const sx = (v.x * 0.5 + 0.5) * width;
         const sy = (-v.y * 0.5 + 0.5) * height;
         const d2 = (sx - px) ** 2 + (sy - py) ** 2;
@@ -264,10 +345,10 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
     const observer = new ResizeObserver(resize);
     observer.observe(wrap);
 
-    engineRef.current = { setCatalog, setSelected };
+    engineRef.current = { setCatalog, setSelected, setShell };
     updateCamera();
     resize();
-    setCatalog(sceneRef.current);
+    setShell(shellRef.current);
     setSelected(selectedRef.current);
 
     return () => {

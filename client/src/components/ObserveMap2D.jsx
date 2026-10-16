@@ -23,6 +23,18 @@ function magnitudeRadius(mag) {
   return Math.max(1.1, Math.min(5.5, 4.6 - mag * 0.55));
 }
 
+/**
+ * Marker colour by distance layer. An unknown layer never gets a confident
+ * colour: it is drawn dim and neutral, the visual counterpart of not having a
+ * distance.
+ */
+function statusColor(status) {
+  if (status === 'located') return 'rgba(150,225,255,0.95)';
+  if (status === 'uncertain') return 'rgba(255,190,120,0.9)';
+  if (status === 'unknown') return 'rgba(150,160,175,0.5)';
+  return 'rgba(220,230,240,0.9)';
+}
+
 function fmtMag(mag) {
   return Number.isFinite(mag) ? `V ${mag.toFixed(2)}` : 'V —';
 }
@@ -145,8 +157,9 @@ export default function ObserveMap2D({ scene, selectedId = null, onSelect = () =
         if (sx < -12 || sy < -12 || sx > width + 12 || sy > height + 12) continue;
         const r = magnitudeRadius(point.record.mag);
         const isSelected = point.id === selected;
+        const color = statusColor(point.record.extras?.status);
         ctx.beginPath();
-        ctx.fillStyle = isSelected ? '#ffe0bd' : 'rgba(178,216,255,0.9)';
+        ctx.fillStyle = color;
         ctx.arc(sx, sy, isSelected ? r + 1.4 : r, 0, Math.PI * 2);
         ctx.fill();
         if (isSelected) {

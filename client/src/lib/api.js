@@ -56,6 +56,20 @@ export const api = {
   // survey `objects` so the two never blur together.
   stars: () => staticOrApi('stars.json', '/catalog/stars'),
   star: (id) => getJSON(`/catalog/stars/${encodeURIComponent(id)}`),
+  // Sun-centered spherical-shell query for Mode B Observe. The server does the
+  // candidate retrieval and exact membership from the shared @novochar/astro
+  // predicates; the client only asks for a band and the layers it should show.
+  shell: ({ radius, thickness, unit, include, limit, cursor, sources } = {}) => {
+    const qs = new URLSearchParams();
+    if (radius !== undefined) qs.set('radius', String(radius));
+    if (thickness !== undefined) qs.set('thickness', String(thickness));
+    if (unit) qs.set('unit', unit);
+    if (include) qs.set('include', include);
+    if (limit !== undefined) qs.set('limit', String(limit));
+    if (cursor !== undefined) qs.set('cursor', String(cursor));
+    if (sources) qs.set('sources', sources);
+    return getJSON(`/observe/shell?${qs.toString()}`);
+  },
   blink: (id, count = 18) => getJSON(`/objects/${id}/blink?count=${count}`),
   presets: () => staticOrApi('presets.json', '/presets'),
   neo: (key) => getJSON(`/nasa/neo${key ? `?api_key=${encodeURIComponent(key)}` : ''}`),

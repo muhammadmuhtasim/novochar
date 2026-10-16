@@ -1,37 +1,66 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
+import { fromLightYears } from '@novochar/astro';
 import { api } from '../lib/api.js';
 import { VIEW_FRAMES } from '../lib/observe/frame.js';
+import {
+  DEFAULT_SHELL_VIEW,
+  LAYER_META,
+  LAYER_ORDER,
+  SHELL_UNIT_OPTIONS,
+  distanceNote,
+  formatDistance,
+  shellQueryParams,
+  shellResultToRows,
+  shellSceneMeta,
+} from '../lib/observe/shell.js';
 import { createObserveScene, selectionViews, withViewFrame } from '../lib/observe/scene.js';
-import { starArtifactMeta, starArtifactToRows } from '../lib/observe/source.js';
 import ObserveMap2D from './ObserveMap2D.jsx';
 import ObserveSphere3D from './ObserveSphere3D.jsx';
 
-// Mode B — Observe: a linked 2D Mollweide map and 3D celestial sphere over one
-// canonical star catalogue. Both renderers are handed the SAME observe scene, so
-// selection is a single stable record id shared with each other and with the
-// rest of the app (through `selectedId` / `onSelect`). The frame toggle re-derives
-// both views from the same catalogue via the shared frame adapter; no view
-// re-implements a frame transform.
+// Mode B — Observe: a linked 2D Mollweide map and 3D celestial sphere over the
+// Sun-centered shell query. The three layers are explicit and honest:
+//
+//   located    a usable distance that falls inside the band;
+//   uncertain  distance evidence that overlaps the band but is not definite;
+//   unknown    no usable distance — direction only, never an invented position.
+//
+// The band, the membership test and the classification all come from the server
+// (which uses the shared @novochar/astro core); this component only owns the
+// controls and hands one scene to both renderers, so the two views can never
+// disagree about which object is which.
 
 const FRAME_OPTIONS = [
   { id: VIEW_FRAMES.ICRS, label: 'ICRS' },
   { id: VIEW_FRAMES.GALACTIC, label: 'GALACTIC' },
 ];
 
+const STATUS_LABEL = {
+  located: 'LOCATED',
+  uncertain: 'UNCERTAIN',
+  unknown: 'UNKNOWN',
+};
+
 function degrees(value) {
   return Number.isFinite(value) ? `${value.toFixed(4)}°` : '—';
 }
 
-function TargetReadout({ views, viewFrame }) {
+function parseBand(value, fallback) {
+  const next = Number(value);
+  return Number.isFinite(next) && next >= 0 ? next : fallback;
+}
+
+function ShellTarget({ views, viewFrame, unit }) {
   const { record, sky } = views;
   const extras = record.extras ?? {};
   const lonLabel = viewFrame === VIEW_FRAMES.GALACTIC ? 'GALACTIC l' : 'RA';
   const latLabel = viewFrame === VIEW_FRAMES.GALACTIC ? 'GALACTIC b' : 'DEC';
+  const distance = formatDistance(extras, unit);
+  const status = extras.status ?? null;
   return (
     <div className="observe-target">
       <div className="target-info">
-        <span className="obj-type">{extras.type || 'STAR'}</span>
+        <span className="obj-type">{extras.type || 'OBJECT'}</span>
         <div className="target-title">
           <h3>{record.name || record.id}</h3>
           <span className="muted sm">{record.id}</span>
@@ -43,55 +72,63 @@ function TargetReadout({ views, viewFrame }) {
         <div><dt>{lonLabel}</dt><dd>{degrees(sky.lonDeg)}</dd></div>
         <div><dt>{latLabel}</dt><dd>{degrees(sky.latDeg)}</dd></div>
         <div><dt>V MAG</dt><dd>{Number.isFinite(record.mag) ? record.mag.toFixed(2) : '—'}</dd></div>
-        <div><dt>SPECTRAL</dt><dd>{extras.spectralType || '—'}</dd></div>
+        <div><dt>SHELL</dt><dd>{status ? STATUS_LABEL[status] ?? status.toUpperCase() : '—'}</dd></div>
+        <div><dt>DISTANCE</dt><dd>{distance ?? 'unknown (direction only)'}</dd></div>
+        <div><dt>SOURCE</dt><dd>{extras.catalog || extras.source || '—'}</dd></div>
       </dl>
       <p className="muted caption">
-        Resolved in both views from one scene: the point is {views.map ? 'on' : 'off'} the Mollweide map and its
-        sphere direction is shared with the 3D view.
+        {distanceNote(extras) ||
+          `Band membership comes from the shared shell predicate (${extras.reason || 'classified'}).`}
       </p>
     </div>
   );
 }
 
 export default function Observe({ selectedId = null, onSelect = () => {} }) {
-  const [artifact, setArtifact] = useState(null);
+  const [result, setResult] = useState(null);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
   const [viewFrame, setViewFrame] = useState(VIEW_FRAMES.ICRS);
+  const [shell, setShell] = useState(DEFAULT_SHELL_VIEW);
+
+  const layerKey = LAYER_ORDER.map((id) => (shell.layers[id] ? '1' : '0')).join('');
 
   useEffect(() => {
     let cancelled = false;
-    setStatus('loading');
     setError('');
-    api
-      .stars()
-      .then((data) => {
-        if (cancelled) return;
-        if (!Array.isArray(data?.stars) || data.stars.length === 0) {
-          throw new Error('Star catalog response contained no stars');
-        }
-        setArtifact(data);
-        setStatus('ready');
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setArtifact(null);
-        setError(err?.message || 'Unable to load the star catalog');
-        setStatus('error');
-      });
-    return () => { cancelled = true; };
-  }, [reload]);
+    const params = shellQueryParams(shell, { limit: 1000 });
+    const timer = setTimeout(() => {
+      api
+        .shell(params)
+        .then((data) => {
+          if (cancelled) return;
+          setResult(data);
+          setStatus('ready');
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(err?.message || 'Unable to query the shell');
+          setStatus('error');
+        });
+    }, 220);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // `layerKey` collapses the three layer toggles into one dependency so the
+    // effect does not re-run when an unrelated `shell` field changes identity.
+  }, [shell.radius, shell.thickness, shell.unit, layerKey, reload]);
 
-  // One canonical scene built from the artifact; the frame toggle re-projects it.
-  const baseScene = useMemo(() => {
-    if (!artifact) return null;
-    return createObserveScene(starArtifactToRows(artifact), {
+  const baseScene = useMemo(
+    () => (result ? createObserveScene(shellResultToRows(result), {
       projection: 'mollweide',
-      source: 'stars',
-      meta: starArtifactMeta(artifact),
-    });
-  }, [artifact]);
+      frame: 'icrs',
+      source: 'shell',
+      meta: shellSceneMeta(result),
+    }) : null),
+    [result],
+  );
 
   const scene = useMemo(
     () => (baseScene && viewFrame !== baseScene.viewFrame ? withViewFrame(baseScene, viewFrame) : baseScene),
@@ -100,11 +137,11 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
 
   const selected = useMemo(() => (scene ? selectionViews(scene, selectedId) : null), [scene, selectedId]);
 
-  if (status === 'loading') {
-    return <div className="module-loading" role="status" aria-live="polite">Loading star catalogue…</div>;
+  if (status === 'loading' && !result) {
+    return <div className="module-loading" role="status" aria-live="polite">Querying the shell…</div>;
   }
 
-  if (status === 'error') {
+  if (status === 'error' && !result) {
     return (
       <section className="panel">
         <div className="panel-head"><h2>OBSERVE</h2><span className="tag">ERROR</span></div>
@@ -114,8 +151,16 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
     );
   }
 
-  const stats = scene.catalog.stats;
-  const firstIssue = scene.catalog.issues[0];
+  const stats = result ? { accepted: shellResultToRows(result).length } : { accepted: 0 };
+  const bounds = result?.bounds ?? null;
+  const counts = result?.counts ?? null;
+  const displayUnit = shell.unit;
+  // Bounds come back in the canonical unit (ly); show them in the unit the user
+  // chose, converting rather than relabelling.
+  const band = bounds
+    ? { lo: fromLightYears(bounds.rMin, displayUnit), hi: fromLightYears(bounds.rMax, displayUnit) }
+    : null;
+  const coverageNote = (result?.coverage ?? []).find((entry) => entry.status !== 'ok');
 
   return (
     <>
@@ -136,28 +181,75 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
           </div>
         </div>
         <div className="tb-group">
-          <span className="tb-label">PROJECTION</span>
-          <span className="muted">{scene.projection.name}</span>
+          <span className="tb-label">SHELL RADIUS</span>
+          <input
+            className="shell-number"
+            type="number"
+            min="0"
+            step="1"
+            value={shell.radius}
+            aria-label="Shell mean radius"
+            onChange={(event) => setShell((s) => ({ ...s, radius: parseBand(event.target.value, s.radius) }))}
+          />
+          <select
+            className="select shell-select"
+            value={shell.unit}
+            aria-label="Distance unit"
+            onChange={(event) => setShell((s) => ({ ...s, unit: event.target.value }))}
+          >
+            {SHELL_UNIT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </div>
+        <div className="tb-group">
+          <span className="tb-label">THICKNESS</span>
+          <input
+            className="shell-number"
+            type="number"
+            min="0"
+            step="1"
+            value={shell.thickness}
+            aria-label="Shell full thickness"
+            onChange={(event) => setShell((s) => ({ ...s, thickness: parseBand(event.target.value, s.thickness) }))}
+          />
+          <span className="muted sm">{shell.unit}</span>
+        </div>
+        <div className="tb-group">
+          <span className="tb-label">LAYERS</span>
+          <div className="seg-view" role="group" aria-label="Distance layers">
+            {LAYER_ORDER.map((id) => (
+              <button
+                key={id}
+                className={`seg${shell.layers[id] ? ' on' : ''}`}
+                aria-pressed={Boolean(shell.layers[id])}
+                title={LAYER_META[id].note}
+                onClick={() => setShell((s) => ({ ...s, layers: { ...s.layers, [id]: !s.layers[id] } }))}
+              >
+                {LAYER_META[id].label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="tb-spacer" />
         <div className="tb-group">
-          <span className="tb-label">{stats.accepted} / {stats.rows} OBJECTS</span>
+          <span className="tb-label">BAND</span>
+          <span className="muted sm">
+            {band ? `${band.lo.toFixed(2)} – ${band.hi.toFixed(2)} ${displayUnit}` : '—'}
+          </span>
         </div>
       </section>
 
-      {stats.rejected > 0 && (
-        <p className="muted caption">
-          {stats.rejected} row{stats.rejected === 1 ? '' : 's'} rejected by the catalog frame policy
-          {firstIssue ? ` (first reason: ${firstIssue.reason})` : ''}. Coordinates are never reinterpreted.
+      {(status === 'error' || coverageNote) && (
+        <p className="err sm">
+          {status === 'error' ? error : `Source warning: ${coverageNote.source} — ${coverageNote.error || 'unavailable'}.`}
         </p>
       )}
 
       {stats.accepted === 0 ? (
         <section className="panel">
-          <div className="panel-head"><h2>NO OBSERVABLE OBJECTS</h2><span className="tag">FRAME POLICY</span></div>
+          <div className="panel-head"><h2>EMPTY SHELL</h2><span className="tag">NO LAYER</span></div>
           <p className="muted">
-            The catalog rejected every row, so there is nothing to project. This is the frame policy working as
-            intended: a source must declare ICRS, and any other frame must be converted before it reaches Observe.
+            No records match this band and layer selection. Widen the radius or thickness, or enable the
+            unknown/direction-only layer to see objects whose distance is not known.
           </p>
         </section>
       ) : (
@@ -172,10 +264,10 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
 
           <section className="panel observe-panel">
             <div className="panel-head">
-              <h2>CELESTIAL SPHERE</h2>
+              <h2>SHELL SPHERE</h2>
               <span className="tag">3D · {viewFrame.toUpperCase()}</span>
             </div>
-            <ObserveSphere3D scene={scene} selectedId={selectedId} onSelect={onSelect} />
+            <ObserveSphere3D scene={scene} selectedId={selectedId} onSelect={onSelect} shell={bounds} />
           </section>
 
           <section className="panel observe-wide">
@@ -184,7 +276,7 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
               <span className="tag">SHARED SELECTION</span>
             </div>
             {selected ? (
-              <TargetReadout views={selected} viewFrame={viewFrame} />
+              <ShellTarget views={selected} viewFrame={viewFrame} unit={displayUnit} />
             ) : (
               <p className="muted">
                 Click an object in the map or the sphere. The selection is one stable object id, so it appears in
@@ -193,6 +285,15 @@ export default function Observe({ selectedId = null, onSelect = () => {} }) {
             )}
           </section>
         </div>
+      )}
+
+      {counts && (
+        <p className="muted caption">
+          {counts.returned} of {counts.members} matched records shown
+          {' · '}
+          {counts.located} located · {counts.uncertain} uncertain · {counts.unknown} unknown
+          {counts.pending > 0 ? ` · ${counts.pending} more available` : ''}.
+        </p>
       )}
     </>
   );

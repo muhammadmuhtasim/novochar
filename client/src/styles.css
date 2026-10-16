@@ -760,6 +760,17 @@ main.view {
   color: var(--text-primary);
 }
 
+/* Spherical-shell controls: compact numeric inputs and unit select in the
+   Observe toolbar. Scoped under `.sky-toolbar` so they outweigh the shared
+   `input[type="number"]` rule, which has a higher specificity than a lone class. */
+.sky-toolbar .shell-number {
+  width: 76px;
+  padding: 5px 11px;
+}
+.sky-toolbar .shell-select {
+  padding: 5px 11px;
+}
+
 /* Range Slider */
 .range {
   -webkit-appearance: none;
