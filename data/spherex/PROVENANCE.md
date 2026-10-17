@@ -6,6 +6,10 @@ that they have the temporal coverage the demo needs, how they were verified
 against the archive, and the terms that govern their use. The machine-readable
 form is `data/spherex/demo-manifest.json`.
 
+This NEP field is the **primary M2/M3 acceptance dataset**: a reproducible,
+controlled comparison. The Comet 3I/ATLAS set is kept as a **separate, optional**
+known-moving-object demonstration and is not combined with this workflow.
+
 Nothing here is a claim about Planet X. The goal is a documented, reproducible
 observation sequence that supports an honest "what changed between these two
 epochs?" investigation — whatever the answer turns out to be.
@@ -118,20 +122,25 @@ confounded by a calibration change.
 
 ## Caveats (verified, not assumed)
 
+Milestone **M2-A** resolved or explicitly gated each of these; the full record is
+`docs/spherex-m2a-validation.md`.
+
 1. **Different pointings, therefore different orientation.** The two epochs
    reference different pixels (`CRPIX` 147.5,27.5 vs 86.5,168.5) and different
    sky references. A valid blink **requires WCS reprojection** to a common grid;
    a raw pixel difference would be meaningless.
-2. **Unit mismatch to resolve.** The `IMAGE` header says `BUNIT=MJy`; the archive
-   documentation says MJy/sr. Confirm against the Explanatory Supplement before
-   quoting surface brightness.
-3. **`WCS-WAVE` is visualization-grade.** In a cutout its control points included
-   clearly invalid edge values (0.032 µm, 1354 nm bandwidth). Use the Spectral WCS
-   calibration product (`CWAVE`/`CBAND`) for quantitative wavelengths.
-4. **Version drift across the archive.** Epochs months apart can carry different
-   pipeline versions and, across QR2→QR3, a gain change that needs the
-   QR2-to-QR3 flux-correction product. We avoided this for the primary pair; any
-   longer baseline must handle it explicitly.
+2. **Units — resolved in M2-A.** The `IMAGE` header says `BUNIT=MJy`, but the
+   archive user guide (citing Explanatory Supplement §2.1) states **MJy/sr**
+   surface brightness (VARIANCE in (MJy/sr)², ZODI in MJy/sr); the header keyword
+   simply drops `/sr`. Label values accordingly.
+3. **`WCS-WAVE` is visualization-grade — confirmed in M2-A.** In a cutout its
+   control points included invalid edge values (0.032 µm, 1354 nm bandwidth). The
+   user guide directs science use to the Spectral WCS calibration product
+   (`CWAVE`/`CBAND`).
+4. **Version drift across the archive — gated in M2-A.** Epochs months apart can
+   carry different pipeline versions and, across QR2→QR3, a gain change handled by
+   the `l3_flux_corrections_D2` product. The primary pair shares pipeline
+   `6.4+psffix1`; any longer baseline must apply the correction explicitly.
 5. **A cutout can silently truncate.** Our first candidate epoch returned a
    59 × 3 cutout because the requested box fell off the edge of the footprint.
    Every candidate must be checked for a full-size cutout, not just for a
@@ -139,10 +148,12 @@ confounded by a calibration change.
 
 ## Alternatives considered
 
-- **Comet 3I/ATLAS** — IRSA publishes a curated SPHEREx spectral-image set for
-  this interstellar comet. A fast mover gives an unambiguous change-over-time
-  demonstration, and is a strong candidate for the "find something moving" part
-  of the story in a later milestone.
+- **Comet 3I/ATLAS** — validated (data only) in M2-A as **259 exposures / 133
+  pointings** of genuine `spherex_qr2` Level-2 images (`target_moving=true`), in
+  two campaigns: 2025-08-01→15 and 2025-12-08→14. A known mover gives an
+  unambiguous change-over-time demonstration; low S/N and an extended source are
+  the caveats. Held as the optional second example (adoption gated on M3-D), not
+  part of the NEP workflow. See `docs/spherex-m2a-validation.md`.
 - **SPLICES** (SPHEREx Target List of Ice Sources) — IRSA-hosted catalogue; no
   image blink, so not suitable as the primary demo sequence.
 

@@ -39,14 +39,20 @@
     "cutout_scale_deg": 0.5,
     "projection": "RA---TAN-SIP / DEC--TAN-SIP (ICRS)",
     "extensions": {
-      "IMAGE": { "unit": "MJy", "content": "calibrated surface-brightness flux density (docs state MJy/sr; header BUNIT is MJy)" },
+      "IMAGE": { "unit": "MJy/sr", "header_bunit": "MJy", "content": "calibrated surface-brightness flux density; header BUNIT is an abbreviation that drops /sr" },
       "FLAGS": { "unit": null, "content": "per-pixel bitmask (see SPHEREx Explanatory Supplement)" },
-      "VARIANCE": { "unit": "MJy2", "content": "variance per pixel" },
-      "ZODI": { "unit": "MJy", "content": "model zodiacal-light background to subtract" },
-      "PSF": { "unit": null, "content": "oversampled PSF cube (QR2) / EPSF table (QR3)" },
-      "WCS-WAVE": { "unit": "um", "content": "11x11 control-point lookup of central wavelength and bandwidth; for visualization" }
+      "VARIANCE": { "unit": "(MJy/sr)^2", "header_bunit": "MJy2", "content": "variance per pixel" },
+      "ZODI": { "unit": "MJy/sr", "header_bunit": "MJy", "content": "model zodiacal-light background; NOT subtracted from IMAGE" },
+      "PSF": { "unit": null, "content": "oversampled PSF cube (QR2) / EPSF table (QR3); superseded by the ePSF product" },
+      "WCS-WAVE": { "unit": "um", "content": "control-point lookup of central wavelength and bandwidth; VISUALIZATION ONLY (see related_science_products.spectral_wcs)" }
     },
-    "quality_keywords": ["L1DQAFLG", "L2DQAFLG"]
+    "quality_keywords": ["L1DQAFLG", "L2DQAFLG"],
+    "related_science_products": {
+      "spectral_wcs": "spectral_wcs_D2_spx_cal-wcs-v*_*.fits — CWAVE/CBAND per-pixel wavelength and bandwidth; science-grade replacement for WCS-WAVE",
+      "solid_angle_pixel_map": "solid_angle_pixel_map_D2_spx_cal-sapm-v*_*.fits — per-pixel solid angle (arcsec^2), for surface-brightness to flux conversion",
+      "epsf": "epsf_D2_spx_cal-epsf-v*_*.fits — effective PSF; supersedes the QR2 PSF cube and is recommended for all images",
+      "flux_corrections": "l3_flux_corrections_D2_spx_cal-flxc-v*_*.fits — per-pixel gain scaling to combine QR2 with QR3 (QR3 only)"
+    }
   },
   "observations": [
     {
@@ -99,15 +105,21 @@
   },
   "caveats": [
     "The two epochs were taken at different spacecraft pointings, so the same sky patch lands at different pixel offsets and orientations (see cutout_wcs_reference.crpix). A valid blink requires WCS reprojection onto a common tangent plane; a raw pixel difference would be wrong.",
-    "IMAGE header unit is MJy, while the archive documentation states MJy/sr. Resolve against the Explanatory Supplement before quoting surface brightness.",
-    "WCS-WAVE control points extend across the whole detector and include unreliable edge values (0.032 um / 1354 nm seen in a cutout). Treat WCS-WAVE as visualization-grade and use the Spectral WCS calibration product (CWAVE/CBAND) for quantitative wavelengths.",
-    "Cross-epoch photometric comparison must account for pipeline-version differences. This pair deliberately shares pipeline version 6.4+psffix1 (v20); a QR2 vs QR3 comparison would additionally need the QR2-to-QR3 flux corrections."
+    "RESOLVED (M2-A): the images are surface brightness in MJy/sr (VARIANCE in (MJy/sr)^2); the header BUNIT=MJy is an abbreviation that drops /sr. See docs/spherex-m2a-validation.md.",
+    "RESOLVED/GATED (M2-A): WCS-WAVE is visualization-grade and its edge control points are invalid. Use the Spectral WCS product CWAVE/CBAND for any scientific wavelength. See docs/spherex-m2a-validation.md.",
+    "GATED (M2-A): cross-epoch photometric comparison must account for pipeline-version differences. This pair shares pipeline 6.4+psffix1 (v20); a QR2 vs QR3 comparison additionally requires the QR2-to-QR3 flux corrections. See docs/spherex-m2a-validation.md."
   ],
+  "demo_scope": {
+    "primary": "nep — the M2/M3 acceptance dataset (reproducible, controlled comparison)",
+    "secondary": "comet-3i-atlas — an optional known-moving-object demonstration, validated only at the data-validation stage (M3-D); never merged into the NEP workflow",
+    "decision_date": "2026-10-17"
+  },
   "alternatives_considered": [
     {
       "id": "comet-3i-atlas",
-      "description": "IRSA publishes a curated SPHEREx spectral-image set for the interstellar comet 3I/ATLAS; a fast-moving target gives an unambiguous change-over-time demonstration.",
-      "status": "not selected for M1; a candidate for the moving-object demonstration in later milestones"
+      "description": "IRSA publishes a curated SPHEREx spectral-image set for the interstellar comet 3I/ATLAS.",
+      "status": "VALIDATED (data only): 259 exposures / 133 pointings in spherex_qr2, calib_level=2, target_moving=true, all six detectors, two campaigns (2025-08-01..15 and 2025-12-08..14); low S/N and spatially extended. Held as the optional second example; adoption gated on M3-D.",
+      "reference": "https://irsa.ipac.caltech.edu/data/SPHEREx/docs/comet3iatlas/"
     },
     {
       "id": "splices",
@@ -117,7 +129,6 @@
   ],
   "open_questions": [
     "Confirm the definitive SPHEREx deep-field pointing centre and footprint from the Explanatory Supplement rather than the SIA centroid used here.",
-    "Quantify the real change signal at the NEP between these two epochs once WCS reprojection is available (M2/M3).",
-    "Decide whether the demo should use a moving-object-rich field in addition to, or instead of, the NEP deep field."
+    "Quantify the real change signal at the NEP between these two epochs once WCS reprojection is available (M3)."
   ]
 }
