@@ -12,22 +12,25 @@ discrepancies resolved or explicitly gated.
   data-validation stage, as a separate example. It is not merged into the NEP
   workflow.
 
-## D1 — Units (IMAGE / VARIANCE / ZODI): RESOLVED
+## D1 — Units (IMAGE / VARIANCE / ZODI): RESOLVED (no discrepancy)
 
-| HDU | Header `BUNIT` | Archive documentation | Adopted |
-| --- | --- | --- | --- |
-| IMAGE | `MJy` | "calibrated **surface brightness** flux density in units of **MJy/sr**" | **MJy/sr** |
-| VARIANCE | `MJy2` | "units of **(MJy/sr)²**" | **(MJy/sr)²** |
-| ZODI | `MJy` | "**MJy/sr**" | **MJy/sr** |
+| HDU (`EXTNAME`) | Header `BUNIT` (verbatim) | Archive documentation |
+| --- | --- | --- |
+| IMAGE | `MJy / sr` | "calibrated **surface brightness** flux density in units of **MJy/sr**" |
+| VARIANCE | `MJy2 / sr2` | "units of **(MJy/sr)²**" |
+| ZODI | `MJy / sr` | "**MJy/sr**" |
+| FLAGS / PSF | (empty) | dimensionless flags / PSF values |
 
-**Resolution:** the `BUNIT` keyword is an abbreviation that drops `/sr`; the
-quantities are surface brightnesses in MJy/sr. The header is not wrong, just
-truncated. Any quantitative view must be labelled **MJy/sr**. Converting to flux
-requires multiplying by the per-pixel solid angle (the *Solid Angle Pixel Map*
-product, or ≈ 6.15² arcsec² nominal).
+**Resolution:** the header and the documentation agree. Reading the raw cards
+(`BUNIT = 'MJy / sr'`; VARIANCE `'MJy2 / sr2'`) shows the `/sr` is part of the
+quoted value — identically in the full-resolution file and in the cutout. The M1
+manifest's "header `BUNIT=MJy`" note was a **parse artifact**: a naive header
+reader treated the text after the `/` as a FITS comment. No unit ambiguity
+remains.
 
-**Gate:** OK to proceed, provided the app never labels a pixel value as plain
-"MJy".
+**Gate:** proceed; label IMAGE/ZODI as **MJy/sr** and VARIANCE as **(MJy/sr)²**.
+Converting to flux requires the per-pixel solid angle (*Solid Angle Pixel Map*, or
+≈ 6.15² arcsec² nominal).
 
 ## D2 — Per-pixel spectral WCS: GATED
 
@@ -103,6 +106,7 @@ part of the NEP scientific workflow.
 
 ## Outcome
 
-M2-A is complete: the unit discrepancy is **resolved**; the `WCS-WAVE` validity
-and cross-release gain issues are **explicitly gated**; checksums and metadata are
-**verified**. Proceed to **M2-B — bounded retrieval and caching**.
+M2-A is complete: the unit question is **resolved (the header and documentation
+agree)**; the `WCS-WAVE` validity and cross-release gain issues are **explicitly
+gated**; checksums and metadata are **verified**. Proceed to **M2-B — bounded
+retrieval and caching**.

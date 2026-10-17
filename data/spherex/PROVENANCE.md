@@ -129,10 +129,10 @@ Milestone **M2-A** resolved or explicitly gated each of these; the full record i
    reference different pixels (`CRPIX` 147.5,27.5 vs 86.5,168.5) and different
    sky references. A valid blink **requires WCS reprojection** to a common grid;
    a raw pixel difference would be meaningless.
-2. **Units — resolved in M2-A.** The `IMAGE` header says `BUNIT=MJy`, but the
-   archive user guide (citing Explanatory Supplement §2.1) states **MJy/sr**
-   surface brightness (VARIANCE in (MJy/sr)², ZODI in MJy/sr); the header keyword
-   simply drops `/sr`. Label values accordingly.
+2. **Units — resolved in M2-A.** The `IMAGE` card reads `BUNIT = 'MJy / sr'`
+   (VARIANCE `'MJy2 / sr2'`), matching the archive documentation; the earlier
+   "header says MJy" note was a M1 parse artifact. Values are **MJy/sr** surface
+   brightness. Label them accordingly.
 3. **`WCS-WAVE` is visualization-grade — confirmed in M2-A.** In a cutout its
    control points included invalid edge values (0.032 µm, 1354 nm bandwidth). The
    user guide directs science use to the Spectral WCS calibration product

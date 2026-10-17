@@ -39,10 +39,10 @@
     "cutout_scale_deg": 0.5,
     "projection": "RA---TAN-SIP / DEC--TAN-SIP (ICRS)",
     "extensions": {
-      "IMAGE": { "unit": "MJy/sr", "header_bunit": "MJy", "content": "calibrated surface-brightness flux density; header BUNIT is an abbreviation that drops /sr" },
+      "IMAGE": { "unit": "MJy/sr", "header_bunit": "MJy / sr", "content": "calibrated surface-brightness flux density" },
       "FLAGS": { "unit": null, "content": "per-pixel bitmask (see SPHEREx Explanatory Supplement)" },
-      "VARIANCE": { "unit": "(MJy/sr)^2", "header_bunit": "MJy2", "content": "variance per pixel" },
-      "ZODI": { "unit": "MJy/sr", "header_bunit": "MJy", "content": "model zodiacal-light background; NOT subtracted from IMAGE" },
+      "VARIANCE": { "unit": "(MJy/sr)^2", "header_bunit": "MJy2 / sr2", "content": "variance per pixel" },
+      "ZODI": { "unit": "MJy/sr", "header_bunit": "MJy / sr", "content": "model zodiacal-light background; NOT subtracted from IMAGE" },
       "PSF": { "unit": null, "content": "oversampled PSF cube (QR2) / EPSF table (QR3); superseded by the ePSF product" },
       "WCS-WAVE": { "unit": "um", "content": "control-point lookup of central wavelength and bandwidth; VISUALIZATION ONLY (see related_science_products.spectral_wcs)" }
     },
@@ -105,7 +105,7 @@
   },
   "caveats": [
     "The two epochs were taken at different spacecraft pointings, so the same sky patch lands at different pixel offsets and orientations (see cutout_wcs_reference.crpix). A valid blink requires WCS reprojection onto a common tangent plane; a raw pixel difference would be wrong.",
-    "RESOLVED (M2-A): the images are surface brightness in MJy/sr (VARIANCE in (MJy/sr)^2); the header BUNIT=MJy is an abbreviation that drops /sr. See docs/spherex-m2a-validation.md.",
+    "RESOLVED (M2-A): the images are surface brightness in MJy/sr (VARIANCE in (MJy/sr)^2). The header BUNIT ('MJy / sr') and the documentation agree; the earlier 'BUNIT=MJy' note was a M1 parse artifact. See docs/spherex-m2a-validation.md.",
     "RESOLVED/GATED (M2-A): WCS-WAVE is visualization-grade and its edge control points are invalid. Use the Spectral WCS product CWAVE/CBAND for any scientific wavelength. See docs/spherex-m2a-validation.md.",
     "GATED (M2-A): cross-epoch photometric comparison must account for pipeline-version differences. This pair shares pipeline 6.4+psffix1 (v20); a QR2 vs QR3 comparison additionally requires the QR2-to-QR3 flux corrections. See docs/spherex-m2a-validation.md."
   ],
