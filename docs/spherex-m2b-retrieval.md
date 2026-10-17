@@ -43,6 +43,26 @@ network client was introduced.
 network: retrieval takes an injected `fetchImpl`, and FITS fixtures are
 synthesised in memory (no binary committed). Registered in `server/package.json`.
 
+## Findings from live validation
+
+Running the adapter against the live archive (not a stub) established:
+
+- **The manifest is reproducible through code.** Fetching the two M1 epochs via
+  `buildCutoutUrl` + `fetchCutout` reproduced both manifest SHA-256 values
+  exactly (`9ceb7ec1…`, `bca6bf0d…`), and the cache round-trip verified them.
+- **The shared SIA client needed a fix.** IRSA's `/SIA` is a **SIA2** service: it
+  wants `POS=circle RA Dec r` plus `COLLECTION`, and it *rejects* the SIA1-only
+  `SIZE` and `INTERSECT`. `querySIA` now emits the SIA2 form whenever a
+  `collection` is supplied (and keeps the SIA1 form otherwise). This also closes
+  the "irsa live-unverified" gap.
+- **Pipeline version lives on the PRIMARY header**, not the science extensions,
+  hence `fitsFileMetadata(hdus)`.
+- **Baseline-maximising selection is not enough for science.** Picking the widest
+  pair across all rows chose epochs with a **truncated cutout** (IMAGE shape
+  `[294,181]`) and mixed pipeline versions. The curated manifest pair — one
+  detector, one pipeline version, both full-frame — remains the demo dataset, and
+  cutout-completeness validation belongs in M3-A.
+
 ## Minimal usage
 
 ```js
@@ -70,3 +90,5 @@ for (const epoch of [first, second]) {
 - No WCS reprojection to a common grid (M3-B) — M2-B retrieves and validates, it
   does not yet compare. The M2-A finding stands: the two epochs need reprojection
   before any pixel differencing.
+- No cutout-completeness check (M3-A): the IMAGE shape must be validated against
+  the requested size before an epoch is trusted.

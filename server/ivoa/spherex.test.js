@@ -16,6 +16,7 @@ import {
   readFitsStructure,
   readFits,
   extractFitsMetadata,
+  fitsFileMetadata,
   fetchCutout,
   verifyCutout,
   sha256Hex,
@@ -72,13 +73,20 @@ const IMAGE_HDU = {
     'MJD-OBS =           60794.160',
     "DATE-OBS= '2025-04-29T03:50:28.360'",
     'DETECTOR=                    2',
-    "VERSION = '6.4+psffix1'",
   ],
   dataBytes: 4 * 3 * 4,
 };
 
 const FIXTURE_FITS = buildFits([
-  { cards: ['SIMPLE  =                    T', 'BITPIX  =                    8', 'NAXIS   =                    0'] },
+  {
+    cards: [
+      'SIMPLE  =                    T',
+      'BITPIX  =                    8',
+      'NAXIS   =                    0',
+      // The SSDC pipeline version lives on the PRIMARY header, as in real files.
+      "VERSION = '6.4+psffix1'",
+    ],
+  },
   IMAGE_HDU,
 ]);
 
@@ -188,7 +196,21 @@ test('extractFitsMetadata normalises the validated keywords', () => {
   assert.equal(m.ctype[0], 'RA---TAN-SIP');
   assert.equal(m.mjdObs, 60794.16);
   assert.equal(m.detector, 2);
-  assert.equal(m.pipeline, '6.4+psffix1');
+});
+
+test('fitsFileMetadata reads global keywords from the PRIMARY header', () => {
+  const hdus = readFits(FIXTURE_FITS);
+  const file = fitsFileMetadata(hdus);
+  assert.equal(file.version, '6.4+psffix1');
+  assert.equal(file.hduCount, 2);
+  // The extension header does not repeat the pipeline version.
+  assert.equal(hdus[1].metadata.pipeline, null);
+});
+
+test('normalizeSpherexRow is idempotent (accepts normalised epochs)', () => {
+  const once = normalizeSpherexRow(D2_A);
+  const twice = normalizeSpherexRow(once);
+  assert.deepEqual(twice, once);
 });
 
 test('readFitsStructure flags a truncated header instead of throwing', () => {

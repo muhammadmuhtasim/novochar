@@ -62,31 +62,40 @@ function parseCloudAccess(v) {
 
 /**
  * Normalise one SIA row into the fields the retrieval path depends on.
+ * Accepts either a raw SIA row (snake_case) or an already-normalised epoch, so
+ * the function is idempotent and callers can pass `rows` or `epochs` freely.
  * Tolerance for missing optional fields is deliberate: the row shape differs
  * between SIA2 (VOTable) and the CSV variant, but the key columns are stable.
  */
 export function normalizeSpherexRow(row) {
-  if (!row || !row.obs_id) throw new TypeError('SPHEREx row requires obs_id');
+  if (!row) throw new TypeError('SPHEREx row requires obs_id');
+  const pick = (...keys) => {
+    for (const k of keys) if (row[k] != null) return row[k];
+    return null;
+  };
+  const obsId = pick('obs_id', 'obsId');
+  if (!obsId) throw new TypeError('SPHEREx row requires obs_id');
   const detector = detectorFromRow(row);
+  const cloud = row.cloud != null ? row.cloud : parseCloudAccess(row.cloud_access);
   return {
-    obsId: String(row.obs_id),
+    obsId: String(obsId),
     detector,
-    key: detector ? `${row.obs_id}/${detector}` : String(row.obs_id),
-    tMin: num(row.t_min),
-    tMax: num(row.t_max),
-    emMin: num(row.em_min),
-    emMax: num(row.em_max),
-    bandpass: row.energy_bandpassname || null,
-    exposure: num(row.t_exptime),
-    ra: num(row.s_ra),
-    dec: num(row.s_dec),
-    pixelScale: num(row.s_pixel_scale),
-    calibLevel: num(row.calib_level),
-    collection: row.obs_collection || null,
-    publisherDid: row.obs_publisher_did || null,
-    accessUrl: row.access_url || null,
-    accessFormat: row.access_format || null,
-    cloud: parseCloudAccess(row.cloud_access),
+    key: detector ? `${obsId}/${detector}` : String(obsId),
+    tMin: num(pick('t_min', 'tMin')),
+    tMax: num(pick('t_max', 'tMax')),
+    emMin: num(pick('em_min', 'emMin')),
+    emMax: num(pick('em_max', 'emMax')),
+    bandpass: pick('energy_bandpassname', 'bandpass'),
+    exposure: num(pick('t_exptime', 'exposure')),
+    ra: num(pick('s_ra', 'ra')),
+    dec: num(pick('s_dec', 'dec')),
+    pixelScale: num(pick('s_pixel_scale', 'pixelScale')),
+    calibLevel: num(pick('calib_level', 'calibLevel')),
+    collection: pick('obs_collection', 'collection'),
+    publisherDid: pick('obs_publisher_did', 'publisherDid'),
+    accessUrl: pick('access_url', 'accessUrl'),
+    accessFormat: pick('access_format', 'accessFormat'),
+    cloud: cloud && typeof cloud === 'object' ? cloud : null,
   };
 }
 
@@ -335,6 +344,23 @@ export function extractFitsMetadata(hdu) {
 /** Structure + metadata for every HDU in a cutout. */
 export function readFits(bytes, { maxHdus = 16 } = {}) {
   return readFitsStructure(bytes, { maxHdus }).map(((h) => ({ ...h, metadata: extractFitsMetadata(h) })));
+}
+
+/**
+ * File-level metadata from the PRIMARY header. Global keywords such as the SSDC
+ * pipeline VERSION live on HDU 0, not on the science extensions — verified
+ * against the real M1 cutouts.
+ */
+export function fitsFileMetadata(hdus) {
+  const k = (hdus && hdus[0] && hdus[0].keywords) || {};
+  return {
+    version: k.VERSION ?? null,
+    date: k.DATE ?? null,
+    origin: k.ORIGIN ?? null,
+    telescope: k.TELESCOP ?? null,
+    instrument: k.INSTRUME ?? null,
+    hduCount: hdus ? hdus.length : 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
