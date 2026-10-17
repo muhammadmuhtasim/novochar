@@ -99,6 +99,84 @@ async function tap(page, selector) {
   }
   throw new Error(`tap: ${selector} never settled`);
 }
+
+// --- Mobile interaction robustness -------------------------------------------
+//
+// The pageC (narrow-viewport) steps run after the page has drawn ~1,700 records
+// across two software-WebGL (SwiftShader) canvases, so a render stall can delay
+// a click or a DOM update well past Playwright's short defaults. Give these
+// steps the same generous budget the footer waits already use, and — because a
+// timeout cannot by itself tell a transient stall from a repeatable interaction
+// failure — snapshot the surrounding state and retry ONCE. A retry is always
+// reported as a NOTE; a first attempt is never silently turned into a pass.
+const MOBILE_INTERACTION_TIMEOUT = 45_000;
+
+const firstLine = (value) => String(value?.message || value).split('\n')[0];
+
+// Record the app state around a stalled mobile step: the SPA route (URL hash),
+// the layer button, the burger and the mobile menu, plus recent page/console
+// errors. Used only for diagnostics.
+const mobileDiagnostics = (page) => page.evaluate(() => {
+  const rect = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
+  };
+  const layerButton = [...document.querySelectorAll('.seg-view[aria-label="Distance layers"] button')]
+    .find((b) => /uncertain/i.test(b.textContent || ''));
+  const burger = document.querySelector('.nav-burger');
+  const menu = document.querySelector('.nav-mobile');
+  return {
+    url: location.href,
+    hash: location.hash,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+    layerButton: layerButton
+      ? {
+        text: (layerButton.textContent || '').trim(),
+        pressed: layerButton.getAttribute('aria-pressed'),
+        on: layerButton.classList.contains('on'),
+      }
+      : null,
+    burger: burger ? { expanded: burger.getAttribute('aria-expanded'), rect: rect(burger) } : null,
+    menu: menu
+      ? {
+        className: menu.className,
+        display: getComputedStyle(menu).display,
+        visibility: getComputedStyle(menu).visibility,
+        rect: rect(menu),
+      }
+      : null,
+  };
+}).then((state) => ({ state, consoleErrors: consoleErrors.slice(-5) }))
+  .catch((error) => ({ evaluateError: firstLine(error), consoleErrors: consoleErrors.slice(-5) }));
+
+// Run a mobile interaction; on failure, record diagnostics and retry once. The
+// value returned by `run` is passed through on success.
+async function attemptMobileStep(page, name, run) {
+  try {
+    return await run();
+  } catch (firstError) {
+    note(`${name}: first attempt failed — ${firstLine(firstError)}; diagnostics ${JSON.stringify(await mobileDiagnostics(page))}; retrying once`);
+    await delay(1_000);
+    try {
+      const value = await run();
+      note(`${name}: succeeded on retry (the failed first attempt above is not hidden)`);
+      return value;
+    } catch (secondError) {
+      note(`${name}: retry failed — ${firstLine(secondError)}; diagnostics ${JSON.stringify(await mobileDiagnostics(page))}`);
+      throw secondError;
+    }
+  }
+}
+
+// Open the collapsed mobile menu, tolerating a click/`waitFor` stall. The guard
+// makes the step idempotent so a retry never toggles an already-open menu shut.
+const openMobileMenu = (page) => attemptMobileStep(page, 'mobile menu open', async () => {
+  if ((await page.locator('.nav-mobile.open').count()) === 0) {
+    await tap(page, '.nav-burger');
+  }
+  await page.locator('.nav-mobile.open').waitFor({ timeout: MOBILE_INTERACTION_TIMEOUT });
+});
+
 // Header geometry: which nav controls are actually visible (not `display:none`
 // / `visibility:hidden` / transparent), whether they fit the viewport, and
 // whether the burger is the topmost hit-test target (i.e. not clipped).
@@ -518,18 +596,29 @@ try {
   const mobileAfter = await footerCounts(pageC);
   check('mobile: load-more appends records', !!mobileAfter && mobileAfter.returned > mobileBefore.returned, `${mobileBefore?.returned} -> ${mobileAfter?.returned}`);
 
-  // The layer controls live in the toolbar near the top of the page.
+  // The layer controls live in the toolbar near the top of the page. A software
+  // render stall can delay the click or the readback, so read with the generous
+  // mobile timeout and run the toggle through the retry wrapper; a first-attempt
+  // failure is recorded, never silently converted into a pass.
+  const layerButtonSelector = '.seg-view[aria-label="Distance layers"] button:has-text("Uncertain")';
   const uncertainButton = pageC.locator('.seg-view[aria-label="Distance layers"] button', { hasText: 'Uncertain' });
-  const pressedBefore = await uncertainButton.getAttribute('aria-pressed');
-  await tap(pageC, '.seg-view[aria-label="Distance layers"] button:has-text("Uncertain")');
-  await delay(500);
-  const pressedAfter = await uncertainButton.getAttribute('aria-pressed');
-  check('mobile: layer controls toggle', pressedBefore !== pressedAfter, `${pressedBefore} -> ${pressedAfter}`);
+  const toggle = await attemptMobileStep(pageC, 'mobile layer toggle', async () => {
+    const before = await uncertainButton.getAttribute('aria-pressed', { timeout: MOBILE_INTERACTION_TIMEOUT });
+    await tap(pageC, layerButtonSelector);
+    await delay(500);
+    const after = await uncertainButton.getAttribute('aria-pressed', { timeout: MOBILE_INTERACTION_TIMEOUT });
+    if (before === after) throw new Error(`layer button did not toggle (${before} -> ${after})`);
+    return { before, after };
+  }).catch((error) => ({ error: firstLine(error) }));
+  check(
+    'mobile: layer controls toggle',
+    !toggle.error && toggle.before !== toggle.after,
+    toggle.error ? `unresponsive: ${toggle.error}` : `${toggle.before} -> ${toggle.after}`,
+  );
 
   // The collapsed header must not merely look reachable: the menu has to open,
   // expose every mode, and navigate in both directions.
-  await tap(pageC, '.nav-burger');
-  await pageC.locator('.nav-mobile.open').waitFor({ timeout: 15_000 });
+  await openMobileMenu(pageC);
   const menuTabs = await pageC.locator('.nav-mobile.open .tab').count();
   const expectedModes = await pageC.locator('.nav-tabs .tab').count(); // DOM count; the strip is display:none here
   check('mobile nav: the menu opens and lists every mode', menuTabs === expectedModes && menuTabs > 0, `menu=${menuTabs} tabs=${expectedModes}`);
@@ -547,8 +636,7 @@ try {
   check('mobile nav: choosing a mode navigates away from Observe', (await pageC.locator('.observe-grid canvas').count()) === 0);
   check('mobile nav: the menu closes after a choice', (await pageC.locator('.nav-mobile.open').count()) === 0);
 
-  await tap(pageC, '.nav-burger');
-  await pageC.locator('.nav-mobile.open').waitFor({ timeout: 15_000 });
+  await openMobileMenu(pageC);
   await tap(pageC, '.nav-mobile.open .tab:has-text("OBSERVE")');
   await pageC.waitForFunction(() => location.hash.startsWith('#observe'), null, { timeout: 20_000 });
   check('mobile nav: the menu navigates back to Observe', true);
