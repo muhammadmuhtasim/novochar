@@ -1,0 +1,123 @@
+{
+  "schema": "novochar.spherex.demo-manifest/v1",
+  "generated": "2026-10-17",
+  "mission": "SPHEREx",
+  "release": {
+    "id": "QR2",
+    "label": "SPHEREx Quick Release Spectral Images - QR2",
+    "doi": "10.26131/IRSA652",
+    "retired_predecessor": { "id": "QR1", "doi": "10.26131/IRSA629" },
+    "note": "QR2 supersedes QR1 (retired February 2026) and is the default returned by the Data Explorer and the IRSA SIA service."
+  },
+  "field": {
+    "id": "nep",
+    "name": "North Ecliptic Pole deep field",
+    "center": { "ra_deg": 270.0, "dec_deg": 66.5, "frame": "ICRS" },
+    "requested_cutout_deg": 0.5,
+    "selection_evidence": {
+      "sia_query": "https://irsa.ipac.caltech.edu/SIA?COLLECTION=spherex_qr2&POS=circle+270+66.5+0.05&RESPONSEFORMAT=CSV",
+      "sia_rows_qr2_wide": 620,
+      "distinct_observation_dates_qr2_wide": 318,
+      "date_range_qr2_wide": ["2025-04-25", "2026-07-18"],
+      "sia_rows_qr3_deep": 2943,
+      "distinct_observation_dates_qr3_deep": 1496,
+      "date_range_qr3_deep": ["2026-07-20", "2026-09-07"],
+      "detectors_qr3_deep": ["D1", "D2", "D3", "D4", "D5", "D6"],
+      "conclusion": "The NEP is one of the SPHEREx Deep Fields and is revisited on hundreds of distinct dates across ~17 months of the mission, so it satisfies the demo's temporal-coverage requirement with large margin."
+    }
+  },
+  "product": {
+    "type": "Level-2 Spectral Image (Multi-Extension FITS)",
+    "data_model": "One 2D Spectral Image per detector per exposure; native 2040x2040; the wavelength at each pixel is given by the WCS-WAVE lookup table, so the frame is spatial x spatial with a per-pixel wavelength.",
+    "detector": 2,
+    "band": "SPHEREx-D2",
+    "wavelength_um": [1.1033, 1.6499],
+    "wcs_wave_median_um": 1.3374,
+    "native_pixels": [2040, 2040],
+    "pixel_scale_arcsec": 6.15,
+    "cutout_pixels": [293, 293],
+    "cutout_scale_deg": 0.5,
+    "projection": "RA---TAN-SIP / DEC--TAN-SIP (ICRS)",
+    "extensions": {
+      "IMAGE": { "unit": "MJy", "content": "calibrated surface-brightness flux density (docs state MJy/sr; header BUNIT is MJy)" },
+      "FLAGS": { "unit": null, "content": "per-pixel bitmask (see SPHEREx Explanatory Supplement)" },
+      "VARIANCE": { "unit": "MJy2", "content": "variance per pixel" },
+      "ZODI": { "unit": "MJy", "content": "model zodiacal-light background to subtract" },
+      "PSF": { "unit": null, "content": "oversampled PSF cube (QR2) / EPSF table (QR3)" },
+      "WCS-WAVE": { "unit": "um", "content": "11x11 control-point lookup of central wavelength and bandwidth; for visualization" }
+    },
+    "quality_keywords": ["L1DQAFLG", "L2DQAFLG"]
+  },
+  "observations": [
+    {
+      "label": "epoch-1",
+      "date_obs_utc": "2025-04-29T03:50:28.360",
+      "mjd_obs": 60794.160050463,
+      "obs_id": "2025W18_1B_0095_2",
+      "detector": 2,
+      "pipeline_version": "6.4+psffix1",
+      "pipeline_build": "l2b-v20-2025-240",
+      "quality": { "L1DQAFLG": "Pass", "L2DQAFLG": "Pass" },
+      "exposure_sec": 113.5826,
+      "cutout_wcs_reference": { "crval_ra_deg": 270.280071891, "crval_dec_deg": 66.3315758735, "crpix": [147.5, 27.5] },
+      "archive_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W18_1B/l2b-v20-2025-240/2/level2_2025W18_1B_0095_2D2_spx_l2b-v20-2025-240.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W18_1B/l2b-v20-2025-240/2/level2_2025W18_1B_0095_2D2_spx_l2b-v20-2025-240.fits?center=270,66.5&size=0.5",
+      "cutout_bytes": 6431040,
+      "cutout_sha256": "9ceb7ec1f298c1e460aae8c20f95d15ce5a2a79d0acb511099d1b251cf887780"
+    },
+    {
+      "label": "epoch-2",
+      "date_obs_utc": "2025-11-16T02:07:55.367",
+      "mjd_obs": 60995.088835266,
+      "obs_id": "2025W46_2A_0537_1",
+      "detector": 2,
+      "pipeline_version": "6.4+psffix1",
+      "pipeline_build": "l2b-v20-2025-321",
+      "quality": { "L1DQAFLG": "Pass", "L2DQAFLG": "Pass" },
+      "exposure_sec": 113.5826,
+      "cutout_wcs_reference": { "crval_ra_deg": 270.639127572, "crval_dec_deg": 66.4706016724, "crpix": [86.5, 168.5] },
+      "archive_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W46_2A/l2b-v20-2025-321/2/level2_2025W46_2A_0537_1D2_spx_l2b-v20-2025-321.fits",
+      "cutout_url": "https://irsa.ipac.caltech.edu/ibe/data/spherex/qr2/level2/2025W46_2A/l2b-v20-2025-321/2/level2_2025W46_2A_0537_1D2_spx_l2b-v20-2025-321.fits?center=270,66.5&size=0.5",
+      "cutout_bytes": 6431040,
+      "cutout_sha256": "bca6bf0d7f0d72924f8385681f40249295c3b881a273cf75953f67339ce33085"
+    }
+  ],
+  "baseline_days": 200.928784803,
+  "baseline_approx_months": 6.6,
+  "retrieval": {
+    "search": "IRSA SIA2 (RESPONSEFORMAT=CSV) with COLLECTION=spherex_qr2 and POS=circle 270 66.5 0.05",
+    "cutout": "Append ?center=RA,Dec&size=deg to any archive_url; size is in degrees. Verified byte-reproducible.",
+    "cloud_mirror": "s3://nasa-irsa-spherex/qr2/ (us-east-1, no AWS account; aws s3 ls --no-sign-request)",
+    "no_authentication_required": true
+  },
+  "rights": {
+    "terms": "IRSA public data, no usage restrictions",
+    "terms_url": "https://irsa.ipac.caltech.edu/data_use_terms.html",
+    "citation_doi": "10.26131/IRSA652",
+    "acknowledgement": "This publication makes use of data products from the Spectro-Photometer for the History of the Universe, Epoch of Reionization and Ices Explorer (SPHEREx), which is a joint project of the Jet Propulsion Laboratory and the California Institute of Technology, and is funded by the National Aeronautics and Space Administration.",
+    "redistribution": "Permitted. No raw FITS files are committed to this repository; the manifest records URLs and checksums so the same cutouts can be fetched on demand."
+  },
+  "caveats": [
+    "The two epochs were taken at different spacecraft pointings, so the same sky patch lands at different pixel offsets and orientations (see cutout_wcs_reference.crpix). A valid blink requires WCS reprojection onto a common tangent plane; a raw pixel difference would be wrong.",
+    "IMAGE header unit is MJy, while the archive documentation states MJy/sr. Resolve against the Explanatory Supplement before quoting surface brightness.",
+    "WCS-WAVE control points extend across the whole detector and include unreliable edge values (0.032 um / 1354 nm seen in a cutout). Treat WCS-WAVE as visualization-grade and use the Spectral WCS calibration product (CWAVE/CBAND) for quantitative wavelengths.",
+    "Cross-epoch photometric comparison must account for pipeline-version differences. This pair deliberately shares pipeline version 6.4+psffix1 (v20); a QR2 vs QR3 comparison would additionally need the QR2-to-QR3 flux corrections."
+  ],
+  "alternatives_considered": [
+    {
+      "id": "comet-3i-atlas",
+      "description": "IRSA publishes a curated SPHEREx spectral-image set for the interstellar comet 3I/ATLAS; a fast-moving target gives an unambiguous change-over-time demonstration.",
+      "status": "not selected for M1; a candidate for the moving-object demonstration in later milestones"
+    },
+    {
+      "id": "splices",
+      "description": "SPHEREx Target List of Ice Sources (SPLICES), an IRSA-hosted catalogue.",
+      "status": "not selected; catalog-only, no image blink"
+    }
+  ],
+  "open_questions": [
+    "Confirm the definitive SPHEREx deep-field pointing centre and footprint from the Explanatory Supplement rather than the SIA centroid used here.",
+    "Quantify the real change signal at the NEP between these two epochs once WCS reprojection is available (M2/M3).",
+    "Decide whether the demo should use a moving-object-rich field in addition to, or instead of, the NEP deep field."
+  ]
+}
