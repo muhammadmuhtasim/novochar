@@ -11,3 +11,6 @@ data/catalog/raw/
 .env.*
 !.env.example
 .vercel/
+
+# Local FITS cutout cache written by the SPHEREx retrieval path (M2-B).
+.cache/

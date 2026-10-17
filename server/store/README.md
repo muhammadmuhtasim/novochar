@@ -1,7 +1,12 @@
-# Store & Indexing Layer (Layer 3) — Scaffold
+# Store & Indexing Layer (Layer 3)
 
-This directory is the future home of the **Storage & Indexing** layer described
-in `docs/ARCHITECTURE.md §3.3`. It is intentionally empty right now.
+This directory is the home of the **Storage & Indexing** layer described in
+`docs/ARCHITECTURE.md §3.3`.
+
+`spherex-cache.js` is the first concrete piece: a byte-exact FITS cutout cache
+with a provenance sidecar and hash verification (see
+`docs/spherex-m2b-retrieval.md`). The spatial-index and catalog stores below
+remain unbuilt.
 
 ## Intended responsibilities
 
