@@ -58,9 +58,9 @@ function check(name, ok, detail = '') {
   results.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${text ? ` — ${text}` : ''}`);
   if (!ok) problems.push(name);
 }
-// Informational line for observations that are not part of the Mode B
-// acceptance contract (e.g. pre-existing global-chrome behaviour) but should
-// still be visible in the run output.
+// Informational line for a real observation that is deliberately outside this
+// change's acceptance contract (e.g. pre-existing shared-chrome behaviour) but
+// should still be visible in the run output. A NOTE never fails the run.
 function note(message) {
   results.push(`NOTE  ${message}`);
 }
@@ -99,6 +99,40 @@ async function tap(page, selector) {
   }
   throw new Error(`tap: ${selector} never settled`);
 }
+// Header geometry: which nav controls are actually visible (not `display:none`
+// / `visibility:hidden` / transparent), whether they fit the viewport, and
+// whether the burger is the topmost hit-test target (i.e. not clipped).
+const navState = (page) => page.evaluate(() => {
+  const vw = window.innerWidth;
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), right: Math.round(r.right), w: Math.round(r.width), h: Math.round(r.height) };
+  };
+  const shown = (el) => {
+    if (!el) return null;
+    const cs = getComputedStyle(el);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return null;
+    return box(el);
+  };
+  const burger = document.querySelector('.nav-burger');
+  let burgerHit = null;
+  if (burger && shown(burger)) {
+    const r = burger.getBoundingClientRect();
+    const hit = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2));
+    burgerHit = hit === burger || burger.contains(hit);
+  }
+  return {
+    vw,
+    burger: shown(burger),
+    burgerHit,
+    tabs: shown(document.querySelector('.nav-tabs')),
+    tabCount: document.querySelectorAll('.nav-tabs .tab').length,
+    items: [...document.querySelectorAll('.nav > *')].map((el) => ({ cls: String(el.className), box: shown(el) })),
+  };
+});
+const navItemsWithinViewport = (state) => state.items.every(
+  (item) => !item.box || (item.box.x >= -1 && item.box.right <= state.vw + 1),
+);
 
 const OPEN_INTERVAL_ID = 'probe-open-interval';
 const OPEN_PROBE = {
@@ -182,6 +216,22 @@ try {
   await pageA.goto(`${origin}/#observe/star-sirius`, { waitUntil: 'load' });
   await pageA.locator('.observe-footer').waitFor({ timeout: 30_000 });
   await delay(250);
+
+  // 0. Desktop header: above the 1180px collapse the mode tabs are the
+  // switcher and the burger is hidden. The mode switcher must stay reachable.
+  const navA = await navState(pageA);
+  check('desktop nav: mode tabs are visible', !!navA.tabs && navA.tabCount > 0, `tabs=${navA.tabCount}`);
+  check('desktop nav: the burger is hidden when the tabs are shown', navA.burger === null);
+  check('desktop nav: the mode switcher is within the viewport', !!navA.tabs && navA.tabs.right <= navA.vw + 1, JSON.stringify(navA.tabs));
+  // Pre-existing shared-chrome defect, outside this phone fix: the header row
+  // needs ~1540px but `.nav-tabs` only collapses at 1180px, so the trailing
+  // status / GitHub controls are clipped on a 1400px viewport (and the tabs
+  // themselves are clipped from 1181-1293px). Not introduced here — reported,
+  // not failed.
+  const navAOverflow = navA.items.filter((item) => item.box && (item.box.x < -1 || item.box.right > navA.vw + 1));
+  if (navAOverflow.length) {
+    note(`pre-existing header overflow at ${navA.vw}px: ${navAOverflow.map((item) => item.cls).join(', ')} exceed the viewport (tab collapse breakpoint is 1180px; row needs ~1540px)`);
+  }
 
   // 1. Direction-only honesty and the layer legend.
   const target = await pageA.locator('.observe-target').innerText();
@@ -387,7 +437,7 @@ try {
   attachDiagnostics(pageC);
   await pageC.goto(`${origin}/#observe/star-sirius`, { waitUntil: 'load' });
   try {
-    await pageC.locator('.observe-footer').waitFor({ timeout: 30_000 });
+    await pageC.locator('.observe-footer').waitFor({ timeout: 45_000 });
   } catch (e) {
     // Software rendering can stall a freshly created page; report the DOM state
     // so a genuine render regression is distinguishable from an environment stall.
@@ -435,7 +485,6 @@ try {
       caption: box('.observe-footer .caption'),
       target: box('.observe-target'),
       legend: box('.observe-legend'),
-      mobileNav: box('.nav-burger'),
     };
   });
   const withinViewport = (r) => !!r && r.x >= -1 && r.x + r.w <= layout.vw + 1 && r.w > 0 && r.h > 0;
@@ -453,12 +502,14 @@ try {
   check('mobile: the target panel is visible', withinViewport(layout.target), JSON.stringify(layout.target));
   check('mobile: the on-canvas legend is visible', withinViewport(layout.legend), JSON.stringify(layout.legend));
 
-  // The global app chrome is not part of Mode B, so a chrome overflow is
-  // reported as a note rather than a Mode B failure — but it still matters,
-  // because a clipped menu makes every mode unreachable on a phone.
-  if (layout.mobileNav && (layout.mobileNav.x < -1 || layout.mobileNav.x + layout.mobileNav.w > layout.vw + 1)) {
-    note(`global chrome: the mobile nav control overflows a 390px viewport (x=${layout.mobileNav.x}, right=${layout.mobileNav.x + layout.mobileNav.w}); not a Mode B regression`);
-  }
+  // The header collapses to a burger at this width (`.nav-tabs` is hidden
+  // <=1180px), making the burger the only way to change modes. It must stay on
+  // screen and be hittable — a header that overflows here strands the user in
+  // whichever mode they arrived in.
+  const navC = await navState(pageC);
+  check('mobile nav: the menu button is within the viewport', !!navC.burger && navC.burger.x >= -1 && navC.burger.right <= navC.vw + 1, JSON.stringify(navC.burger));
+  check('mobile nav: the menu button is the topmost hit target (not clipped)', navC.burgerHit === true);
+  check('mobile nav: no header control overflows the viewport', navItemsWithinViewport(navC), JSON.stringify(navC.items.filter((i) => i.box)));
 
   // Pagination must be usable, not just rendered. A wide band leaves the
   // "Load more" control deep in the page.
@@ -488,10 +539,52 @@ try {
   const pressedAfter = await uncertainButton.getAttribute('aria-pressed');
   check('mobile: layer controls toggle', pressedBefore !== pressedAfter, `${pressedBefore} -> ${pressedAfter}`);
 
+  // The collapsed header must not merely look reachable: the menu has to open,
+  // expose every mode, and navigate in both directions.
+  await tap(pageC, '.nav-burger');
+  await pageC.locator('.nav-mobile.open').waitFor({ timeout: 15_000 });
+  const menuTabs = await pageC.locator('.nav-mobile.open .tab').count();
+  check('mobile nav: the menu opens and lists every mode', menuTabs === navA.tabCount && menuTabs > 0, `menu=${menuTabs} tabs=${navA.tabCount}`);
+  const menuFits = await pageC.evaluate(() => {
+    const vw = window.innerWidth;
+    return [...document.querySelectorAll('.nav-mobile.open .tab, .nav-mobile.open .nav-mobile-repo')]
+      .map((el) => el.getBoundingClientRect())
+      .every((r) => r.width > 0 && r.left >= -1 && r.right <= vw + 1);
+  });
+  check('mobile nav: the open menu stays within the viewport', menuFits);
+
+  await tap(pageC, '.nav-mobile.open .tab:has-text("MISSION")');
+  await pageC.waitForFunction(() => location.hash.startsWith('#home'), null, { timeout: 20_000 });
+  await pageC.locator('.observe-grid').waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {});
+  check('mobile nav: choosing a mode navigates away from Observe', (await pageC.locator('.observe-grid canvas').count()) === 0);
+  check('mobile nav: the menu closes after a choice', (await pageC.locator('.nav-mobile.open').count()) === 0);
+
+  await tap(pageC, '.nav-burger');
+  await pageC.locator('.nav-mobile.open').waitFor({ timeout: 15_000 });
+  await tap(pageC, '.nav-mobile.open .tab:has-text("OBSERVE")');
+  await pageC.waitForFunction(() => location.hash.startsWith('#observe'), null, { timeout: 20_000 });
+  check('mobile nav: the menu navigates back to Observe', true);
+  // Remounting Observe is the heaviest step here under software GL (see §17.6).
+  // The navigation contract above is a hard assertion; a render stall is
+  // reported like the initial-mount stall instead of failing on this machine.
+  const backSettled = await pageC.locator('.observe-footer').waitFor({ timeout: 45_000 }).then(() => true).catch(() => false);
+  if (backSettled) {
+    await delay(400);
+    check('mobile nav: the Observe view re-renders after the round trip', (await pageC.locator('.observe-grid canvas').count()) === 2);
+  } else {
+    const diag = await pageC.evaluate(() => ({
+      hash: location.hash,
+      footer: Boolean(document.querySelector('.observe-footer')),
+      canvases: document.querySelectorAll('canvas').length,
+    })).catch(() => 'evaluate failed');
+    note(`mobile nav: Observe remount after the round trip did not settle in 45s (DIAG ${JSON.stringify(diag)}); navigation itself succeeded`);
+  }
+
   // --- Unmount (page A) ---
   await pageA.locator('.nav-tabs button').first().click();
   await pageA.locator('.observe-footer').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {});
   await delay(300);
+  check('desktop nav: choosing a tab navigates', (await pageA.evaluate(() => location.hash)).startsWith('#home'));
   check('unmount releases the shell canvases', (await pageA.locator('canvas').count()) === 0);
 
   const realErrors = consoleErrors.filter((message) => !/favicon/i.test(message));

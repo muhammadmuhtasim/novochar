@@ -1983,6 +1983,29 @@ main.view {
   .nav {
     padding: 10px 16px;
   }
+  /* The header is a single non-wrapping flex row. Once `.nav-tabs` is hidden
+     (<=1180px) the burger is the only mode switcher, but it sits last in the
+     row: with the brand, the passes status and the GitHub link all still
+     present, the row cannot fit a phone, so the burger is pushed past the
+     right edge and clipped by the root's `overflow-x: hidden` — leaving no
+     way to change modes. Drop the two secondary desktop-only items (the
+     status and the header's GitHub link, which the mobile menu already
+     re-exposes) and let the brand shrink, so the burger always stays on
+     screen and clickable. `> .nav-repo` is scoped to the header so the
+     `.nav-mobile` menu's GitHub link is untouched. */
+  .nav > .nav-status,
+  .nav > .nav-repo {
+    display: none;
+  }
+  .nav-brand {
+    min-width: 0;
+  }
+  .brand-sub {
+    display: none;
+  }
+  .nav-burger {
+    flex-shrink: 0;
+  }
   .hero-title {
     font-size: 28px;
   }

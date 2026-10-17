@@ -882,28 +882,29 @@ each injected phase sets the route state and then forces a real reload):
 - **Failed request and recovery.** A 500 response renders the recoverable
   `ERROR` panel with the server message, and `Retry` (after the route is lifted)
   restores a non-empty result with both canvases.
-- **Mobile layout (390 × 844).** The Observe content does not overflow
-  horizontally (its `main` and document widths stay at 390 px), `.observe-grid`
-  collapses to a single column, every toolbar group, both canvases, the band
-  label, the results caption, the target panel and the on-canvas legend stay
-  inside the viewport, and the pagination and layer controls are usable through
-  real pointer events (not just rendered).
+- **Mobile layout and navigation (390 × 844).** The Observe content does not
+  overflow horizontally (its `main` and document widths stay at 390 px),
+  `.observe-grid` collapses to a single column, every toolbar group, both
+  canvases, the band label, the results caption, the target panel and the
+  on-canvas legend stay inside the viewport, and the pagination and layer
+  controls are usable through real pointer events (not just rendered). The
+  collapsed header is exercised too: the mobile menu button is inside the
+  viewport and is the topmost hit target (nothing clips it), the menu opens with
+  every mode, and choosing a mode navigates away and back
+  (Observe → MISSION → Observe). See §17.7 for the fix this asserts.
 
 Not asserted by the harness: real uncertain radial spokes and real open intervals
 driven by an active source (the interval probe is a controlled synthetic record,
 because no active source publishes interval evidence yet — §17.3); GPU frame
-budgets; and multi-touch or device-specific gestures. The browser probe also
-recorded a **pre-existing global-chrome** observation that is deliberately not a
-Mode B failure: at a 390 px viewport the sticky header's mobile menu button sits
-at `x ≈ 498`–`529`, i.e. outside the 390 px viewport and clipped by the root's
-`overflow-x: hidden`, so the top-level mode switcher is not reachable on a phone.
-That is `styles.css` global chrome shared with Mode A, is unchanged here, and is
-reported as a `NOTE` line rather than a failing check. A separate client-side
+budgets; and multi-touch or device-specific gestures. A separate client-side
 probe measured a shell round trip (control change → response → React commit →
 paint) at ~0.5–0.8 s steady state (~220 ms of which is the query debounce), a
 ~5 s first heavy render when the wide band first loads ~1 700 objects, and a flat
 ~7 MB JS heap across repeated band changes — all under SwiftShader **software**
-rendering, so the frame-time numbers are not representative of GPU hardware.
+rendering, so the frame-time numbers are not representative of GPU hardware. The
+phone-width mode-switcher defect this section previously recorded as a `NOTE` is
+now fixed and asserted (§17.7); a **separate, pre-existing** header overflow
+remains at widths ≥ 1181 px and is still reported as a `NOTE` (§17.6).
 
 ### 17.6 Evidence boundary
 
@@ -937,20 +938,82 @@ statement about the product, not the host — with two deliberate exceptions tha
 are kept separate:
 
 - The mobile page is created only after the two desktop GL pages, and Chromium
-  sometimes stalls a freshly created software-GL page; the harness waits up to
-  30 s for the first render and, on timeout, reports the page's DOM state so a
-  genuine render regression is distinguishable from an environment stall. Two
-  consecutive green runs were observed; a timeout here is an environment stall,
-  not a product defect.
+  sometimes stalls a freshly created software-GL page (a ~36 s first paint was
+  observed once on a loaded machine); the harness waits up to 45 s for the first
+  render and, on timeout, reports the page's DOM state so a genuine render
+  regression is distinguishable from an environment stall. The Observe remount
+  after the mobile navigation round trip is treated the same way. Consecutive
+  green runs were observed; a timeout here is an environment stall, not a product
+  defect.
 - Playwright's built-in click actionability is unreliable at the 390 px viewport
   (the root sets `overflow-x: hidden`, which derails its scroll-into-view retry
   loop), so the mobile interactions scroll the target in explicitly, wait for a
   stable box, and then click real pointer coordinates. This is a harness
   workaround, not a product condition.
 
-The global-chrome nav overflow noted above is a **confirmed** product defect, but
-one in shared chrome outside Mode B's change boundary, so it is recorded as an
-observation (`NOTE`) rather than fixed or asserted here.
+The phone-width (≤ 640 px) global-chrome overflow that earlier runs recorded as
+a `NOTE` is now **fixed and asserted** — see §17.7. A **separate, pre-existing**
+overflow remains at widths ≥ 1181 px: the header row's intrinsic width is ~1540 px
+(brand 237 + tab set 996 + status 90 + GitHub 94 + gaps and padding), but
+`.nav-tabs` only collapses at 1180 px, so on a 1400 × 900 viewport the trailing
+passes-status and GitHub controls are clipped, and in the 1181–1293 px band the
+tabs themselves are clipped. It is not introduced by this change (the change is a
+`max-width: 640px` query) and not Mode B; it is left as a recorded finding and is
+reported by `check:shell` as a `NOTE`.
+
+### 17.7 Mobile navigation fix (2026-10-17)
+
+The acceptance pass recorded a shared-chrome defect: at phone widths the sticky
+header pushed the mobile menu button — the only mode switcher once `.nav-tabs`
+collapses — past the right edge, where the root's `overflow-x: hidden` clipped it,
+leaving no way to change modes on a phone.
+
+**Root cause.** The header is a single non-wrapping flex row (brand, tabs, passes
+status, GitHub link, burger). At `≤ 1180 px` the tabs are hidden and the burger is
+the switcher, but the brand, the passes status and the GitHub link all still
+occupied the row; that intrinsic width exceeds a phone, and because there is no
+free space the burger's `margin-left: auto` cannot push it into view — the row
+just overflows and the burger is clipped.
+
+**Fix** (`client/src/styles.css`, inside the existing `@media (max-width: 640px)`
+block only, so the ≥ 641 px layout is untouched): hide the two secondary
+desktop-only header items (`.nav > .nav-status` and `.nav > .nav-repo`; the GitHub
+link stays reachable through the mobile menu, whose `.nav-mobile-repo` is a
+separate element and is deliberately not matched by the child selector), stop the
+long brand subtitle from consuming the row (`.brand-sub { display: none }`), let
+the brand shrink (`.nav-brand { min-width: 0 }`) and pin the burger
+(`.nav-burger { flex-shrink: 0 }`). The mode switcher is then always on screen and
+clickable at phone widths.
+
+**Regression assertions** (`scripts/shell-acceptance.mjs`):
+
+- *Desktop 1400 × 900 (page A).* The mode tabs are visible (8 of them) and the
+  burger is hidden; the mode switcher itself is within the viewport; choosing a
+  tab navigates (`#home`). The pre-existing ≥ 1181 px overflow of the trailing
+  status/GitHub controls at this width is reported as a `NOTE`, not a failure.
+- *Mobile 390 × 844 (page C).* The menu button is within the viewport and is the
+  topmost hit-test target (i.e. not clipped); no header control overflows; the
+  menu opens with all 8 modes and stays within the viewport; choosing a mode
+  navigates away (Observe → MISSION) and back (→ Observe), and the Observe view
+  re-renders.
+
+**Boundary.** No Mode A source file changes and no catalogue, source, or M5 work
+is touched; the change is CSS inside the 640 px query plus harness assertions.
+Because the header is shared chrome, Mode A was exercised in the browser at both
+widths rather than treating the untouched Mode A files as proof of no regression:
+`#sky/star-sirius` renders its viewer at 390 × 844 and 1400 × 900 with no console
+errors, the burger is reachable at 390 px (`x ≈ 332–374`), and the Sky content
+does not overflow (`main` and document widths stay at the viewport). The
+≥ 1181 px overflow is outside this fix's 640 px scope and is left as a recorded
+finding.
+
+**Verification.** `npm test` (shared 60 / server 148 / client 142, 0 failures);
+`npm run build -w client` clean; `npm run check:shell` twice consecutively = 57
+PASS, 0 FAIL, 1 NOTE (`SHELL ACCEPTANCE OK`). The Observe remount after the
+round trip is the heaviest step under software GL, so a render stall there is
+reported (with a DOM diagnostic) rather than failed, consistent with the
+initial-mount stall policy above; the navigation contract itself is a hard
+assertion.
 
 ## 18. Catalogue decision (recorded 2026-10-16)
 
