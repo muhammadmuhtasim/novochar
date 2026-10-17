@@ -122,6 +122,40 @@ test('querySIA2 returns image-footprint rows and first record', async () => {
   assert.ok(out.resources.length >= 1);
 });
 
+test('querySIA uses the SIA2 form (POS + COLLECTION, no SIZE/INTERSECT) with a collection', async () => {
+  let captured;
+  await querySIA2({
+    endpoint: 'irsa',
+    pos: 'circle 270 66.5 0.05',
+    size: 0.05,
+    collection: 'spherex_qr2',
+    fetchImpl: async (url) => {
+      captured = new URL(url);
+      return { ok: true, text: async () => VOTABLE };
+    },
+  });
+  assert.equal(captured.searchParams.get('COLLECTION'), 'spherex_qr2');
+  assert.equal(captured.searchParams.get('POS'), 'circle 270 66.5 0.05');
+  assert.equal(captured.searchParams.get('SIZE'), null);
+  assert.equal(captured.searchParams.get('INTERSECT'), null);
+});
+
+test('querySIA keeps the SIA1 form (SIZE + INTERSECT) without a collection', async () => {
+  let captured;
+  await querySIA2({
+    endpoint: 'irsa',
+    pos: '270 66.5',
+    size: 0.05,
+    fetchImpl: async (url) => {
+      captured = new URL(url);
+      return { ok: true, text: async () => VOTABLE };
+    },
+  });
+  assert.equal(captured.searchParams.get('SIZE'), '0.05');
+  assert.equal(captured.searchParams.get('INTERSECT'), 'OVERLAPS');
+  assert.equal(captured.searchParams.get('COLLECTION'), null);
+});
+
 test('querySSA returns spectrum rows', async () => {
   const out = await querySSA({ endpoint: 'mast', pos: '83.63 22.01', fetchImpl: stubFetch({}) });
   assert.equal(out.rows.length, 2);

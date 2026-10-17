@@ -2,8 +2,11 @@
 //
 // Queries image-footprint tables overlapping a sky position and returns VOTable
 // rows, each exposing an access_url for the actual pixel data (FITS cutout).
-// Handles both SIA1-style (POS/SIZE in one call, INTERSECT=OVERLAPS) and the
-// IRSA SIA2 form which adds a COLLECTION selector.
+// Two request forms are supported:
+//   * SIA1  - POS (ra dec) plus SIZE and INTERSECT=OVERLAPS (no collection).
+//   - SIA2  - POS (e.g. "circle RA Dec radius") plus a COLLECTION selector.
+//             SIZE/INTERSECT are SIA1-only and are omitted; IRSA's /SIA rejects
+//             them, so passing a collection selects the SIA2 form.
 
 import { parseVOTable, queryStatus } from './votable.js';
 import { ARCHIVES } from './registry.js';
@@ -33,9 +36,15 @@ export async function querySIA({ endpoint, pos, size = 0.05, collection, timeout
   const url = new URL(resolveEndpoint(base, SIA2_ENDPOINTS));
   url.searchParams.set('REQUEST', 'queryData');
   url.searchParams.set('POS', pos);
-  url.searchParams.set('SIZE', String(size));
-  url.searchParams.set('INTERSECT', 'OVERLAPS');
-  if (collection || param) url.searchParams.set(param || 'COLLECTION', collection || '');
+  if (collection) {
+    // SIA2 form: POS carries the search region (e.g. "circle RA Dec radius") and
+    // the dataset is chosen by collection name. SIZE and INTERSECT are SIA1-only
+    // and are rejected outright by e.g. IRSA's /SIA service, so omit them here.
+    url.searchParams.set(param || 'COLLECTION', collection);
+  } else {
+    url.searchParams.set('SIZE', String(size));
+    url.searchParams.set('INTERSECT', 'OVERLAPS');
+  }
 
   const res = await fetchImpl(url.toString(), {
     headers: { Accept: 'application/x-votable+xml, text/xml, application/xml' },
