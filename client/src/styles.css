@@ -1954,7 +1954,14 @@ main.view {
    RESPONSIVE DESIGN ADAPTATIONS
    ========================================================================== */
 
-@media (max-width: 1180px) {
+/* The full header row — brand + the eight-mode tab strip + the passes status +
+   the GitHub link — has an intrinsic width of ~1500px. That is measured, not
+   assumed: across a sweep of widths (Chromium 150, the app's loaded fonts) the
+   trailing GitHub link still clips at 1516px and nothing clips at 1520px. Below
+   this the tab strip gives way to the burger, which opens the same modes in the
+   mobile menu; above it the full strip is shown. This nav collapse is separate
+   from the grid collapse below, which stays at 1180px. */
+@media (max-width: 1560px) {
   .nav-tabs {
     display: none;
   }
@@ -1962,6 +1969,9 @@ main.view {
     display: flex;
     margin-left: auto;
   }
+}
+
+@media (max-width: 1180px) {
   .home.grid {
     grid-template-columns: 1fr;
   }
@@ -1984,7 +1994,7 @@ main.view {
     padding: 10px 16px;
   }
   /* The header is a single non-wrapping flex row. Once `.nav-tabs` is hidden
-     (<=1180px) the burger is the only mode switcher, but it sits last in the
+     (<=1560px) the burger is the only mode switcher, but it sits last in the
      row: with the brand, the passes status and the GitHub link all still
      present, the row cannot fit a phone, so the burger is pushed past the
      right edge and clipped by the root's `overflow-x: hidden` — leaving no

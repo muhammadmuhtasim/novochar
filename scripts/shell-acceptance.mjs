@@ -217,21 +217,8 @@ try {
   await pageA.locator('.observe-footer').waitFor({ timeout: 30_000 });
   await delay(250);
 
-  // 0. Desktop header: above the 1180px collapse the mode tabs are the
-  // switcher and the burger is hidden. The mode switcher must stay reachable.
-  const navA = await navState(pageA);
-  check('desktop nav: mode tabs are visible', !!navA.tabs && navA.tabCount > 0, `tabs=${navA.tabCount}`);
-  check('desktop nav: the burger is hidden when the tabs are shown', navA.burger === null);
-  check('desktop nav: the mode switcher is within the viewport', !!navA.tabs && navA.tabs.right <= navA.vw + 1, JSON.stringify(navA.tabs));
-  // Pre-existing shared-chrome defect, outside this phone fix: the header row
-  // needs ~1540px but `.nav-tabs` only collapses at 1180px, so the trailing
-  // status / GitHub controls are clipped on a 1400px viewport (and the tabs
-  // themselves are clipped from 1181-1293px). Not introduced here — reported,
-  // not failed.
-  const navAOverflow = navA.items.filter((item) => item.box && (item.box.x < -1 || item.box.right > navA.vw + 1));
-  if (navAOverflow.length) {
-    note(`pre-existing header overflow at ${navA.vw}px: ${navAOverflow.map((item) => item.cls).join(', ')} exceed the viewport (tab collapse breakpoint is 1180px; row needs ~1540px)`);
-  }
+  // Header/navigation coverage lives in the dedicated responsive sweep below
+  // (a lightweight Home page, so it does not depend on WebGL).
 
   // 1. Direction-only honesty and the layer legend.
   const target = await pageA.locator('.observe-target').innerText();
@@ -544,7 +531,8 @@ try {
   await tap(pageC, '.nav-burger');
   await pageC.locator('.nav-mobile.open').waitFor({ timeout: 15_000 });
   const menuTabs = await pageC.locator('.nav-mobile.open .tab').count();
-  check('mobile nav: the menu opens and lists every mode', menuTabs === navA.tabCount && menuTabs > 0, `menu=${menuTabs} tabs=${navA.tabCount}`);
+  const expectedModes = await pageC.locator('.nav-tabs .tab').count(); // DOM count; the strip is display:none here
+  check('mobile nav: the menu opens and lists every mode', menuTabs === expectedModes && menuTabs > 0, `menu=${menuTabs} tabs=${expectedModes}`);
   const menuFits = await pageC.evaluate(() => {
     const vw = window.innerWidth;
     return [...document.querySelectorAll('.nav-mobile.open .tab, .nav-mobile.open .nav-mobile-repo')]
@@ -580,11 +568,112 @@ try {
     note(`mobile nav: Observe remount after the round trip did not settle in 45s (DIAG ${JSON.stringify(diag)}); navigation itself succeeded`);
   }
 
+  // --- Responsive header sweep (page D, lightweight Home route) ---
+  // The header is shared chrome. Drive it on the no-WebGL Home route so the
+  // sweep is fast and deterministic, and bracket the collapse breakpoint the
+  // stylesheet uses. NAV_COLLAPSE_PX must match `@media (max-width: 1560px)`
+  // in client/src/styles.css — if that changes, this test should change too.
+  const NAV_COLLAPSE_PX = 1560;
+  const pageD = await browser.newPage({ viewport: { width: 1920, height: 900 } });
+  attachDiagnostics(pageD);
+  await pageD.goto(`${origin}/#home`, { waitUntil: 'load' });
+  await pageD.locator('.nav').waitFor({ timeout: 15_000 });
+  await pageD.evaluate(() => document.fonts.ready); // avoid font-load width jitter
+  await delay(150);
+
+  const sweepWidths = [390, 640, 641, 768, 1024, 1180, 1400, 1519, 1559, 1560, 1561, 1680, 1920];
+  const sweep = [];
+  for (const width of sweepWidths) {
+    await pageD.setViewportSize({ width, height: 900 });
+    await delay(120);
+    const state = await navState(pageD);
+    sweep.push({ width, want: width <= NAV_COLLAPSE_PX ? 'burger' : 'tabs', ...state });
+  }
+  const variantOf = (s) => (s.burger ? 'burger' : (s.tabs ? 'tabs' : 'none'));
+  const shownVariantCount = (s) => (s.burger ? 1 : 0) + (s.tabs ? 1 : 0);
+  const wrongVariant = sweep.filter((s) => shownVariantCount(s) !== 1 || variantOf(s) !== s.want);
+  check(
+    'responsive nav: exactly the right variant shows at every swept width',
+    wrongVariant.length === 0,
+    JSON.stringify(wrongVariant.map((s) => ({ w: s.width, got: variantOf(s), shown: shownVariantCount(s), want: s.want }))),
+  );
+  const clippedAt = sweep.filter((s) => !navItemsWithinViewport(s));
+  check(
+    'responsive nav: no header control is clipped at any swept width',
+    clippedAt.length === 0,
+    JSON.stringify(clippedAt.map((s) => ({
+      w: s.width,
+      clipped: s.items.filter((i) => i.box && (i.box.x < -1 || i.box.right > s.vw + 1)).map((i) => i.cls),
+    }))),
+  );
+  check(
+    'responsive nav: the burger is the topmost hit target wherever it is shown',
+    sweep.filter((s) => s.want === 'burger').every((s) => s.burgerHit === true),
+    JSON.stringify(sweep.filter((s) => s.want === 'burger' && s.burgerHit !== true).map((s) => s.width)),
+  );
+  const at = (w) => sweep.find((s) => s.width === w);
+  check(`responsive nav: ${NAV_COLLAPSE_PX - 1}px (just below the breakpoint) collapses to the burger`, variantOf(at(NAV_COLLAPSE_PX - 1)) === 'burger');
+  check(`responsive nav: ${NAV_COLLAPSE_PX}px (at the breakpoint) collapses to the burger`, variantOf(at(NAV_COLLAPSE_PX)) === 'burger');
+  check(`responsive nav: ${NAV_COLLAPSE_PX + 1}px (just above the breakpoint) shows the full tab strip`, variantOf(at(NAV_COLLAPSE_PX + 1)) === 'tabs');
+  check('responsive nav: the tab strip shows all eight modes and fits at 1920px', !!at(1920).tabs && at(1920).tabCount === at(390).tabCount && at(1920).tabs.right <= at(1920).vw + 1, `tabs=${at(1920).tabCount} right=${at(1920).tabs?.right}`);
+
+  // The full strip must actually navigate. Use CATALOGUE: it renders from the
+  // objects the app has already loaded, so it issues no request that a quick
+  // navigate-away could abort (which would surface as a console error).
+  await pageD.locator('.nav-tabs .tab', { hasText: 'CATALOGUE' }).first().click();
+  await pageD.waitForFunction(() => location.hash.startsWith('#catalogue'), null, { timeout: 10_000 });
+  await pageD.waitForLoadState('networkidle').catch(() => {});
+  check('responsive nav: a tab click navigates (full strip)', true);
+
+  // At a collapsed desktop width the menu must still be accessible and fit.
+  // (Menu *navigation* is exercised end to end on the mobile page above.)
+  await pageD.setViewportSize({ width: 1400, height: 900 });
+  await delay(150);
+  await tap(pageD, '.nav-burger');
+  await pageD.locator('.nav-mobile.open').waitFor({ timeout: 10_000 });
+  const sweepMenuTabs = await pageD.locator('.nav-mobile.open .tab').count();
+  const sweepMenuFits = await pageD.evaluate(() => {
+    const vw = window.innerWidth;
+    return [...document.querySelectorAll('.nav-mobile.open .tab, .nav-mobile.open .nav-mobile-repo')]
+      .map((el) => el.getBoundingClientRect())
+      .every((r) => r.width > 0 && r.left >= -1 && r.right <= vw + 1);
+  });
+  check('responsive nav: the menu is accessible and fits at a collapsed desktop width (1400px)', sweepMenuTabs === at(1400).tabCount && sweepMenuFits, `menu=${sweepMenuTabs}`);
+
+  // --- Mode A smoke (page E): the header is shared chrome, so confirm the Sky
+  // Viewer still renders and the header behaves on that route too. ---
+  const pageE = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  attachDiagnostics(pageE);
+  await pageE.goto(`${origin}/#sky/star-sirius`, { waitUntil: 'load' });
+  const modeARendered = await pageE.locator('canvas').first().waitFor({ timeout: 45_000 }).then(() => true).catch(() => false);
+  const modeADiag = modeARendered ? '' : await pageE.evaluate(() => ({
+    hash: location.hash,
+    canvases: document.querySelectorAll('canvas').length,
+    headings: [...document.querySelectorAll('.panel-head h2')].map((h) => h.textContent),
+  })).catch(() => 'diag failed');
+  check('mode A smoke: the Sky Viewer renders', modeARendered, modeARendered ? '' : JSON.stringify(modeADiag));
+  await pageE.evaluate(() => document.fonts.ready);
+  await delay(150);
+  const navE = await navState(pageE);
+  check(
+    'mode A smoke: the header fits on the Sky route at 1400px (collapsed variant)',
+    !!navE.burger && navItemsWithinViewport(navE),
+    JSON.stringify(navE.items.filter((i) => i.box && (i.box.x < -1 || i.box.right > navE.vw + 1)).map((i) => i.cls)),
+  );
+  await pageE.setViewportSize({ width: 1920, height: 900 });
+  await delay(200);
+  const navE1920 = await navState(pageE);
+  check(
+    'mode A smoke: the header shows the full tab strip at 1920px on the Sky route',
+    !!navE1920.tabs && navItemsWithinViewport(navE1920),
+    JSON.stringify(navE1920.tabs),
+  );
+
   // --- Unmount (page A) ---
-  await pageA.locator('.nav-tabs button').first().click();
+  await pageA.locator('.nav-brand').click();
   await pageA.locator('.observe-footer').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {});
   await delay(300);
-  check('desktop nav: choosing a tab navigates', (await pageA.evaluate(() => location.hash)).startsWith('#home'));
+  check('desktop nav: navigating away releases the Observe view', (await pageA.evaluate(() => location.hash)).startsWith('#home'));
   check('unmount releases the shell canvases', (await pageA.locator('canvas').count()) === 0);
 
   const realErrors = consoleErrors.filter((message) => !/favicon/i.test(message));
