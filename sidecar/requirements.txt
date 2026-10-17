@@ -1,0 +1,11 @@
+# Python sidecar for SPHEREx product validation (M3-A) and reprojection (M3-B).
+#
+# Pinned so the environment that is tested is the environment that is deployed.
+# astropy publishes a cp311-abi3 wheel, so a single wheel installs unchanged on
+# Python 3.11+ (verified here on CPython 3.14).
+#
+# Install into an isolated venv:
+#   python3 -m venv sidecar/.venv
+#   sidecar/.venv/bin/python -m pip install -r sidecar/requirements.txt
+astropy==8.0.2
+numpy==2.5.4

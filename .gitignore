@@ -14,3 +14,8 @@ data/catalog/raw/
 
 # Local FITS cutout cache written by the SPHEREx retrieval path (M2-B).
 .cache/
+
+# Python sidecar virtualenv (deps pinned in sidecar/requirements.txt).
+sidecar/.venv/
+__pycache__/
+*.pyc
