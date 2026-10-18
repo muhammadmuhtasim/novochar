@@ -157,6 +157,27 @@ test('renderRaster writes array row 0 to the bottom of the screen (north-up)', (
   assert.deepEqual(at(0, 0), [0, 0, 0, 255], 'faint data is opaque, distinct from "no data"');
 });
 
+// A measured zero brightness and an absent measurement are the two things a
+// blink makes easy to confuse: one epoch draws black (there was signal, it was
+// zero) and the other draws nothing (there was no measurement at all). Only
+// alpha can carry that difference, so it is asserted directly.
+test('renderRaster distinguishes a measured zero from no data at all', () => {
+  const { width, height, image, mask } = rasterFixture({
+    width: 4,
+    height: 1,
+    values: [0, 0, 0, 0],
+    mask: [1, 0, 1, 0],
+  });
+  const rgba = renderRaster({ image, mask, width, height }, { lo: 0, hi: 40 });
+
+  // Valid zero: black, but opaque — a real measurement of zero MJy/sr.
+  assert.deepEqual([...rgba.slice(0, 4)], [0, 0, 0, 255], 'valid zero is opaque black');
+  assert.deepEqual([...rgba.slice(8, 12)], [0, 0, 0, 255], 'including at the ramp floor');
+  // No data: nothing drawn at all, so the backdrop shows through.
+  assert.deepEqual([...rgba.slice(4, 8)], [0, 0, 0, 0], 'invalid pixel carries no colour and no alpha');
+  assert.deepEqual([...rgba.slice(12, 16)], [0, 0, 0, 0], 'including the last column');
+});
+
 test('renderRaster clamps out-of-range values and rejects mismatched planes', () => {
   const { width, height, image, mask } = rasterFixture({ width: 2, height: 1, values: [-50, 500] });
   const rgba = renderRaster({ image, mask, width, height }, { lo: 0, hi: 100 });
