@@ -6,7 +6,8 @@
   "functions": {
     "api/**/*.js": {
       "maxDuration": 30,
-      "memory": 1024
+      "memory": 1024,
+      "includeFiles": "data/spherex/**"
     }
   },
   "headers": [
