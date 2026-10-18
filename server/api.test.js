@@ -216,3 +216,38 @@ test('GET /api/ivoa/... live queries fail gracefully under error', async () => {
   );
   assert.ok([502, 200].includes(res.status));
 });
+// --- Contract 4: the registered surface --------------------------------------
+// docs/spherex-m3c-contracts.md makes "no route differences two epochs" a test
+// rather than a convention. Walk every route the server actually mounts —
+// including routers — and fail on anything that offers a quantitative
+// epoch-to-epoch difference while the sidecar's gate says it is disabled.
+
+function mountPrefix(layer) {
+  if (layer.regexp?.fast_slash) return '';
+  return (layer.regexp?.source ?? '')
+    .replace(/^\^/, '')
+    .replace(/\\\/\?\(\?=\\\/\|\$\)$/, '')
+    .replace(/\\\//g, '/');
+}
+
+function collectRoutes(stack, prefix = '', out = []) {
+  for (const layer of stack) {
+    if (layer.route) {
+      for (const [method, on] of Object.entries(layer.route.methods)) {
+        if (on) out.push(`${method.toUpperCase()} ${prefix}${layer.route.path}`);
+      }
+    } else if (layer.name === 'router' && layer.handle && Array.isArray(layer.handle.stack)) {
+      collectRoutes(layer.handle.stack, `${prefix}${mountPrefix(layer)}`, out);
+    }
+  }
+  return out;
+}
+
+test('no registered route offers a quantitative epoch-to-epoch difference', () => {
+  const routes = collectRoutes(app._router.stack).sort();
+  assert.ok(routes.includes('GET /api/spherex/products'), 'the SPHEREx metadata route is mounted');
+  assert.ok(routes.includes('GET /api/spherex/products/:role/raster'), 'the SPHEREx raster route is mounted');
+
+  const forbidden = /difference|subtract|delta|photometr|variab/i;
+  assert.deepEqual(routes.filter((r) => forbidden.test(r)), []);
+});

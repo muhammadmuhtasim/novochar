@@ -26,6 +26,8 @@ import {
   mastProductUrl,
   dartsFileUrl,
 } from './ivoa/index.js';
+import { createProductStore } from './store/spherex-products.js';
+import { createSpherexProductsRouter } from './routes/spherex-products.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 4000;
@@ -336,6 +338,18 @@ app.get('/api/ivoa/ssa', async (req, res) => {
     res.status(502).json({ error: err.message });
   }
 });
+
+// --- SPHEREx products (M3-C) --------------------------------------------------
+// Real reprojected NEP observations. The Python sidecar does the reprojection;
+// this server owns retrieval, the target grid, every checksum and what is
+// exposed here. The gate (`gate.quantitative_difference_enabled`) comes from the
+// sidecar's report and no route offers an epoch-to-epoch difference — see
+// docs/spherex-m3c-contracts.md, Contract 4.
+//
+// The routes live in their own module so they can be mounted against an
+// injected store in tests; the store itself is constructed lazily, so nothing
+// touches disk or Python until the first request.
+app.use('/api/spherex', createSpherexProductsRouter(createProductStore()));
 
 // In production, serve the built React app alongside the API.
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
