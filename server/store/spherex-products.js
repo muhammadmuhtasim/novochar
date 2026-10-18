@@ -298,6 +298,9 @@ export function createProductStore({
       await mkdir(derivedDir, { recursive: true });
 
       const request = {
+        // `shape` is [nx, ny] — NAXIS1 first, as `build_target_grid` reads it
+        // (`nx, ny = spec["shape"][0], spec["shape"][1]`). common-grid.json
+        // records it in that same order, so nothing has to translate.
         grid: {
           ra: gridSpec.ra,
           dec: gridSpec.dec,
@@ -414,7 +417,8 @@ export function createProductStore({
     if (!imageHdu) throw new ProductError(FAILED_CODES.PRODUCT, `the reprojected ${role} has no IMAGE extension`);
     const wcs = normalizeFitsWcs(imageHdu.keywords);
     if (!wcs) throw new ProductError(FAILED_CODES.PRODUCT, `the reprojected ${role} has no usable WCS`);
-    const shape = [imageHdu.keywords.NAXIS2 ?? null, imageHdu.keywords.NAXIS1 ?? null];
+    // Shape is [nx, ny] — NAXIS1 first, the same order common-grid.json uses.
+    const shape = [imageHdu.keywords.NAXIS1 ?? null, imageHdu.keywords.NAXIS2 ?? null];
     const onAgreedGrid =
       shape[0] === gridSpec.shape[0] &&
       shape[1] === gridSpec.shape[1] &&

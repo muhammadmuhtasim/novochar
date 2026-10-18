@@ -35,7 +35,9 @@ on stdout**.
 ```
 
 - `grid` is read from `data/spherex/common-grid.json` — never assembled ad hoc, so
-  what is served is what M3-B validated.
+  what is served is what M3-B validated. `shape` is `[nx, ny]` (NAXIS1 first),
+  the order `build_target_grid` reads it in; the metadata the viewer gets back
+  uses the same order.
 - Every `product` carries its manifest SHA-256. The sidecar verifies it and fails
   the product on mismatch.
 - `role` is **our** vocabulary (`epoch-a`, `epoch-b`), mapped to

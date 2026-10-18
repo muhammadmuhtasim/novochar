@@ -8,6 +8,7 @@
   "projection": "TAN",
   "pixel_scale_arcsec": 6.15,
   "shape": [294, 294],
+  "shape_order": "[nx, ny] — NAXIS1 first, the order the sidecar's build_target_grid reads",
   "rotation_deg": 0.0,
   "orientation": "north-up, east-left (viewer convention; det(CD) < 0 matches SPHEREx handedness)",
   "validated_by": "sidecar M3-B gate — docs/spherex-m3b-reprojection.md",

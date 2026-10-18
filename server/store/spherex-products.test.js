@@ -235,7 +235,7 @@ function fixtureGrid() {
     frame: 'ICRS',
     projection: 'TAN',
     pixel_scale_arcsec: 6.15,
-    shape: [NY, NX],
+    shape: [NX, NY],
     rotation_deg: 0,
     orientation: 'north-up, east-left',
   };
@@ -325,7 +325,7 @@ test('metadata keeps archive facts and derived facts in separate namespaces', as
 
   // Derived namespace: what this pipeline did to it.
   assert.equal(a.derived.units, 'MJy / sr');
-  assert.deepEqual(a.derived.shape, [NY, NX]);
+  assert.deepEqual(a.derived.shape, [NX, NY], 'shape is [nx, ny], NAXIS1 first');
   assert.equal(a.derived.stats.quality_flag_fraction, 0.029);
   assert.equal(a.derived.stats.informational_flag_fraction, 0.408);
   assert.ok(a.derived.output_sha256);
