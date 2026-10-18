@@ -1,4 +1,5 @@
-// Browser acceptance for the real SPHEREx product viewer (M3-C).
+// Browser acceptance for the real SPHEREx product viewer (M3-C) and the blink
+// comparison (M4).
 // Run on demand:  npm run check:spherex
 //
 // It boots the production server, opens the built client in system Chromium,
@@ -18,6 +19,18 @@
 //     east-left on the screen the user is looking at;
 //   * a pixel outside the footprint reads "no data", not a number;
 //   * no control offers a quantitative difference (client half of Contract 4);
+//   * M4: side by side, manual toggle and automatic blink switch reliably; an
+//     epoch switch or a blink tick repaints the same canvas rather than
+//     remounting it, and through every switch the grid, the sky position and
+//     the pooled stretch are unchanged (a mode change re-creates the frames by
+//     design, but they draw identical pixels);
+//   * M4: the active observation is always identified (date, obs id, pipeline,
+//     units), the uncovered rim stays uncovered in every mode, a pause holds
+//     and manual selection wins over the alternation;
+//   * M4: a failure raised *while comparing* is reported as retryable and
+//     recovery keeps the mode the user chose;
+//   * M4: the same interaction works at a mobile viewport (390 × 844), controls
+//     inside the viewport, with the collapsed menu still reaching the tab;
 //   * no uncaught page or console errors.
 
 import { spawn } from 'node:child_process';
@@ -52,6 +65,31 @@ function check(name, ok, detail = '') {
 }
 function note(message) {
   results.push(`NOTE  ${message}`);
+}
+
+// Playwright's built-in click actionability is unreliable at a narrow viewport
+// here (the document root sets `overflow-x: hidden`, which derails its
+// scroll-into-view retry loop — the same trap scripts/shell-acceptance.mjs
+// documents). Scroll the target in, wait for its box to settle, then click
+// real pointer coordinates, which is what a finger does anyway.
+async function tap(page, target) {
+  const locator = typeof target === 'string' ? page.locator(target).first() : target.first();
+  // `inline: 'nearest'` matters: `center` can programmatically scroll the body
+  // horizontally (the root is `overflow-x: hidden` but still scrollable by
+  // script), which shifts every element's box and would corrupt any measurement
+  // taken after a tap.
+  await locator.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
+  let previous = null;
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    const box = await locator.boundingBox();
+    if (box && previous && Math.abs(box.x - previous.x) < 0.5 && Math.abs(box.y - previous.y) < 0.5) {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      return;
+    }
+    previous = box;
+    await delay(80);
+  }
+  throw new Error(`tap: ${await locator.count()} matching target(s) never settled`);
 }
 
 let browser;
@@ -392,6 +430,238 @@ try {
     contract.provenance.join(' / '));
   note(`panels: ${contract.labels.join(', ')}`);
 
+  // --- M4: side by side, manual toggle, automatic blink ----------------------------
+  //
+  // The invariant under test: switching epochs or modes changes only *which*
+  // observation is drawn. The grid, the sky position and the pooled stretch
+  // must come back identical every time, the canvas must not be remounted
+  // under the user, and the uncovered rim must stay uncovered in every mode.
+  //
+  // The cursor is driven by a synthetic pointer event at an exact fractional
+  // array coordinate, so the readout is compared byte for byte rather than
+  // through pointer rounding that varies with the CSS scale of each layout.
+  const moveCursor = async (fx = 100.5 / 294, fy = 150.5 / 294) => {
+    await page.evaluate(({ fx: ax, fy: ay }) => {
+      const canvas = document.querySelector('.spherex-canvas');
+      const rect = canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent('pointermove', {
+        clientX: rect.left + rect.width * ax,
+        clientY: rect.top + rect.height * ay,
+        bubbles: true,
+      }));
+    }, { fx, fy });
+    await delay(160);
+    return {
+      raw: (await page.locator('.spherex-readout-raw').innerText()).trim(),
+      px: (await page.locator('.spherex-readout-px').innerText()).trim(),
+    };
+  };
+
+  const viewFacts = () => page.evaluate(() => {
+    const canvas = document.querySelector('.spherex-canvas');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let transparent = 0;
+    let checksum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 0) transparent += 1;
+      checksum = (checksum * 31 + data[i] + data[i + 1] + data[i + 2]) >>> 0;
+    }
+    const strip = document.querySelector('.spherex-active');
+    return {
+      canvases: document.querySelectorAll('.spherex-canvas').length,
+      width: canvas.width,
+      height: canvas.height,
+      transparent,
+      plane: canvas.width * canvas.height,
+      checksum,
+      legend: (document.querySelector('.spherex-legend')?.textContent || '').replace(/\s+/g, ' ').trim(),
+      active: strip ? strip.textContent.replace(/\s+/g, ' ').trim() : null,
+      playLabel: [...document.querySelectorAll('.spherex-controls button')]
+        .map((b) => b.textContent.trim())
+        .find((t) => /^(⏸ PAUSE|▶ BLINK)$/.test(t)) ?? null,
+      speed: document.querySelector('.spherex-speed')?.value ?? null,
+      nodeIsFirst: window.__spherexFrame ? window.__spherexFrame === canvas : null,
+      nodeIsSingle: window.__spherexSingle ? window.__spherexSingle === canvas : null,
+    };
+  });
+  const activeId = () => page.evaluate(
+    () => (document.querySelector('.spherex-active-id')?.textContent ?? '').trim(),
+  );
+  const [obsA, obsB] = meta.epochs;
+  const idOf = (epoch) => `${epoch.archive.label} · ${epoch.archive.obs_id}`;
+
+  // Reference state: the M3-C layout exactly as it loads.
+  await page.evaluate(() => { window.__spherexFrame = document.querySelector('.spherex-canvas'); });
+  const reference = await viewFacts();
+  const referenceCursor = await moveCursor();
+  check('M4 reference view is side by side with no active-epoch strip',
+    reference.canvases === 2 && reference.active === null,
+    `${reference.canvases} frame(s), strip ${reference.active === null ? 'absent' : 'present'}`);
+
+  // --- Manual toggle -------------------------------------------------------------
+  await page.getByRole('button', { name: 'SINGLE', exact: true }).click();
+  await page.locator('.spherex-active').waitFor({ state: 'visible', timeout: 15_000 });
+  const single = await viewFacts();
+  const singleCursor = await moveCursor();
+  check('M4 toggle puts one observation on screen', single.canvases === 1, `${single.canvases} frame(s)`);
+  check('M4 toggle identifies the observation in full (date, obs id, pipeline, units)',
+    !!single.active && single.active.includes(idOf(obsA))
+    && single.active.includes(obsA.archive.date_obs_utc.slice(0, 10))
+    && single.active.includes(`pipeline ${obsA.archive.pipeline_version}`)
+    && single.active.includes(obsA.derived.units),
+    (single.active || 'no strip').slice(0, 150));
+  check('M4 toggle states what switching does not change',
+    !!single.active && /same grid, same zoom, same stretch/.test(single.active),
+    ((single.active || '').split('same grid')[1] || 'missing').slice(0, 90));
+  check('M4 toggle keeps the sky position, the pixel grid and the pooled stretch',
+    singleCursor.raw === referenceCursor.raw && singleCursor.px === referenceCursor.px
+    && single.legend === reference.legend
+    && single.width === reference.width && single.height === reference.height,
+    `${singleCursor.raw} ${singleCursor.px}; legend ${single.legend === reference.legend ? 'unchanged' : 'CHANGED'}`);
+  check('M4 toggle keeps the uncovered rim transparent',
+    single.transparent > single.plane * 0.05,
+    `${single.transparent} of ${single.plane} pixels show the no-data backdrop`);
+  const singleBanner = await page.locator('.spherex-banner').innerText();
+  check('M4 toggle keeps the spatial-alignment disclaimer',
+    /Visualization — spatial alignment only/.test(singleBanner) && /never the field of view or the stretch/.test(singleBanner),
+    singleBanner.slice(0, 120));
+
+  await page.evaluate(() => { window.__spherexSingle = document.querySelector('.spherex-canvas'); });
+
+  // --- Epoch switch: same canvas node, new pixels, same everything else ----------
+  const beforeSwitch = await viewFacts();
+  await page.getByRole('button', { name: 'EPOCH-2', exact: true }).click();
+  await page.waitForFunction(
+    (id) => (document.querySelector('.spherex-active-id')?.textContent ?? '').includes(id),
+    idOf(obsB).split(' · ')[1],
+    { timeout: 10_000 },
+  );
+  await delay(250);
+  const switched = await viewFacts();
+  const switchedCursor = await moveCursor();
+  check('M4 epoch switch repaints the same canvas instead of remounting it',
+    switched.nodeIsSingle === true, `node preserved: ${switched.nodeIsSingle}`);
+  check('M4 epoch switch actually draws the other observation',
+    switched.checksum !== beforeSwitch.checksum,
+    `checksum ${beforeSwitch.checksum} -> ${switched.checksum}`);
+  check('M4 epoch switch leaves the sky position and the pooled stretch alone',
+    switchedCursor.raw === referenceCursor.raw && switchedCursor.px === referenceCursor.px
+    && switched.legend === reference.legend && switched.width === reference.width,
+    `${switchedCursor.raw} ${switchedCursor.px}; legend ${switched.legend === reference.legend ? 'unchanged' : 'CHANGED'}`);
+  check('M4 epoch switch identifies the new observation',
+    !!switched.active && switched.active.includes(idOf(obsB))
+    && switched.active.includes(obsB.archive.date_obs_utc.slice(0, 10))
+    && switched.active.includes(`pipeline ${obsB.archive.pipeline_version}`)
+    && switched.active.includes(obsB.derived.units),
+    (switched.active || '').slice(0, 150));
+  check('M4 epoch switch keeps this epoch\'s rim transparent as well',
+    switched.transparent > switched.plane * 0.05,
+    `${switched.transparent} transparent pixels (nothing zero-filled)`);
+  const switchedFoot = await page.locator('.spherex-frame-foot').first().innerText();
+  check('M4 each frame reports its own coverage next to the readout',
+    /% of grid valid/.test(switchedFoot),
+    switchedFoot.split('\n').join(' | ').slice(0, 110));
+
+  // --- Automatic blink -------------------------------------------------------------
+  await page.getByRole('button', { name: 'BLINK', exact: true }).click();
+  await page.locator('.spherex-speed').waitFor({ state: 'visible', timeout: 15_000 });
+  const blinkEntry = await viewFacts();
+  check('M4 entering blink keeps the epoch, the canvas and the default cadence',
+    blinkEntry.canvases === 1 && blinkEntry.nodeIsSingle === true && blinkEntry.speed === '500',
+    `canvases=${blinkEntry.canvases}, node preserved=${blinkEntry.nodeIsSingle}, cadence=${blinkEntry.speed} ms`);
+  const blinkBanner = await page.locator('.spherex-banner').innerText();
+  check('M4 blink banner warns what a blink cannot establish',
+    /cannot by itself establish motion or astrophysical variability/.test(blinkBanner)
+    && /Visualization — spatial alignment only/.test(blinkBanner),
+    blinkBanner.slice(0, 140));
+
+  const entryId = await activeId();
+  const flips = [];
+  for (let attempt = 0; attempt < 14 && flips.length < 2; attempt += 1) {
+    await delay(250);
+    const now = await activeId();
+    if (now !== entryId && !flips.includes(now)) flips.push(now);
+  }
+  check('M4 blink alternates between the real epochs on its own',
+    flips.length >= 1, `${entryId} -> ${flips.join(' -> ') || 'never changed'}`);
+  const midBlinkCursor = await moveCursor();
+  check('M4 blinking does not move the field',
+    midBlinkCursor.raw === referenceCursor.raw && midBlinkCursor.px === referenceCursor.px,
+    `${midBlinkCursor.raw} ${midBlinkCursor.px} while alternating`);
+
+  // Pause must be a real pause: no stale interval may keep flipping.
+  await page.getByRole('button', { name: '⏸ PAUSE', exact: true }).click();
+  const paused = await viewFacts();
+  const pausedId = await activeId();
+  await delay(1400);
+  const stillPaused = await viewFacts();
+  check('M4 pause stops the alternation deterministically',
+    paused.playLabel === '▶ BLINK' && paused.checksum === stillPaused.checksum
+    && pausedId === (await activeId()),
+    `button=${paused.playLabel}, checksum stable=${paused.checksum === stillPaused.checksum}, still ${pausedId}`);
+
+  // Resume, then let manual selection win over the alternation.
+  await page.getByRole('button', { name: '▶ BLINK', exact: true }).click();
+  const resumeFrom = await activeId();
+  let resumed = false;
+  for (let attempt = 0; attempt < 14 && !resumed; attempt += 1) {
+    await delay(250);
+    resumed = (await activeId()) !== resumeFrom;
+  }
+  check('M4 play resumes the alternation', resumed, `${resumeFrom} -> ${await activeId()}`);
+
+  await page.getByRole('button', { name: 'EPOCH-1', exact: true }).click();
+  await delay(250);
+  const manualId = await activeId();
+  const manualLabel = (await viewFacts()).playLabel;
+  await delay(1400);
+  check('M4 selecting an epoch by hand pauses the blink and keeps it there',
+    manualId === idOf(obsA) && (manualLabel === '▶ BLINK' || manualLabel === '⏸ PAUSE') && (await activeId()) === manualId,
+    `id=${manualId}, button=${manualLabel}, after 1.4 s=${await activeId()}`);
+  const manualCursor = await moveCursor();
+  check('M4 the field is still in the same place after every switch',
+    manualCursor.raw === referenceCursor.raw && manualCursor.px === referenceCursor.px,
+    `${manualCursor.raw} ${manualCursor.px}`);
+
+  const blinkControls = await page.evaluate(() => {
+    const root = document.querySelector('.spherex');
+    const controls = [...root.querySelectorAll('button, input, select, a, [role="button"]')];
+    const gateBlock = [...root.querySelectorAll('.spherex-meta-block')]
+      .map((b) => b.textContent).find((t) => /Scientific gate/.test(t)) || '';
+    return {
+      labels: controls.map((el) => (el.textContent || el.getAttribute('aria-label') || '').trim()).filter(Boolean),
+      gate: gateBlock,
+      banner: root.querySelector('.spherex-banner')?.textContent || '',
+    };
+  });
+  check('M4 even the fully expanded blink controls offer no quantitative analysis',
+    blinkControls.labels.length > 4
+    && blinkControls.labels.every((label) => !/difference|subtract|delta|photometr|variab/i.test(label)),
+    `${blinkControls.labels.length} control(s): ${blinkControls.labels.slice(0, 10).join(' | ')}`);
+  check('M4 the gate and the visualization label stay visible while comparing',
+    /QUANTITATIVE DIFFERENCE/.test(blinkControls.gate) && /DISABLED/.test(blinkControls.gate)
+    && /Visualization — spatial alignment only/.test(blinkControls.banner),
+    'gate reports quantitative difference DISABLED');
+
+  // --- Back to the reference, and navigation ------------------------------------
+  await page.getByRole('button', { name: 'SIDE BY SIDE', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.spherex-canvas').length === 2, null, { timeout: 15_000 });
+  const restored = await viewFacts();
+  const restoredCursor = await moveCursor();
+  check('M4 returning to side by side restores the reference view exactly',
+    restored.active === null && restoredCursor.raw === referenceCursor.raw
+    && restored.legend === reference.legend && restored.canvases === 2,
+    `strip ${restored.active === null ? 'absent' : 'present'}, ${restoredCursor.raw}, canvases=${restored.canvases}`);
+
+  await page.getByRole('button', { name: /MISSION/ }).click();
+  await delay(400);
+  await page.getByRole('button', { name: /SPHEREx FIELD/ }).click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.spherex-canvas').length === 2, null, { timeout: 30_000 });
+  check('M4 navigation away and back keeps the viewer working',
+    (await page.locator('.spherex-canvas').count()) === 2,
+    'the reference view reloads from the tab');
+
   // --- Honest failure and recovery --------------------------------------------
   //
   // Vercel cannot spawn Python, so the sidecar routes answer 503 there. That
@@ -416,6 +686,154 @@ try {
   check('retry recovers without reloading the page',
     (await page.locator('.spherex-canvas').count()) === 2,
     'both frames are back after one retry');
+
+  // --- M4: a failure raised while comparing, and recovery keeps the mode ------
+  //
+  // The user has chosen a comparison; a transient failure must be reported as
+  // retryable there too, and recovering must not silently drop them back to
+  // the default view.
+  await page.getByRole('button', { name: 'SINGLE', exact: true }).click();
+  await page.locator('.spherex-active').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.route('**/api/spherex/products', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'the sidecar could not be started', code: 'sidecar_unavailable' }),
+  }));
+  await page.getByRole('button', { name: /RELOAD/ }).click();
+  await page.locator('.module-error').waitFor({ state: 'visible', timeout: 45_000 });
+  const comparedError = await page.locator('.module-error').innerText();
+  check('a failure raised while comparing is still reported as retryable',
+    /sidecar_unavailable/.test(comparedError) && /transient environment failure/.test(comparedError),
+    comparedError.split('\n').join(' | ').slice(0, 130));
+
+  await page.unroute('**/api/spherex/products');
+  await page.locator('.module-error button').click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  const recovered = await viewFacts();
+  check('recovery keeps the comparison mode the user chose',
+    recovered.canvases === 1 && !!recovered.active && recovered.active.includes(idOf(obsA)),
+    `canvases=${recovered.canvases}, strip=${(recovered.active || 'absent').slice(0, 80)}`);
+
+  // --- M4: the same interaction at a mobile viewport (390 × 844) ----------------
+  //
+  // The comparison has to be usable where most people will meet it: one
+  // column, controls inside the screen with real tap targets, the same honest
+  // rendering, and the collapsed menu still reaching this tab.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await delay(500);
+
+  const mobileLayout = () => page.evaluate(() => {
+    // Normalise any programmatic horizontal scroll (decorative layers make the
+    // root scrollable even though `overflow-x: hidden` stops a finger): layout
+    // fit is what is being measured, not a stray scroll offset.
+    document.body.scrollLeft = 0;
+    document.documentElement.scrollLeft = 0;
+    const controls = [...document.querySelectorAll(
+      '.spherex-controls .seg, .spherex-controls .btn, .spherex-controls select, .spherex-controls .tb-label',
+    )];
+    const canvas = document.querySelector('.spherex-canvas');
+    const cb = canvas.getBoundingClientRect();
+    const grid = document.querySelector('.spherex-grid');
+    return {
+      vw: window.innerWidth,
+      columns: getComputedStyle(grid).gridTemplateColumns.split(' ').length,
+      controls: controls.map((el) => {
+        const b = el.getBoundingClientRect();
+        return {
+          t: (el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 14),
+          l: Math.round(b.left), r: Math.round(b.right), h: Math.round(b.height),
+          interactive: !el.classList.contains('tb-label'),
+        };
+      }),
+      canvas: { l: Math.round(cb.left), r: Math.round(cb.right), w: Math.round(cb.width) },
+    };
+  });
+  const controlsFit = (layout) => layout.controls.length > 0
+    && layout.controls.every((c) => c.l >= -1 && c.r <= layout.vw + 1
+      && (c.interactive ? c.h >= 20 : c.h >= 12));
+
+  const mobile = await mobileLayout();
+  check('mobile: the viewport is narrow and side by side collapses to one column',
+    mobile.vw === 390 && mobile.columns === 1,
+    `vw=${mobile.vw}, ${mobile.columns} column(s)`);
+  check('mobile: comparison controls stay inside the viewport with usable tap targets',
+    controlsFit(mobile), JSON.stringify(mobile.controls));
+  check('mobile: the reference frames fit the viewport width',
+    mobile.canvas.l >= -1 && mobile.canvas.r <= mobile.vw + 1 && mobile.canvas.w > 200,
+    JSON.stringify(mobile.canvas));
+
+  // Tap through the comparison with real pointer coordinates (see `tap`).
+  await tap(page, page.getByRole('button', { name: 'SINGLE', exact: true }));
+  await page.locator('.spherex-active').waitFor({ state: 'visible', timeout: 20_000 });
+  const mobileSingle = await page.evaluate(() => {
+    const canvas = document.querySelector('.spherex-canvas');
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let opaque = 0;
+    for (let i = 3; i < data.length; i += 4) if (data[i] === 255) opaque += 1;
+    return {
+      canvases: document.querySelectorAll('.spherex-canvas').length,
+      opaque,
+      plane: canvas.width * canvas.height,
+      strip: (document.querySelector('.spherex-active')?.textContent || '').replace(/\s+/g, ' ').trim(),
+    };
+  });
+  check('mobile: single-epoch mode renders a real, mostly drawn frame',
+    mobileSingle.canvases === 1 && mobileSingle.opaque > mobileSingle.plane * 0.7,
+    `${mobileSingle.opaque}/${mobileSingle.plane} pixels drawn`);
+  check('mobile: the active observation is identified in full',
+    mobileSingle.strip.includes(idOf(obsA))
+    && mobileSingle.strip.includes(`pipeline ${obsA.archive.pipeline_version}`)
+    && mobileSingle.strip.includes(obsA.derived.units),
+    mobileSingle.strip.slice(0, 130));
+  check('mobile: the controls still fit after the layout changes',
+    controlsFit(await mobileLayout()), 'all controls inside 390 px');
+
+  await tap(page, page.getByRole('button', { name: 'EPOCH-2', exact: true }));
+  await delay(250);
+  const mobileEpoch2 = await activeId();
+  check('mobile: switching epoch updates the identification',
+    mobileEpoch2 === idOf(obsB), mobileEpoch2.slice(0, 90));
+
+  await tap(page, page.getByRole('button', { name: 'BLINK', exact: true }));
+  await page.locator('.spherex-speed').waitFor({ state: 'visible', timeout: 15_000 });
+  const mobileEntry = await activeId();
+  let mobileFlipped = false;
+  for (let attempt = 0; attempt < 14 && !mobileFlipped; attempt += 1) {
+    await delay(250);
+    mobileFlipped = (await activeId()) !== mobileEntry;
+  }
+  check('mobile: the blink alternates on its own here too',
+    mobileFlipped, `${mobileEntry} -> ${await activeId()}`);
+
+  await tap(page, page.getByRole('button', { name: '⏸ PAUSE', exact: true }));
+  const mobilePaused = await activeId();
+  await delay(1300);
+  check('mobile: pause stops the alternation',
+    (await activeId()) === mobilePaused, mobilePaused.slice(0, 70));
+  const mobileBlink = await mobileLayout();
+  check('mobile: the fully expanded blink controls still fit the viewport',
+    mobileBlink.controls.length >= 8 && controlsFit(mobileBlink),
+    `${mobileBlink.controls.length} control(s), all inside ${mobileBlink.vw} px`);
+
+  // Navigation: the collapsed menu must still leave this tab and return to it.
+  await tap(page, '.nav-burger');
+  await page.locator('.nav-mobile.open').waitFor({ state: 'visible', timeout: 15_000 });
+  await tap(page, page.locator('.nav-mobile.open').getByText('MISSION').first());
+  await delay(400);
+  check('mobile: the menu leaves this tab for another view',
+    (await page.locator('.spherex-canvas').count()) === 0
+    && (await page.locator('.nav-mobile.open').count()) === 0,
+    'spherex unmounted and the menu closed');
+
+  await tap(page, '.nav-burger');
+  await page.locator('.nav-mobile.open').waitFor({ state: 'visible', timeout: 15_000 });
+  await tap(page, page.locator('.nav-mobile.open').getByText('SPHEREx FIELD').first());
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  check('mobile: the menu returns to this tab with the viewer working',
+    (await page.locator('.spherex-canvas').count()) === 2,
+    'reference view reloaded at mobile width');
 
   // --- Errors --------------------------------------------------------------------
   const realErrors = consoleErrors.filter((message) => !/favicon/i.test(message));
