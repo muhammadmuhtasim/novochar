@@ -15,6 +15,8 @@ import {
   cutoutKey,
   readFitsStructure,
   readFits,
+  readFitsImage,
+  normalizeFitsWcs,
   extractFitsMetadata,
   fitsFileMetadata,
   fetchCutout,
@@ -283,4 +285,142 @@ test('verifyCutout compares a constant-shape hash', async () => {
   const bad = await verifyCutout(bytes, 'deadbeef');
   assert.equal(bad.ok, false);
   assert.equal(bad.expected, 'deadbeef');
+});
+
+// --- FITS pixel decoding (M3-C) ---------------------------------------------
+//
+// The header-only reader above stops at structure. The viewer needs pixels, so
+// `readFitsImage` decodes exactly the three BITPIX layouts that appear in
+// SPHEREx products and the sidecar's outputs. These fixtures carry real
+// big-endian bytes — a byte-swap bug has to fail here.
+
+function pixelFits({ bitpix, nx, ny, values, extraCards = [] }) {
+  const valueBytes = Math.abs(bitpix) / 8;
+  const data = Buffer.alloc(nx * ny * valueBytes);
+  values.forEach((v, i) => {
+    if (bitpix === -32) data.writeFloatBE(v, i * 4);
+    else if (bitpix === 32) data.writeInt32BE(v, i * 4);
+    else data.writeUInt8(v, i);
+  });
+  const header = headerBlock([
+    "XTENSION= 'IMAGE   '",
+    `BITPIX  = ${String(bitpix).padStart(20)}`,
+    'NAXIS   =                    2',
+    `NAXIS1  = ${String(nx).padStart(20)}`,
+    `NAXIS2  = ${String(ny).padStart(20)}`,
+    'PCOUNT  =                    0',
+    'GCOUNT  =                    1',
+    "EXTNAME = 'IMAGE'",
+    ...extraCards,
+  ]);
+  const padded = new Uint8Array(Math.ceil(data.length / 2880) * 2880);
+  padded.set(data, 0);
+  const out = new Uint8Array(header.length + padded.length);
+  out.set(header, 0);
+  out.set(padded, header.length);
+  return out;
+}
+
+const imageHduOf = (fits) => readFitsStructure(fits).find((h) => h.keywords.EXTNAME === 'IMAGE');
+
+test('readFitsImage decodes big-endian float32 pixels row-major', () => {
+  const values = [-1.5, 0, 1.25, 100, 3.5, -2, 0.125, 7, 8, 9, 10, 11];
+  const fits = pixelFits({ bitpix: -32, nx: 4, ny: 3, values });
+  const { nx, ny, data } = readFitsImage(fits, imageHduOf(fits));
+  assert.equal(nx, 4);
+  assert.equal(ny, 3);
+  assert.equal(data.constructor, Float32Array);
+  assert.deepEqual([...data], values, 'NAXIS1 varies fastest, byte order swapped');
+});
+
+test('readFitsImage decodes signed int32 and unsigned uint8 planes', () => {
+  const ints = [-1, 0, 1, 8388608, -8388609, 2228288];
+  const intFits = pixelFits({ bitpix: 32, nx: 3, ny: 2, values: ints });
+  assert.deepEqual([...readFitsImage(intFits, imageHduOf(intFits)).data], ints);
+
+  const bytes = [0, 1, 1, 0, 255, 128];
+  const byteFits = pixelFits({ bitpix: 8, nx: 3, ny: 2, values: bytes });
+  const mask = readFitsImage(byteFits, imageHduOf(byteFits));
+  assert.equal(mask.data.constructor, Uint8Array, 'uint8 needs no byte swap');
+  assert.deepEqual([...mask.data], bytes);
+});
+
+test('readFitsImage refuses a truncated HDU instead of returning short data', () => {
+  const fits = pixelFits({ bitpix: -32, nx: 4, ny: 3, values: new Array(12).fill(1) });
+  const truncated = fits.subarray(0, fits.length - 2880);
+  assert.throws(() => readFitsImage(truncated, imageHduOf(truncated)), /truncated image/);
+});
+
+test('readFitsImage refuses layouts it does not understand', () => {
+  const sixteen = pixelFits({ bitpix: 16, nx: 2, ny: 1, values: [1, 2] });
+  assert.throws(() => readFitsImage(sixteen, imageHduOf(sixteen)), /does not support BITPIX=16/);
+
+  const oneD = buildFits([
+    {
+      cards: [
+        'SIMPLE  =                    T',
+        'BITPIX  =                    8',
+        'NAXIS   =                    0',
+      ],
+    },
+    {
+      cards: [
+        "XTENSION= 'IMAGE   '",
+        'BITPIX  =                  -32',
+        'NAXIS   =                    1',
+        'NAXIS1  =                   12',
+        "EXTNAME = 'IMAGE'",
+      ],
+      dataBytes: 12 * 4,
+    },
+  ]);
+  assert.throws(() => readFitsImage(oneD, imageHduOf(oneD)), /needs a 2D image/);
+});
+
+// --- WCS normalisation (M3-C) ------------------------------------------------
+
+test('normalizeFitsWcs collapses CDELT*PC into a single CD matrix', () => {
+  const wcs = normalizeFitsWcs({
+    CTYPE1: 'RA---TAN',
+    CTYPE2: 'DEC--TAN',
+    CRPIX1: 147.5,
+    CRPIX2: 147.5,
+    CRVAL1: 270,
+    CRVAL2: 66.5,
+    CDELT1: 1,
+    CDELT2: 1,
+    PC1_1: -0.0017083333333333,
+    PC2_2: 0.0017083333333333,
+    RADESYS: 'ICRS',
+  });
+  assert.ok(Math.abs(wcs.cd[0][0] - -0.0017083333333333) < 1e-15);
+  assert.ok(Math.abs(wcs.cd[1][1] - 0.0017083333333333) < 1e-15);
+  assert.deepEqual(wcs.crpix, [147.5, 147.5]);
+  assert.equal(wcs.cd[0][1], 0);
+  assert.equal(wcs.cd[1][0], 0);
+  assert.equal(wcs.radesys, 'ICRS');
+
+  // The scale may equally live in CDELT with an identity PC matrix.
+  const scaled = normalizeFitsWcs({
+    CRPIX1: 2, CRPIX2: 2, CRVAL1: 270, CRVAL2: 66.5,
+    CDELT1: -6.15 / 3600, CDELT2: 6.15 / 3600,
+  });
+  assert.ok(Math.abs(scaled.cd[0][0] - -6.15 / 3600) < 1e-18);
+  assert.ok(Math.abs(scaled.cd[1][1] - 6.15 / 3600) < 1e-18);
+});
+
+test('normalizeFitsWcs prefers an explicit CD matrix when one is present', () => {
+  const wcs = normalizeFitsWcs({
+    CRPIX1: 1, CRPIX2: 2, CRVAL1: 12, CRVAL2: 34,
+    CD1_1: -0.001, CD1_2: 0.0001, CD2_1: -0.0001, CD2_2: 0.001,
+    CDELT1: 1, CDELT2: 1,
+  });
+  assert.deepEqual(wcs.cd, [[-0.001, 0.0001], [-0.0001, 0.001]]);
+});
+
+test('normalizeFitsWcs returns null without a usable celestial WCS', () => {
+  assert.equal(normalizeFitsWcs({}), null);
+  assert.equal(normalizeFitsWcs(null), null);
+  assert.equal(normalizeFitsWcs({ CRPIX1: 1, CRPIX2: 1 }), null, 'CRVAL missing');
+  assert.equal(normalizeFitsWcs({ CRVAL1: 1, CRVAL2: 1 }), null, 'CRPIX missing');
 });

@@ -364,6 +364,102 @@ export function fitsFileMetadata(hdus) {
 }
 
 // ---------------------------------------------------------------------------
+// FITS pixel decoding (added for M3-C)
+//
+// The reader above is header-only on purpose: M1-M3-A only ever needed
+// structure and metadata. The viewer does need pixels, so the boundary moves
+// once, here, for exactly the two layouts the sidecar writes.
+// ---------------------------------------------------------------------------
+
+/**
+ * Decode one 2D image HDU into a typed array, row-major with NAXIS1 varying
+ * fastest. Supported BITPIX: 8 (uint8, no swap), 32 (big-endian int32),
+ * -32 (big-endian float32).
+ *
+ * Bytes are copied out, never aliased, and a truncated HDU raises instead of
+ * quietly yielding short data — the same discipline the M2-A validation applied
+ * to archive cutouts.
+ */
+export function readFitsImage(bytes, hdu) {
+  if (!bytes || typeof bytes.length !== 'number' || !hdu || !hdu.keywords) {
+    throw new TypeError('readFitsImage requires bytes and an HDU');
+  }
+  const k = hdu.keywords;
+  const naxis = k.NAXIS ?? 0;
+  if (naxis < 2) throw new RangeError(`readFitsImage needs a 2D image, got NAXIS=${naxis}`);
+  const nx = k.NAXIS1;
+  const ny = k.NAXIS2;
+  const bitpix = k.BITPIX ?? 8;
+  if (![8, 32, -32].includes(bitpix)) throw new RangeError(`readFitsImage does not support BITPIX=${bitpix}`);
+  if (!Number.isInteger(nx) || !Number.isInteger(ny) || nx <= 0 || ny <= 0) {
+    throw new RangeError(`readFitsImage got invalid shape ${nx}x${ny}`);
+  }
+  const valueBytes = Math.abs(bitpix) / 8;
+  const needed = valueBytes * nx * ny;
+  if (hdu.dataStart + needed > bytes.length) {
+    throw new RangeError(
+      `truncated image: ${needed} bytes required at ${hdu.dataStart}, file holds ${bytes.length}`,
+    );
+  }
+  const src = bytes.subarray(hdu.dataStart, hdu.dataStart + needed);
+  if (bitpix === 8) return { nx, ny, data: src.slice() };
+
+  const view = new DataView(src.buffer, src.byteOffset, src.byteLength);
+  const bigEndian = false; // FITS is big-endian on disk, native on the wire
+  if (bitpix === -32) {
+    const data = new Float32Array(nx * ny);
+    for (let i = 0; i < data.length; i++) data[i] = view.getFloat32(i * 4, bigEndian);
+    return { nx, ny, data };
+  }
+  const data = new Int32Array(nx * ny);
+  for (let i = 0; i < data.length; i++) data[i] = view.getInt32(i * 4, bigEndian);
+  return { nx, ny, data };
+}
+
+/**
+ * Normalise an image HDU's WCS keywords to a single CD matrix.
+ *
+ * FITS permits either `CDi_j` or `CDELTi * PCi_j`. Rather than teach every
+ * consumer both, collapse them here: `CDi_j = CDELTi * PCi_j` when no CD matrix
+ * is present. `crpix` stays **1-based** (FITS convention) and is flagged as such
+ * in the wire contract.
+ *
+ * Returns null when the keywords do not describe a usable celestial WCS.
+ */
+export function normalizeFitsWcs(keywords) {
+  const k = keywords || {};
+  const crpix = [k.CRPIX1 ?? null, k.CRPIX2 ?? null];
+  const crval = [k.CRVAL1 ?? null, k.CRVAL2 ?? null];
+  if (crpix.some((v) => !Number.isFinite(v)) || crval.some((v) => !Number.isFinite(v))) return null;
+
+  let cd;
+  let cdelt = null;
+  if ([k.CD1_1, k.CD1_2, k.CD2_1, k.CD2_2].some((v) => Number.isFinite(v))) {
+    cd = [
+      [k.CD1_1 ?? 0, k.CD1_2 ?? 0],
+      [k.CD2_1 ?? 0, k.CD2_2 ?? 0],
+    ];
+    cdelt = [k.CDELT1 ?? null, k.CDELT2 ?? null];
+  } else {
+    const s1 = Number.isFinite(k.CDELT1) ? k.CDELT1 : 1;
+    const s2 = Number.isFinite(k.CDELT2) ? k.CDELT2 : 1;
+    cd = [
+      [s1 * (Number.isFinite(k.PC1_1) ? k.PC1_1 : 1), s1 * (Number.isFinite(k.PC1_2) ? k.PC1_2 : 0)],
+      [s2 * (Number.isFinite(k.PC2_1) ? k.PC2_1 : 0), s2 * (Number.isFinite(k.PC2_2) ? k.PC2_2 : 1)],
+    ];
+    cdelt = [s1, s2];
+  }
+  return {
+    ctype: [k.CTYPE1 ?? null, k.CTYPE2 ?? null],
+    crpix,
+    crval,
+    cd,
+    cdelt,
+    radesys: k.RADESYS ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Bounded retrieval
 // ---------------------------------------------------------------------------
 

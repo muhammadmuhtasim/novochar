@@ -1,0 +1,19 @@
+{
+  "schema": "novochar.spherex.common-grid/v1",
+  "id": "nep-qr2-common",
+  "field": "nep",
+  "ra": 270.0,
+  "dec": 66.5,
+  "frame": "ICRS",
+  "projection": "TAN",
+  "pixel_scale_arcsec": 6.15,
+  "shape": [294, 294],
+  "rotation_deg": 0.0,
+  "orientation": "north-up, east-left (viewer convention; det(CD) < 0 matches SPHEREx handedness)",
+  "validated_by": "sidecar M3-B gate — docs/spherex-m3b-reprojection.md",
+  "notes": [
+    "294x294 is the extent of the larger input cutout, so no input pixel is dropped at the edges.",
+    "Coverage is 0.834 / 0.846 rather than 1.0 because the two epochs are rotated differently on the sky (PA 123.6 deg vs -29.1 deg) even though both are centred on the requested position. The uncovered rim is masked, never filled.",
+    "The residual cross-epoch offset is below one integer pixel at 6.15 arcsec/px; sub-pixel offsets are not resolved by that diagnostic."
+  ]
+}
