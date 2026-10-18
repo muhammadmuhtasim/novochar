@@ -39,6 +39,9 @@ deployed one.
 # M3-A: validate source products (WCS, footprint, coverage) -> JSON on stdout
 sidecar/.venv/bin/python sidecar/validate_products.py --request request.json
 
+# M3-B: reproject validated local products onto one common tangent plane
+sidecar/.venv/bin/python sidecar/reproject_common.py --request request.json
+
 # tests (stdlib unittest, no extra dependency)
 sidecar/.venv/bin/python -m unittest discover -s sidecar/tests
 ```

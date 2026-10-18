@@ -2,10 +2,14 @@
 #
 # Pinned so the environment that is tested is the environment that is deployed.
 # astropy publishes a cp311-abi3 wheel, so a single wheel installs unchanged on
-# Python 3.11+ (verified here on CPython 3.14).
+# Python 3.11+ (verified here on CPython 3.14). scipy and pyerfa are resolved
+# transitively by reproject/astropy but are pinned here for the same reason.
 #
 # Install into an isolated venv:
 #   python3 -m venv sidecar/.venv
 #   sidecar/.venv/bin/python -m pip install -r sidecar/requirements.txt
 astropy==8.0.2
 numpy==2.5.4
+reproject==0.21.0
+scipy==1.18.1
+pyerfa==2.0.1.5

@@ -57,6 +57,7 @@ not by itself guarantee identical photometric response or observing conditions.
   interpolation method, software versions and input hashes. Validate with
   coordinate round trips, source-position alignment, output footprints,
   NaN/masked edges, and synthetic images with known positions.
+  *(complete — `docs/spherex-m3b-reprojection.md`)*
 - **M3-C — viewer.** Epoch A, epoch B and a comparison view, with dates,
   observation IDs, pipeline version, units, WCS, masks and provenance; the
   comparison labelled a visualization.
