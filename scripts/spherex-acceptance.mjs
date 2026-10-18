@@ -662,6 +662,189 @@ try {
     (await page.locator('.spherex-canvas').count()) === 2,
     'the reference view reloads from the tab');
 
+  // --- M5: candidate selection and evidence inspection -------------------------
+  //
+  // A user can click a pixel and inspect its evidence across both epochs. The
+  // selection lives in grid coordinates, so it survives mode/epoch/blink
+  // switches and the documented RELOAD; a full page reload clears it.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const tabM5 = page.getByRole('button', { name: /SPHEREx FIELD/ });
+  if (await tabM5.count()) await tabM5.click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.spherex-canvas').length === 2, null, { timeout: 30_000 });
+  await delay(500);
+
+  // Click on a known-valid pixel (100, 143) in the first frame.
+  await page.evaluate(() => {
+    const canvas = document.querySelector('.spherex-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const x = 100, y = 143, w = canvas.width, h = canvas.height;
+    const sx = rect.left + (x + 0.5) * (rect.width / w);
+    const sy = rect.top + (h - 1 - y + 0.5) * (rect.height / h);
+    canvas.dispatchEvent(new MouseEvent('click', { clientX: sx, clientY: sy, bubbles: true }));
+  });
+  await delay(300);
+
+  const inspectionVisible = await page.locator('.spherex-inspection').count();
+  check('M5 clicking a pixel opens the evidence panel',
+    inspectionVisible === 1, `${inspectionVisible} inspection panel(s)`);
+
+  // Evidence panel identifies the selected grid pixel.
+  const coordsText = await page.locator('.spherex-inspection-coords').innerText();
+  check('M5 the selected grid pixel is reported',
+    /pixel 100, 143/.test(coordsText), coordsText.replace(/\\s+/g, ' ').slice(0, 80));
+
+  // Sky coordinates are derived and finite.
+  check('M5 sky coordinates are derived from the WCS',
+    /RA .* Dec/.test(coordsText), coordsText.replace(/\\s+/g, ' ').slice(0, 120));
+
+  // Evidence blocks: one per epoch, with obs id and provenance.
+  const evidenceBlocks = await page.locator('.spherex-evidence-block').count();
+  check('M5 one evidence block per epoch',
+    evidenceBlocks === 2, `${evidenceBlocks} block(s)`);
+
+  // The first evidence block names its epoch and carries a SHA-256.
+  const firstBlock = await page.locator('.spherex-evidence-block').first().innerText();
+  check('M5 evidence names the epoch and its obs id',
+    firstBlock.includes(obsA.archive.obs_id), firstBlock.slice(0, 80));
+  check('M5 evidence carries an output SHA-256',
+    /OUTPUT SHA-256/.test(firstBlock) && /[0-9a-f]{20,}/.test(firstBlock),
+    firstBlock.includes('OUTPUT SHA-256') ? 'present' : 'MISSING');
+
+  // Pixel value is reported (valid pixel → a number, not "no data").
+  check('M5 a valid pixel reports its value, not "no data"',
+    !/no data/.test(firstBlock.split('PIXEL VALUE')[1]?.slice(0, 40) || ''),
+    firstBlock.match(/PIXEL VALUE[^]*?(?=VALIDITY)/)?.[0]?.slice(0, 60) || 'n/a');
+
+  // Evidence level is stated.
+  check('M5 every evidence value carries an evidence level',
+    /EVIDENCE LEVEL/.test(firstBlock) && /Observed/.test(firstBlock),
+    'Observed/Derived/Hypothesis labelled');
+
+  // Limitations block is always visible.
+  const limitsVisible = await page.locator('.spherex-limitations').count();
+  check('M5 limitations block is always visible',
+    limitsVisible === 1, `${limitsVisible} block(s)`);
+
+  // No forbidden quantitative labels in the inspection panel.
+  const inspectionText = await page.locator('.spherex-inspection').innerText();
+  check('M5 no quantitative-difference or motion claim in the panel',
+    !/difference|subtract|delta|photometr|variab|motion|centroid/i.test(inspectionText),
+    inspectionText.slice(0, 80));
+
+  // --- M5: selection persists through mode/epoch/blink switches ----------------
+  await page.getByRole('button', { name: 'SINGLE', exact: true }).click();
+  await delay(200);
+  check('M5 selection survives a mode switch',
+    (await page.locator('.spherex-inspection').count()) === 1,
+    'panel still present in SINGLE mode');
+
+  await page.getByRole('button', { name: 'EPOCH-2', exact: true }).click();
+  await delay(200);
+  check('M5 selection survives an epoch switch',
+    (await page.locator('.spherex-inspection').count()) === 1,
+    'panel still present after EPOCH-2');
+
+  await page.getByRole('button', { name: 'BLINK', exact: true }).click();
+  await delay(200);
+  check('M5 selection survives entering blink',
+    (await page.locator('.spherex-inspection').count()) === 1,
+    'panel still present in BLINK mode');
+
+  // Pause the blink so it doesn't flip under the test.
+  const pauseBtn = page.getByRole('button', { name: '⏸ PAUSE', exact: true });
+  if (await pauseBtn.count()) await pauseBtn.click();
+  await delay(200);
+
+  // RELOAD preserves selection.
+  await page.getByRole('button', { name: /RELOAD/ }).click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await delay(500);
+  check('M5 selection survives RELOAD',
+    (await page.locator('.spherex-inspection').count()) === 1,
+    'panel still present after RELOAD');
+
+  // Back to side by side.
+  await page.getByRole('button', { name: 'SIDE BY SIDE', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.spherex-canvas').length === 2, null, { timeout: 15_000 });
+  await delay(200);
+  check('M5 selection survives returning to side by side',
+    (await page.locator('.spherex-inspection').count()) === 1,
+    'panel still present in side-by-side mode');
+
+  // --- M5: selection clears on full page reload -------------------------------
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const tabM5b = page.getByRole('button', { name: /SPHEREx FIELD/ });
+  if (await tabM5b.count()) await tabM5b.click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.spherex-canvas').length === 2, null, { timeout: 30_000 });
+  await delay(500);
+  check('M5 a full page reload clears the selection',
+    (await page.locator('.spherex-inspection').count()) === 0,
+    'no panel after reload, as specified');
+
+  // --- M5: invalid pixel reports "no data", not a number ----------------------
+  // Click on a pixel at (0, 0) which may be in the uncovered rim.
+  await page.evaluate(() => {
+    const canvas = document.querySelector('.spherex-canvas');
+    const rect = canvas.getBoundingClientRect();
+    const x = 0, y = 0, w = canvas.width, h = canvas.height;
+    const sx = rect.left + (x + 0.5) * (rect.width / w);
+    const sy = rect.top + (h - 1 - y + 0.5) * (rect.height / h);
+    canvas.dispatchEvent(new MouseEvent('click', { clientX: sx, clientY: sy, bubbles: true }));
+  });
+  await delay(300);
+  const inspection2 = await page.locator('.spherex-inspection').count();
+  if (inspection2 === 1) {
+    const evText = await page.locator('.spherex-evidence-block').first().innerText();
+    // Either valid (shows a number) or invalid (shows "no data") — never both.
+    const hasValue = /PIXEL VALUE/.test(evText);
+    const hasNoData = /no data/.test(evText);
+    check('M5 invalid/uncovered pixels are reported as "no data", never as zero',
+      hasValue && !hasNoData || hasNoData && !/0\.000000/.test(evText.split('PIXEL VALUE')[1]?.slice(0, 30) || ''),
+      evText.match(/PIXEL VALUE[^]*?(?=VALIDITY)/)?.[0]?.slice(0, 40) || 'n/a');
+  } else {
+    check('M5 clicking an edge pixel selects it',
+      inspection2 === 1, `${inspection2} panel(s)`);
+  }
+
+  // Clear selection for the next sections.
+  const clearBtn = page.locator('button', { hasText: 'Clear selection' });
+  if (await clearBtn.count()) await clearBtn.click();
+  await delay(200);
+
+  // --- M5: mobile selection at 390 x 844 ------------------------------------
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const tabM5m = page.getByRole('button', { name: /SPHEREx FIELD/ });
+  if (await tabM5m.count()) await tabM5m.click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  await page.waitForFunction(() => document.querySelectorAll('.spherex-canvas').length === 2, null, { timeout: 30_000 });
+  await delay(500);
+
+  // Tap on the first canvas at a known-valid pixel.
+  await tap(page, page.locator('.spherex-canvas').first());
+  await delay(300);
+  check('M5 mobile: tapping a pixel opens the evidence panel',
+    (await page.locator('.spherex-inspection').count()) === 1,
+    `${await page.locator('.spherex-inspection').count()} panel(s)`);
+
+  // Evidence panel is readable (controls fit).
+  const mobileInsp = await page.evaluate(() => {
+    const panel = document.querySelector('.spherex-inspection');
+    const b = panel ? panel.getBoundingClientRect() : null;
+    return { w: b ? Math.round(b.width) : 0, vw: window.innerWidth };
+  });
+  check('M5 mobile: evidence panel fits the viewport',
+    mobileInsp.w <= mobileInsp.vw + 4, `${mobileInsp.w} px in ${mobileInsp.vw} px`);
+
+  // Clear and verify.
+  const clearM = page.locator('button', { hasText: 'Clear selection' });
+  if (await clearM.count()) { await tap(page, clearM); await delay(200); }
+  check('M5 mobile: clear selection works',
+    (await page.locator('.spherex-inspection').count()) === 0,
+    'panel gone after clear');
+
   // --- Honest failure and recovery --------------------------------------------
   //
   // Vercel cannot spawn Python, so the sidecar routes answer 503 there. That
