@@ -103,6 +103,9 @@ export const api = {
   ivoaSsa: (archive, pos, size) =>
     getJSON(`/ivoa/ssa?archive=${encodeURIComponent(archive)}&pos=${encodeURIComponent(pos)}${size ? `&size=${size}` : ''}`),
   ivoaResolve: (name, service = 'sesame') => getJSON(`/ivoa/resolve?name=${encodeURIComponent(name)}${service ? `&service=${service}` : ''}`),
+  // Real reprojected SPHEREx products (M3-C): metadata only — the pixels come
+  // back as octet-stream from `epoch.raster`, which is a full /api path.
+  spherexProducts: () => getJSON('/spherex/products'),
 };
 
 export function fmtRA(ra) {

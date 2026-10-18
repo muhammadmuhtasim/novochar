@@ -480,6 +480,7 @@ export function createProductStore({
 
     return {
       schema: DERIVED_SCHEMA,
+      mission: m.mission,
       field: m.field,
       product: m.product,
       release: m.release,
