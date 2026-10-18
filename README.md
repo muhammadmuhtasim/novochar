@@ -168,7 +168,7 @@ GET /api/objects/:id/blink?count=18
 GET /api/presets          (curated quick-launch targets for the blink workflow)
 GET /api/nasa/neo
 
-# Real SPHEREx products (M3-C viewer, M4 comparison) — see docs/spherex-m3c-contracts.md, docs/spherex-m4-blink.md
+# Real SPHEREx products (M3-C viewer, M4 comparison, M5 inspection, M6 case study) — see docs/spherex-m3c-contracts.md, docs/spherex-m4-blink.md, docs/spherex-m5-plan.md, docs/spherex-m6-case-study.md, docs/spherex-m7-demo.md
 GET /api/spherex/products                (archive + derived metadata, and the gate)
 GET /api/spherex/products/:role/raster   (display raster: float32 IMAGE + uint8 MASK)
 
@@ -236,3 +236,8 @@ the app reports these as configured/unverified rather than claiming success.
   looks different; it cannot by itself establish motion or astrophysical
   variability — see `docs/spherex-m3c-contracts.md` and
   `docs/spherex-m4-blink.md`.
+- Candidate inspection (M5) lets you click any pixel and see its value,
+  validity, coverage, and full provenance (SHA-256) per epoch, with an
+  always-visible limitations block. The reproducible case study is in
+  `docs/spherex-m6-case-study.md`; the demo script and fallback screenshots
+  are in `docs/spherex-m7-demo.md` and `docs/m7-demo/screenshots/`.
