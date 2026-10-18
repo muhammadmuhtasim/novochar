@@ -392,9 +392,37 @@ try {
     contract.provenance.join(' / '));
   note(`panels: ${contract.labels.join(', ')}`);
 
-  // --- Errors ------------------------------------------------------------------------
+  // --- Honest failure and recovery --------------------------------------------
+  //
+  // Vercel cannot spawn Python, so the sidecar routes answer 503 there. That
+  // state has to be shown as a retryable failure, never as a blank picture.
+  await page.route('**/api/spherex/products', (route) => route.fulfill({
+    status: 503,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'the sidecar could not be started', code: 'sidecar_unavailable' }),
+  }));
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const tabAfterReload = page.getByRole('button', { name: /SPHEREx FIELD/ });
+  if (await tabAfterReload.count()) await tabAfterReload.click();
+  await page.locator('.module-error').waitFor({ state: 'visible', timeout: 45_000 });
+  const errorText = await page.locator('.module-error').innerText();
+  check('a retryable failure is reported as such, not as an empty image',
+    /sidecar_unavailable/.test(errorText) && /transient environment failure/.test(errorText),
+    errorText.split('\n').join(' | ').slice(0, 140));
+
+  await page.unroute('**/api/spherex/products');
+  await page.locator('.module-error button').click();
+  await page.locator('.spherex-canvas').first().waitFor({ state: 'visible', timeout: 60_000 });
+  check('retry recovers without reloading the page',
+    (await page.locator('.spherex-canvas').count()) === 2,
+    'both frames are back after one retry');
+
+  // --- Errors --------------------------------------------------------------------
   const realErrors = consoleErrors.filter((message) => !/favicon/i.test(message));
-  check('no uncaught page or console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '));
+  // The deliberately injected 503 above is expected to be logged by Chromium.
+  const unexpected = realErrors.filter((message) => !/status of \d{3}/.test(message));
+  check('no uncaught page or console errors', unexpected.length === 0,
+    `${realErrors.length} logged, unexpected: ${unexpected.slice(0, 3).join(' | ')}`);
 } catch (error) {
   const message = String(error?.message || error);
   console.error('--- run error ---');
