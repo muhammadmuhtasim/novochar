@@ -31,6 +31,12 @@ import {
   isComparing,
 } from '../lib/spherex-compare.js';
 import {
+  pixelValidity,
+  pixelValue,
+  selectionInBounds,
+  selectionToSky,
+} from '../lib/spherex-selection.js';
+import {
   computeStretch,
   decodeRaster,
   formatSky,
@@ -70,7 +76,7 @@ function bytes(n) {
 }
 
 /** A single epoch's image. Drawn at native resolution and scaled by CSS. */
-function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCursor }) {
+function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCursor, selection, onSelect }) {
   const canvasRef = useRef(null);
   const transform = useMemo(() => makeScreenTransform({ width, height }), [width, height]);
 
@@ -133,7 +139,31 @@ function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCurs
           aria-label={`SPHEREx ${epoch.archive.label}, ${epoch.archive.date_obs_utc.slice(0, 10)}`}
           onPointerMove={handleMove}
           onPointerLeave={() => onCursor(null)}
+          onClick={(event) => {
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
+            if (!rect.width || !rect.height) return;
+            const sx = (event.clientX - rect.left) * (canvas.width / rect.width);
+            const sy = (event.clientY - rect.top) * (canvas.height / rect.height);
+            const p = transform.screenToWcs(sx, sy);
+            const x = Math.floor(p.x);
+            const y = Math.floor(p.y);
+            if (insideRaster({ x, y }, width, height)) {
+              onSelect({ x, y });
+            }
+          }}
         />
+        {selection && selectionInBounds(selection, width, height) && (
+          <div
+            className="spherex-selection-marker"
+            style={{
+              left: `${((selection.x + 0.5) / width) * 100}%`,
+              top: `${((height - 1 - selection.y + 0.5) / height) * 100}%`,
+            }}
+            aria-hidden="true"
+          />
+        )}
       </div>
       <div className="spherex-frame-foot">
         <span>{validAtCursor
@@ -153,6 +183,8 @@ export default function SpherexViewer() {
   const [state, setState] = useState({ status: 'loading', meta: null, rasters: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const [cursor, setCursor] = useState(null);
+  // M5 candidate selection: a grid coordinate, independent of epoch/mode.
+  const [selection, setSelection] = useState(null);
   // Comparison state lives in a reducer that cannot see the view (see
   // lib/spherex-compare.js): switching epoch or mode changes only which
   // observation is drawn, never the grid, the zoom or the stretch.
@@ -251,6 +283,9 @@ export default function SpherexViewer() {
   const twoUp = meta.epochs.length === 2;
   const sky = cursor
     ? pixelToSky(wcs, cursor.x + 0.5, cursor.y + 0.5)
+    : null;
+  const skyAtSelection = selection
+    ? pixelToSky(wcs, selection.x + 0.5, selection.y + 0.5)
     : null;
 
   // Which epochs are drawn right now — both for the reference layout, exactly
@@ -388,6 +423,8 @@ export default function SpherexViewer() {
                 height={height}
                 cursor={cursor}
                 onCursor={setCursor}
+                selection={selection}
+                onSelect={setSelection}
               />
             );
           })}
@@ -428,6 +465,72 @@ export default function SpherexViewer() {
           transparent in every view mode and is never filled with zero. Signal visible in one
           epoch over the other's uncovered area has not been shown to change.
         </p>
+
+        {/* M5 candidate inspection: per-epoch evidence for the selected pixel. */}
+        {selection && (
+          <section className="spherex-inspection" aria-label="Candidate inspection">
+            <div className="panel-head">
+              <h2>Selected region</h2>
+              <span className="tag">INSPECTION</span>
+            </div>
+            <div className="spherex-inspection-coords">
+              <span className="spherex-inspection-label">Observed (Derived via WCS)</span>
+              <span className="spherex-inspection-value mono">
+                RA {fmtRA(skyAtSelection?.ra ?? 0)} / Dec {fmtDec(skyAtSelection?.dec ?? 0)}
+              </span>
+              <span className="spherex-inspection-label">Observed (grid)</span>
+              <span className="spherex-inspection-value mono">
+                pixel {selection.x}, {selection.y} (0-based, array row 0 = top)
+              </span>
+            </div>
+            {meta.epochs.map((epoch) => {
+              const raster = state.rasters[epoch.role];
+              const v = pixelValidity(raster.mask, raster.image, selection.x, selection.y, width, height);
+              const val = pixelValue(raster.image, selection.x, selection.y, width);
+              return (
+                <div key={epoch.role} className="spherex-evidence-block">
+                  <h3>{epoch.archive.label} · {epoch.archive.obs_id}</h3>
+                  <dl className="kv">
+                    <Fact label="EVIDENCE LEVEL" value="Observed" />
+                    <Fact label="OBSERVED (UTC)" value={epoch.archive.date_obs_utc} />
+                    <Fact label="MJD" value={epoch.archive.mjd_obs} />
+                    <Fact label="DETECTOR" value={epoch.archive.detector} />
+                    <Fact label="EXPOSURE" value={epoch.archive.exposure_sec ? `${epoch.archive.exposure_sec} s` : null} />
+                    <Fact label="QUALITY L1/L2" value={epoch.archive.quality ? `${epoch.archive.quality.L1DQAFLG} / ${epoch.archive.quality.L2DQAFLG}` : null} />
+                    <Fact label="PIPELINE" value={epoch.archive.pipeline_version} />
+                    <Fact label="UNITS" value={epoch.derived.units} />
+                    <Fact label="PIXEL VALUE" value={v.valid ? `${val.toPrecision(6)} ${epoch.derived.units}` : 'no data'} />
+                    <Fact label="VALIDITY" value={v.valid ? 'valid' : v.reason} />
+                    <Fact label="COVERED" value={epoch.derived.stats ? pct(epoch.derived.stats.covered_fraction * 100, 1) + '%' : null} />
+                    <Fact label="INPUT SHA-256" value={epoch.derived.input_sha256} />
+                    <Fact label="OUTPUT SHA-256" value={epoch.derived.output_sha256} />
+                  </dl>
+                </div>
+              );
+            })}
+            <div className="spherex-limitations">
+              <h3>Limitations</h3>
+              <ul className="spherex-list">
+                <li>Validity is per epoch: a pixel valid in one epoch may be masked or uncovered in the other.</li>
+                <li>The uncovered area (~19% / ~18% of the grid) is never filled with zero — "no data" is not "zero flux".</li>
+                <li>Calibration differences between epochs are not corrected for.</li>
+                <li>A missing or masked pixel is not evidence that a source disappeared.</li>
+                <li>A blink or side-by-side view cannot establish motion, variability or astrophysical change.</li>
+                <li>Each epoch is a single detector exposure (D2, 113.6 s), not a coadd.</li>
+                <li>No centroid, positional-difference, flux or variability measurement is offered — those require validated methods not yet implemented.</li>
+              </ul>
+            </div>
+            <button className="btn sm" onClick={() => setSelection(null)}>Clear selection</button>
+          </section>
+        )}
+
+        {!selection && (
+          <p className="spherex-note spherex-selection-hint">
+            Click any pixel on a frame to inspect that location across both epochs.
+            The selection is stored in grid coordinates and survives mode, epoch
+            and blink switches.
+          </p>
+        )}
       </section>
 
       <section className="panel">

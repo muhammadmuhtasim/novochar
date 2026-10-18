@@ -3456,11 +3456,92 @@ html.nc-cursor-on [contenteditable="true"] {
   color: var(--text-muted);
 }
 
-.spherex-coverage {
-  margin-top: 14px;
-  padding: 9px 13px;
+/* Selection marker overlay on the canvas. */
+.spherex-selection-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin-left: -7px;
+  margin-top: -7px;
+  border: 2px solid var(--neon-bright);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(255, 106, 0, 0.6);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.spherex-canvas-wrap {
+  position: relative;
+}
+
+/* M5 candidate inspection. */
+.spherex-inspection {
+  margin-top: 20px;
+  padding: 14px;
+  border: 1px solid rgba(255, 106, 0, 0.25);
+  background: rgba(6, 7, 10, 0.5);
+}
+
+.spherex-inspection-coords {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  background: rgba(8, 9, 14, 0.7);
+  border: 1px solid rgba(255, 77, 0, 0.12);
+}
+
+.spherex-inspection-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+}
+
+.spherex-inspection-value {
+  font-size: 12px;
+  color: var(--neon-bright);
+}
+
+.spherex-evidence-block {
+  margin-bottom: 12px;
+}
+
+.spherex-evidence-block h3 {
+  font-size: 12px;
+  color: var(--neon-bright);
+  margin: 8px 0 4px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+.spherex-limitations {
+  margin-top: 12px;
+  padding: 10px 12px;
   border-left: 3px solid var(--accent-burnt);
   background: rgba(255, 106, 0, 0.05);
+}
+
+.spherex-limitations h3 {
+  font-size: 11px;
+  color: var(--accent-burnt);
+  margin: 0 0 6px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+}
+
+.spherex-limitations ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary, var(--text-muted));
+}
+
+.spherex-selection-hint {
+  margin-top: 8px;
+  font-style: italic;
 }
 
 @media (max-width: 700px) {
