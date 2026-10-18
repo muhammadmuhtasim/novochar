@@ -168,7 +168,7 @@ GET /api/objects/:id/blink?count=18
 GET /api/presets          (curated quick-launch targets for the blink workflow)
 GET /api/nasa/neo
 
-# Real SPHEREx products (M3-C) — see docs/spherex-m3c-contracts.md
+# Real SPHEREx products (M3-C viewer, M4 comparison) — see docs/spherex-m3c-contracts.md, docs/spherex-m4-blink.md
 GET /api/spherex/products                (archive + derived metadata, and the gate)
 GET /api/spherex/products/:role/raster   (display raster: float32 IMAGE + uint8 MASK)
 
@@ -221,7 +221,18 @@ the app reports these as configured/unverified rather than claiming success.
   Python, so on a host that cannot spawn it (e.g. Vercel's serverless functions)
   the product routes answer `503 sidecar_unavailable` and the tab reports that
   as a retryable failure rather than showing an empty image.
-- The two epochs are shown **side by side as a labelled visualization**. One
-  1–99 percentile stretch is shared by both, no route computes a difference, and
+- The two epochs are shown **as a labelled visualization**: side by side (the
+  reference), one at a time with a manual epoch toggle, or **blinking** between
+  them at a chosen interval (250–2000 ms, pausable). Switching never moves the
+  field of view: comparison state holds no WCS, zoom, pan or stretch, and one
+  shared 1–99 percentile stretch is computed over both epochs, so a blink cannot
+  fake a brightness change by re-scaling. The observation on screen is always
+  named (label · `obs_id`, UTC date, MJD, pipeline version, units), the ~18%
+  uncovered area stays transparent in every mode and is never zero-filled, and a
+  failure raised while comparing is shown as retryable, never as an empty frame.
+- No route computes a difference, subtraction or variability statistic, and
   while the sidecar's gate reports `quantitative_difference_enabled: false` the
-  UI has no control that could turn one on — see `docs/spherex-m3c-contracts.md`.
+  UI has no control that could turn one on. A blink can suggest that something
+  looks different; it cannot by itself establish motion or astrophysical
+  variability — see `docs/spherex-m3c-contracts.md` and
+  `docs/spherex-m4-blink.md`.
