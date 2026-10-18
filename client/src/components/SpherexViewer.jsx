@@ -513,11 +513,11 @@ export default function SpherexViewer() {
               <ul className="spherex-list">
                 <li>Validity is per epoch: a pixel valid in one epoch may be masked or uncovered in the other.</li>
                 <li>The uncovered area (~19% / ~18% of the grid) is never filled with zero — "no data" is not "zero flux".</li>
-                <li>Calibration differences between epochs are not corrected for.</li>
+                <li>Calibration is not matched between epochs.</li>
                 <li>A missing or masked pixel is not evidence that a source disappeared.</li>
-                <li>A blink or side-by-side view cannot establish motion, variability or astrophysical change.</li>
+                <li>A blink or side-by-side view cannot establish that anything changed between epochs.</li>
                 <li>Each epoch is a single detector exposure (D2, 113.6 s), not a coadd.</li>
-                <li>No centroid, positional-difference, flux or variability measurement is offered — those require validated methods not yet implemented.</li>
+                <li>Positional and brightness measurements are not yet offered — they require validated methods not yet implemented.</li>
               </ul>
             </div>
             <button className="btn sm" onClick={() => setSelection(null)}>Clear selection</button>
