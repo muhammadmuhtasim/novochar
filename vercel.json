@@ -7,7 +7,7 @@
     "api/**/*.js": {
       "maxDuration": 30,
       "memory": 1024,
-      "includeFiles": ["data/spherex/**", "sidecar/**"]
+      "includeFiles": "data/spherex/** sidecar/**"
     }
   },
   "headers": [
