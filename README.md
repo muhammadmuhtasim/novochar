@@ -168,6 +168,10 @@ GET /api/objects/:id/blink?count=18
 GET /api/presets          (curated quick-launch targets for the blink workflow)
 GET /api/nasa/neo
 
+# Real SPHEREx products (M3-C) — see docs/spherex-m3c-contracts.md
+GET /api/spherex/products                (archive + derived metadata, and the gate)
+GET /api/spherex/products/:role/raster   (display raster: float32 IMAGE + uint8 MASK)
+
 # Layer 4 — Data Representation
 GET /api/spectra/:id          (SED: photometry + continuum, deterministic)
 GET /api/field/heatmap?nside=64   (HEALPix density footprint of the field)
@@ -205,7 +209,19 @@ the app reports these as configured/unverified rather than claiming success.
 
 ## Notes / placeholders
 
-- All object positions, motions and flux are **seeded, deterministic simulators**
-  (stability across restarts, same for every user).
-- Real SPHEREx telemetry is not yet public pipeline data; replace the generators in
-  `server/data.js` with your feed — the client contract stays unchanged.
+- The object catalogue (positions, motions, flux, orbits) is a **seeded,
+  deterministic simulator** — stable across restarts and identical for every
+  user. Replace the generators in `server/data.js` with your feed; the client
+  contract stays unchanged.
+- The **SPHEREx FIELD tab is real**, not simulated: it shows SPHEREx quick-release
+  level-2 products (QR2, North Ecliptic Pole) pulled on demand from IRSA. No
+  FITS file is committed — `.cache/` holds them locally, every input and output
+  is SHA-256 re-verified, and the reprojection onto a common grid is done by the
+  Python sidecar (`sidecar/`, pinned astropy/numpy/reproject). That sidecar needs
+  Python, so on a host that cannot spawn it (e.g. Vercel's serverless functions)
+  the product routes answer `503 sidecar_unavailable` and the tab reports that
+  as a retryable failure rather than showing an empty image.
+- The two epochs are shown **side by side as a labelled visualization**. One
+  1–99 percentile stretch is shared by both, no route computes a difference, and
+  while the sidecar's gate reports `quantitative_difference_enabled: false` the
+  UI has no control that could turn one on — see `docs/spherex-m3c-contracts.md`.

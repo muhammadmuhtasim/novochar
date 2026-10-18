@@ -176,7 +176,35 @@ re-declared by the client.
 |---|---|---|
 | **1** | one real epoch: sidecar orchestration → metadata + raster routes → client renders with correct orientation, WCS readout, metadata panel | Playwright: pixel non-blank, readout changes with cursor, north-up orientation |
 | **2** | both epochs + shared stretch + masked rim + comparison labelled a visualization | Playwright: both render, identical grid declared, label present, gate false |
-| 3 | metadata completeness + error/retry states | route tests + acceptance |
+| **3** | metadata completeness + error/retry states | route tests + acceptance |
 
 M3-C exit gate: *real observations display correctly, with validated coordinates
 and metadata.*
+
+---
+
+## As built — how each contract is checked
+
+Run `npm run check:spherex` for the browser half and `npm test` /
+`npm run test:sidecar` for the rest. All figures below are from the two real
+epochs selected in M2 (`2025W18_1B_0095_2`, `2025W46_2A_0537_1`), reprojected
+by the sidecar onto the committed 294×294 grid.
+
+| Contract | Check | Result |
+|---|---|---|
+| 1 — sidecar → Node | `server/store/spherex-products.test.js`: request shape, output hashes re-verified, `report.ok && gate.spatial_alignment` required, idempotency on grid + script hash, changed script invalidates, checksum mismatch refused, sidecar cannot start | 16 tests, offline (no Python needed) |
+| 1 — shape order | store sends `gridSpec.shape` verbatim; `productFacts` reads NAXIS back and reports `[NAXIS1, NAXIS2]`; `shape_order` field documents it | caught by a real end-to-end run before it reached a screen |
+| 2 — wire format | route tests: `novochar.spherex.raster/v1`, LE float32 + uint8, 5 B/px, wrong length rejected | 6 route tests, closed-set enumeration of the SPHEREx routes |
+| 2 — rendering | client unit tests: `decodeRaster`, `computeStretch`, `makeScreenTransform`, TAN, `renderRaster` | 15 tests, incl. **astropy fixture cross-check** (`spherex-nep-tan.json`, round-trip through `sidecar/make_tan_fixture.py`) |
+| 2 — orientation | acceptance compares the canvas against the served bytes | 0 alpha mismatches over 86,436 px per frame; 0 gray mismatches out of ~1,880 sampled px; readout Dec span 0.350° over 70% of the 0.502° field (east-left, north-up confirmed) |
+| 2 — invalid pixels | acceptance | 16,455 / 15,531 px transparent = the rim the sidecar masked; drawn pixels 81.0% / 82.0% — the sidecar's valid fractions 0.8096 / 0.8203 reaching the screen unchanged |
+| 3 — metadata | store test asserts `archive` / `derived` / `display` keys never merge; `display` block is built client-side only | covered by the no-difference-surface key scan |
+| 4 — gate | acceptance asserts the banner text, the gate flags, and that **no control** matches `difference|subtract|delta|photometr|variab` (only "Usage terms" exists); a forced `503 sidecar_unavailable` must render as a retryable failure, then one retry must restore both frames | 29/29 checks pass |
+| — honest failure | the viewer's own error state was what caught the first integration bug (`api.getJSON` missing) during development | reported as `code: …`, with a Retry button, never a blank picture |
+
+**What this proves:** real observations reach the screen with their
+coordinates, footprints and validity masks intact, on one agreed grid.
+
+**What it does not prove:** that the epochs are scientifically comparable. That
+remains gated (`quantitative_difference_enabled: false`) pending calibration
+and data-quality handling — deliberately out of scope for M3-C.
