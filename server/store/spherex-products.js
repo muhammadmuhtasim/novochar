@@ -137,7 +137,9 @@ function spawnSidecar({ pythonBin, script, requestPath, timeout = SIDECAR_TIMEOU
 export function createProductStore({
   rootDir = REPO_ROOT,
   dataDir = path.join(rootDir, 'data', 'spherex'),
-  cacheDir = path.join(rootDir, '.cache', 'spherex'),
+  cacheDir = process.env.VERCEL
+  ? path.join('/tmp', 'novochar', 'spherex')
+  : path.join(rootDir, '.cache', 'spherex'),
   sidecarScript = path.join(rootDir, 'sidecar', 'reproject_common.py'),
   pythonBin = process.env.SIDECAR_PYTHON || path.join(rootDir, 'sidecar', '.venv', 'bin', 'python'),
   runSidecar = spawnSidecar,
