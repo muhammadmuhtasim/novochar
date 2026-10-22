@@ -106,6 +106,10 @@ export const api = {
   // Real reprojected SPHEREx products (M3-C): metadata only — the pixels come
   // back as octet-stream from `epoch.raster`, which is a full /api path.
   spherexProducts: () => getJSON('/spherex/products'),
+  // Four-epoch HEALPix tile pyramid for the 3D sky explorer. The index is small;
+  // tiles are fetched through the worker-backed loader in lib/sky3d-engine.js.
+  spherexSkyIndex: ({ signal } = {}) => getJSON('/spherex/sky', { signal }),
+  spherexSkySources: ({ signal } = {}) => getJSON('/spherex/sky/sources', { signal }),
 };
 
 export function fmtRA(ra) {

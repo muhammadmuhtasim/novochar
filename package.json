@@ -21,6 +21,7 @@
     "check:performance": "node scripts/check-performance-bundle.mjs && node scripts/performance-browser-smoke.mjs",
     "check:shell": "node scripts/shell-acceptance.mjs",
     "check:spherex": "node scripts/spherex-acceptance.mjs",
+    "check:spherex3d": "node scripts/spherex-sky3d-acceptance.mjs",
     "bench:shell": "node scripts/shell-benchmark.mjs",
     "verify:deployment": "node scripts/verify-deployment.mjs",
     "sidecar:setup": "python3 -m venv sidecar/.venv && sidecar/.venv/bin/python -m pip install -r sidecar/requirements.txt",

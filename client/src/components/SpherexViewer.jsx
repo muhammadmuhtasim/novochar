@@ -179,7 +179,7 @@ function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCurs
   );
 }
 
-export default function SpherexViewer() {
+export default function SpherexViewer({ onOpenSky3D } = {}) {
   const [state, setState] = useState({ status: 'loading', meta: null, rasters: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const [cursor, setCursor] = useState(null);
@@ -317,7 +317,14 @@ export default function SpherexViewer() {
       <section className="panel">
         <div className="panel-head">
           <h2>SPHEREx · {meta.field.name}</h2>
-          <span className="tag live">REAL OBSERVATIONS</span>
+          <div className="panel-head-actions">
+            <span className="tag live">REAL OBSERVATIONS</span>
+            {onOpenSky3D && (
+              <button className="btn sm" onClick={onOpenSky3D}>
+                OPEN 3D SKY ↗
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="toolbar spherex-controls" role="group" aria-label="Comparison controls">

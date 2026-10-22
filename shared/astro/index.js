@@ -6,6 +6,7 @@
 // geometry. Nothing here may import React, Three.js, or any renderer.
 
 export * from './vector.js';
+export * from './healpix-nest.js';
 export * from './epochs.js';
 export * from './frames.js';
 export * from './proper-motion.js';

@@ -97,6 +97,68 @@ for (const epoch of spherex.epochs) {
   });
 }
 
+// SPHEREx 3D must also run from the deployment alone: no Python, no local
+// cache. These routes are explicitly illustrative; the check pins the mode and
+// the real-detail boundary so a future archive swap has to be deliberate.
+const skyIndexUrl = new URL('/api/spherex/sky', deploymentUrl);
+const skyResponse = await requireOk(skyIndexUrl, 'SPHEREx 3D sky index');
+const sky = await skyResponse.json();
+assert.equal(sky.schema, 'novochar.spherex.sky-index/v1', 'sky index schema should be the v1 contract');
+assert.equal(sky.mode, 'illustrative', 'the in-repo global layer must declare itself illustrative');
+assert.equal(sky.epochs?.length, 4, 'the global timeline should describe four epochs');
+assert.equal(sky.tiles?.scheme, 'healpix-nest', 'global tiles should use HEALPix NEST');
+assert.equal(sky.tiles?.baseOrder, 1, 'the base layer should start at order 1');
+assert.equal(sky.tiles?.maxOrder, 4, 'the tile pyramid should reach order 4');
+assert.match(sky.notice ?? '', /not an archive measurement|visualization prototype/i,
+  'the sky index must carry a non-measurement notice');
+const skySourcesUrl = new URL(sky.sources.url, deploymentUrl);
+const skySourcesResponse = await requireOk(skySourcesUrl, 'SPHEREx 3D source layer');
+const skySources = await skySourcesResponse.json();
+assert.equal(skySources.schema, 'novochar.spherex.sky-sources/v1', 'source layer schema should be the v1 contract');
+assert.equal(skySources.mode, 'illustrative', 'source layer must declare itself illustrative');
+assert.ok(Array.isArray(skySources.candidates) && skySources.candidates.length >= 10,
+  'the source layer should expose the prototype candidate set');
+for (const candidate of skySources.candidates) {
+  assert.equal(candidate.epochs?.length, 4, `source ${candidate.id} should carry four epoch measurements`);
+  for (const measurement of candidate.epochs) {
+    assert.equal(typeof measurement.ra, 'number', `source ${candidate.id} RA should be numeric`);
+    assert.equal(typeof measurement.dec, 'number', `source ${candidate.id} Dec should be numeric`);
+    assert.equal(typeof measurement.visible, 'boolean', `source ${candidate.id} visibility should be explicit`);
+  }
+}
+
+const skyRasters = [];
+const baseEpoch = sky.epochs[0].id;
+const baseUrl = new URL(sky.tiles.base.urlTemplate.replace('{epoch}', baseEpoch), deploymentUrl);
+const tileUrl = new URL(
+  sky.tiles.urlTemplate
+    .replace('{epoch}', baseEpoch)
+    .replace('{order}', String(sky.tiles.baseOrder))
+    .replace('{ipix}', '0'),
+  deploymentUrl,
+);
+for (const [kind, url] of [['base', baseUrl], ['tile', tileUrl]]) {
+  const response = await requireOk(url, `SPHEREx 3D ${kind} raster`);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.equal(response.headers.get('content-type'), 'image/png', `${kind} raster should be PNG`);
+  assert.ok(bytes.length > 8, `${kind} raster should not be empty`);
+  assert.deepEqual([...bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    `${kind} raster should carry the PNG signature`);
+  assert.equal(response.headers.get('x-novochar-sky-mode'), 'illustrative',
+    `${kind} raster should advertise the illustrative mode`);
+  assert.ok(response.headers.get('etag'), `${kind} raster should be ETagged`);
+  const cache = directives(response.headers.get('cache-control'));
+  assert.ok(Number(cache['max-age']) >= 86_400, `${kind} raster should be CDN-cacheable`);
+  skyRasters.push({
+    kind,
+    status: response.status,
+    bytes: bytes.length,
+    etag: response.headers.get('etag'),
+    cacheControl: response.headers.get('cache-control'),
+    mode: response.headers.get('x-novochar-sky-mode'),
+  });
+}
+
 const report = {
   deployment: deploymentUrl.href,
   html: { status: htmlResponse.status, cacheControl: htmlResponse.headers.get('cache-control'), vercelCache: htmlResponse.headers.get('x-vercel-cache') },
@@ -112,6 +174,15 @@ const report = {
     schema: spherex.schema,
     gate: spherex.gate,
     rasters: spherexRasters,
+  },
+  spherex3d: {
+    status: skyResponse.status,
+    schema: sky.schema,
+    mode: sky.mode,
+    epochs: sky.epochs.length,
+    tiles: { scheme: sky.tiles.scheme, baseOrder: sky.tiles.baseOrder, maxOrder: sky.tiles.maxOrder },
+    sources: { status: skySourcesResponse.status, schema: skySources.schema, count: skySources.candidates.length },
+    rasters: skyRasters,
   },
   staleDocumentRecovery: 'not requested',
 };
