@@ -75,7 +75,19 @@ All five image HDUs carry the **same** plain TAN WCS (no SIP).
    fake runner, so `npm test` never requires Python. This preserves the existing
    separation: Node stays Python-free.
 4. Cutouts come from the existing bounded cache (`putCutout`/`getCutout`, hashes
-   re-verified on read). Nothing is committed; `.cache/` stays gitignored.
+   re-verified on read). Raw cutouts are never committed; `.cache/` stays
+   gitignored.
+5. **Deployment bundle (no Python).** A host that cannot spawn the sidecar can
+   ship the pre-generated outputs under `data/spherex/derived/`. The store tries
+   the local cache first, then the bundle, and uses the same verification for
+   both: report schema, `ok === true`, `gate.spatial_alignment === true`, the
+   committed grid, each manifest input hash and each output SHA-256. Only the
+   script-hash check is skipped for a bundle, because the interpreter that wrote
+   it is not part of the deployment. A bundle that exists but fails verification
+   is refused rather than silently replaced. `npm run spherex:bundle` regenerates
+   it from a local sidecar run and `npm run check:spherex-bundle` verifies the
+   committed copy with no Python and no network. This is a fixed-dataset path:
+   a new observation or grid requires a new bundle.
 
 ---
 

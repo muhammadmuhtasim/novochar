@@ -13,6 +13,11 @@
 //
 // The sidecar process is injected (`runSidecar`), so `npm test` never needs
 // Python — the same separation the retrieval adapter already keeps with fetch.
+//
+// Deployments without a Python interpreter (Vercel's Node functions among them)
+// can ship pre-generated products under `data/spherex/derived/`. Those are
+// verified here with the same manifest hashes, grid checks and output SHA-256s
+// as a live run, so serving them is not a weaker path — only a pre-computed one.
 
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -142,6 +147,7 @@ export function createProductStore({
   : path.join(rootDir, '.cache', 'spherex'),
   sidecarScript = path.join(rootDir, 'sidecar', 'reproject_common.py'),
   pythonBin = process.env.SIDECAR_PYTHON || path.join(rootDir, 'sidecar', '.venv', 'bin', 'python'),
+  bundledDir = path.join(dataDir, 'derived'),
   runSidecar = spawnSidecar,
   fetchImpl = globalThis.fetch,
 } = {}) {
@@ -247,15 +253,23 @@ export function createProductStore({
     return entries;
   }
 
-  /** A cached report is reusable only if it still describes exactly this run. */
-  async function reportIsCurrent(report, { gridSpec, scriptSha }) {
+  /**
+   * A report is reusable only if it still describes exactly this run: the agreed
+   * grid, the manifest's input bytes, the sidecar script (for local caches) and
+   * the output bytes on disk. A bundle is checked the same way, except that the
+   * script hash is not required — the interpreter that wrote it is not part of
+   * the deployment.
+   */
+  async function reportIsCurrent(report, { gridSpec, scriptSha = null, dir = derivedDir }) {
     if (!report || report.schema !== DERIVED_SCHEMA) return false;
+    if (report.ok !== true) return false;
+    if (!report.gate || report.gate.spatial_alignment !== true) return false;
     if (report.grid?.id !== gridSpec.id) return false;
     if (report.grid?.pixel_scale_arcsec !== gridSpec.pixel_scale_arcsec) return false;
     if (report.grid?.rotation_deg !== gridSpec.rotation_deg) return false;
     if (report.grid?.ra !== gridSpec.ra || report.grid?.dec !== gridSpec.dec) return false;
     if (JSON.stringify(report.grid?.shape) !== JSON.stringify(gridSpec.shape)) return false;
-    if (report.sidecar?.script_sha256 !== scriptSha) return false;
+    if (scriptSha && report.sidecar?.script_sha256 !== scriptSha) return false;
     if (!Array.isArray(report.products) || report.products.length !== SIDECAR_ROLES.length) return false;
     const m = await manifest();
     for (const [index, entry] of report.products.entries()) {
@@ -263,13 +277,53 @@ export function createProductStore({
       if (entry.input?.sha256 !== m.observations[index].cutout_sha256) return false;
       if (!entry.output?.sha256) return false;
       try {
-        const onDisk = await sha256Hex(new Uint8Array(await readFile(path.join(derivedDir, `${entry.role}_reprojected.fits`))));
+        const onDisk = await sha256Hex(new Uint8Array(await readFile(path.join(dir, `${entry.role}_reprojected.fits`))));
         if (onDisk !== entry.output.sha256) return false;
       } catch {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * Load products that were generated ahead of deployment and committed under
+   * `data/spherex/derived/`. Returns `null` when no bundle exists, so a local
+   * checkout keeps its on-demand sidecar path. A bundle that exists but does not
+   * verify is an error, not a silent fallback: serving stale bytes would be
+   * worse than refusing to render.
+   */
+  async function loadBundledProducts({ gridSpec }) {
+    if (!bundledDir) return null;
+    const reportPath = path.join(bundledDir, 'report.json');
+    let raw;
+    try {
+      raw = await readFile(reportPath, 'utf8');
+    } catch (err) {
+      if (isMissing(err)) return null;
+      throw err;
+    }
+
+    let report;
+    try {
+      report = JSON.parse(raw);
+    } catch (err) {
+      throw new ProductError(
+        FAILED_CODES.PRODUCT,
+        `the bundled SPHEREx report is not valid JSON: ${err.message}`,
+        { report: reportPath },
+      );
+    }
+
+    if (!(await reportIsCurrent(report, { gridSpec, dir: bundledDir }))) {
+      throw new ProductError(
+        FAILED_CODES.PRODUCT,
+        'the bundled SPHEREx products do not match the manifest, the agreed grid or the committed report',
+        { report: reportPath },
+      );
+    }
+
+    return { report, derivedDir: bundledDir, gridSpec, bundled: true };
   }
 
   /**
@@ -283,18 +337,32 @@ export function createProductStore({
     if (productsPromise) return productsPromise;
     productsPromise = (async () => {
       const gridSpec = await grid();
-      const scriptSha = await sidecarScriptSha256();
       const reportPath = path.join(derivedDir, 'report.json');
 
       try {
         const cached = await loadJson(reportPath, 'the cached reprojection report');
+        const scriptSha = await sidecarScriptSha256();
         if (await reportIsCurrent(cached, { gridSpec, scriptSha })) {
           return { report: cached, derivedDir, gridSpec };
         }
       } catch {
-        // No usable cached run: fall through and reproject.
+        // No usable cached run: fall through.
       }
 
+      // A deployment bundle is committed alongside the code, so it needs neither
+      // a Python interpreter nor a warm cache. It is verified exactly like a live
+      // run. A bundle that exists but does not verify is remembered and reported
+      // if the local sidecar also cannot run, which makes a stale deployment
+      // fail with the real reason instead of a missing-interpreter error.
+      let bundledError = null;
+      try {
+        const bundled = await loadBundledProducts({ gridSpec });
+        if (bundled) return bundled;
+      } catch (err) {
+        bundledError = err;
+      }
+
+      const scriptSha = await sidecarScriptSha256();
       const m = await manifest();
       const cutouts = await ensureCutouts();
       await mkdir(derivedDir, { recursive: true });
@@ -321,12 +389,19 @@ export function createProductStore({
       const requestPath = path.join(derivedDir, 'request.json');
       await writeFile(requestPath, `${JSON.stringify(request, null, 2)}\n`);
 
-      const { stdout } = await runSidecar({
-        pythonBin,
-        script: sidecarScript,
-        requestPath,
-        timeout: SIDECAR_TIMEOUT_MS,
-      });
+      let sidecarResult;
+      try {
+        sidecarResult = await runSidecar({
+          pythonBin,
+          script: sidecarScript,
+          requestPath,
+          timeout: SIDECAR_TIMEOUT_MS,
+        });
+      } catch (err) {
+        if (bundledError && err?.code === FAILED_CODES.SIDECAR) throw bundledError;
+        throw err;
+      }
+      const { stdout } = sidecarResult;
 
       let report;
       try {

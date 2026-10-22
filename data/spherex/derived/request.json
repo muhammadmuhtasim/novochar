@@ -1,0 +1,29 @@
+{
+  "grid": {
+    "ra": 270,
+    "dec": 66.5,
+    "pixel_scale_arcsec": 6.15,
+    "shape": [
+      294,
+      294
+    ],
+    "rotation_deg": 0
+  },
+  "method": "bilinear",
+  "products": [
+    {
+      "role": "epoch-a",
+      "path": "cutout-cache/2025W18_1B_0095_2_2_0.5deg.fits",
+      "sha256": "9ceb7ec1f298c1e460aae8c20f95d15ce5a2a79d0acb511099d1b251cf887780"
+    },
+    {
+      "role": "epoch-b",
+      "path": "cutout-cache/2025W46_2A_0537_1_2_0.5deg.fits",
+      "sha256": "bca6bf0d7f0d72924f8385681f40249295c3b881a273cf75953f67339ce33085"
+    }
+  ],
+  "outputs": {
+    "dir": "data/spherex/derived",
+    "write": true
+  }
+}

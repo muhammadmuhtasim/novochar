@@ -214,13 +214,28 @@ the app reports these as configured/unverified rather than claiming success.
   user. Replace the generators in `server/data.js` with your feed; the client
   contract stays unchanged.
 - The **SPHEREx FIELD tab is real**, not simulated: it shows SPHEREx quick-release
-  level-2 products (QR2, North Ecliptic Pole) pulled on demand from IRSA. No
-  FITS file is committed — `.cache/` holds them locally, every input and output
-  is SHA-256 re-verified, and the reprojection onto a common grid is done by the
-  Python sidecar (`sidecar/`, pinned astropy/numpy/reproject). That sidecar needs
-  Python, so on a host that cannot spawn it (e.g. Vercel's serverless functions)
-  the product routes answer `503 sidecar_unavailable` and the tab reports that
-  as a retryable failure rather than showing an empty image.
+  level-2 products (QR2, North Ecliptic Pole) pulled on demand from IRSA. No raw
+  cutout is committed — `.cache/` holds them locally, every input and output is
+  SHA-256 re-verified, and the reprojection onto a common grid is done by the
+  Python sidecar (`sidecar/`, pinned astropy/numpy/reproject).
+- **Deployments that cannot spawn Python** (e.g. Vercel's Node functions) use a
+  committed bundle instead: the two reprojected FITS products and their report
+  live under `data/spherex/derived/`, and `vercel.json` includes
+  `data/spherex/**` in the function bundle. The store verifies the bundle with
+  the same manifest hashes, common-grid checks, output SHA-256s and
+  spatial-alignment gate as a live run, so it never shells out and never serves
+  unverified bytes. A local checkout still uses `.cache/` and the sidecar first.
+  To regenerate the bundle after changing the demo pair, grid or sidecar:
+
+  ```bash
+  npm run sidecar:setup
+  npm run dev                 # let SPHEREx FIELD complete one product request
+  npm run spherex:bundle      # copy .cache/spherex/derived -> data/spherex/derived
+  npm run check:spherex-bundle
+  ```
+
+  Commit the regenerated `data/spherex/derived/` files. This covers the current
+  fixed NEP pair; a different observation or grid needs a new bundle.
 - The two epochs are shown **as a labelled visualization**: side by side (the
   reference), one at a time with a manual epoch toggle, or **blinking** between
   them at a chosen interval (250–2000 ms, pausable). Switching never moves the

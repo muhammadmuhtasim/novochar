@@ -19,7 +19,13 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createProductStore, ProductError, SIDECAR_ROLES, WIRE_FORMAT } from './spherex-products.js';
+import {
+  createProductStore,
+  DERIVED_SCHEMA,
+  ProductError,
+  SIDECAR_ROLES,
+  WIRE_FORMAT,
+} from './spherex-products.js';
 
 // ---------------------------------------------------------------------------
 // A minimal, spec-shaped FITS writer. 80-character cards, 2880-byte blocks,
@@ -241,6 +247,64 @@ function fixtureGrid() {
   };
 }
 
+/**
+ * A deployment bundle: the two pre-generated FITS files plus the report that
+ * describes them. Paths are repository-relative (never absolute), exactly as the
+ * committed `data/spherex/derived/` bundle is.
+ */
+async function writeBundle(dir, { cutoutSha, tune } = {}) {
+  await mkdir(dir, { recursive: true });
+  const products = [];
+  for (const role of SIDECAR_ROLES) {
+    const out = buildProductFits();
+    await writeFile(path.join(dir, `${role}_reprojected.fits`), out);
+    products.push({
+      role,
+      input: { sha256: cutoutSha, path: `cutout-cache/${role}.fits` },
+      output: {
+        path: `data/spherex/derived/${role}_reprojected.fits`,
+        sha256: createHash('sha256').update(out).digest('hex'),
+      },
+      arrays_sha256: `arrays-${role}`,
+      stats: {
+        covered_fraction: 0.9,
+        valid_fraction: 0.8,
+        finite_fraction: 1,
+        any_flag_fraction: 0.434,
+        quality_flag_fraction: 0.029,
+        informational_flag_fraction: 0.408,
+        median: 42,
+      },
+      flag_policy: {
+        source: 'header',
+        invalid_roles: ['pathology', 'not_sky'],
+        unclassified_bits: [],
+        per_bit: {},
+      },
+      checks: [{ id: 'image_reprojected', status: 'pass' }],
+    });
+  }
+  const report = {
+    schema: DERIVED_SCHEMA,
+    ok: true,
+    milestone: 'M3-B',
+    grid: fixtureGrid(),
+    method: 'bilinear',
+    products,
+    checks: [{ id: 'outputs_share_target_grid', status: 'pass' }],
+    alignment: { lag_px: [0, 0], offset_px: 0, peak_correlation: 0.639, common_pixels: 65328 },
+    gate: {
+      spatial_alignment: true,
+      quantitative_difference_enabled: false,
+      acceptance_rule: 'matching output grids establish spatial alignment — not scientific comparability',
+    },
+    sidecar: { python: 'bundle', astropy: 'bundle', numpy: 'bundle', reproject: 'bundle' },
+  };
+  if (tune) tune(report);
+  await writeFile(path.join(dir, 'report.json'), JSON.stringify(report));
+  return dir;
+}
+
 async function setup() {
   const root = await mkdtemp(path.join(tmpdir(), 'novochar-products-'));
   const dataDir = path.join(root, 'data');
@@ -274,6 +338,7 @@ async function setup() {
       pythonBin: opts.pythonBin ?? path.join(root, 'python-that-does-not-exist'),
       fetchImpl: opts.fetchImpl ?? archiveFetch,
     };
+    if (opts.bundledDir) args.bundledDir = opts.bundledDir;
     if (!opts.realSidecar) args.runSidecar = opts.runSidecar ?? makeRunner(opts.runnerOptions);
     return createProductStore(args);
   };
@@ -424,6 +489,36 @@ test('re-runs when the sidecar script itself changes', async () => {
   const runner = makeRunner();
   await makeStore({ runSidecar: runner, sidecarScript: scriptB }).metadata();
   assert.equal(runner.calls, 1, 'a changed pipeline invalidates the cached products');
+});
+
+test('serves a verified deployment bundle without starting Python', async () => {
+  const { makeStore, root, cutoutSha } = await setup();
+  const bundledDir = await writeBundle(path.join(root, 'bundle'), { cutoutSha });
+
+  // realSidecar leaves the spawn path intact: the bundle must be used before any
+  // interpreter lookup happens.
+  const store = makeStore({ realSidecar: true, bundledDir });
+  const meta = await store.metadata();
+  assert.equal(meta.epochs.length, 2);
+  assert.equal(meta.epochs[0].derived.units, 'MJy / sr');
+  assert.deepEqual(meta.epochs[0].derived.shape, [NX, NY]);
+
+  const raster = await store.raster('epoch-b');
+  assert.equal(raster.width, NX);
+  assert.equal(raster.height, NY);
+  assert.equal(raster.bytes.length, NX * NY * 5);
+});
+
+test('refuses a deployment bundle whose product bytes do not match its report', async () => {
+  const { makeStore, root, cutoutSha } = await setup();
+  const bundledDir = await writeBundle(path.join(root, 'bundle'), { cutoutSha });
+  await writeFile(path.join(bundledDir, 'epoch-a_reprojected.fits'), buildProductFits({ crval: [12, 34] }));
+
+  const err = await expectProductError(
+    makeStore({ realSidecar: true, bundledDir }).metadata(),
+    'product_unavailable',
+  );
+  assert.match(err.message, /bundled SPHEREx products/);
 });
 
 test('refuses a report that failed the sidecar gate, naming the failed checks', async () => {

@@ -38,7 +38,7 @@ assert.ok(htmlCache['max-age'] === '0' && (htmlCache['must-revalidate'] || htmlC
   `HTML should revalidate after deploy, received Cache-Control: ${htmlResponse.headers.get('cache-control')}`);
 
 const scriptUrl = findAsset(html, /<script\b[^>]*\bsrc="([^"]+)"/, 'entry script');
-const styleUrl = findAsset(html, /<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/, 'stylesheet');
+const styleUrl = findAsset(html, /<link\b(?=[^>]*\brel=["']stylesheet["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/i, 'stylesheet');
 const assetResults = [];
 for (const [kind, url] of [['JavaScript entry', scriptUrl], ['stylesheet', styleUrl]]) {
   assert.equal(url.origin, deploymentUrl.origin, `${kind} should use the deployment origin`);
@@ -66,6 +66,35 @@ assert.ok(Number.isFinite(Number(apiCache['stale-while-revalidate'])) && Number(
 const apiObjects = await apiObjectsResponse.json();
 assert.equal(apiObjects.count, 1660, 'objects API fallback should report all 1,660 rows');
 
+// SPHEREx FIELD must work from the deployment bundle, not from a local Python
+// sidecar. A 503 here is exactly the failure this check exists to catch.
+const spherexMetadataUrl = new URL('/api/spherex/products', deploymentUrl);
+const spherexResponse = await requireOk(spherexMetadataUrl, 'SPHEREx product metadata');
+const spherex = await spherexResponse.json();
+assert.equal(spherex.schema, 'novochar.spherex.derived/v1', 'SPHEREx metadata schema should be the derived contract');
+assert.equal(spherex.epochs?.length, 2, 'SPHEREx metadata should describe both demo epochs');
+assert.equal(spherex.gate?.spatial_alignment, true, 'SPHEREx spatial alignment gate should pass');
+assert.equal(spherex.gate?.quantitative_difference_enabled, false, 'quantitative differences must stay disabled');
+const spherexRasters = [];
+for (const epoch of spherex.epochs) {
+  const rasterUrl = new URL(epoch.raster, deploymentUrl);
+  const rasterResponse = await requireOk(rasterUrl, `SPHEREx ${epoch.role} raster`);
+  const bytes = new Uint8Array(await rasterResponse.arrayBuffer());
+  const [width, height] = epoch.derived.shape;
+  assert.equal(rasterResponse.headers.get('x-novochar-wire'), spherex.wire.format,
+    `SPHEREx ${epoch.role} raster should carry the declared wire format`);
+  assert.equal(bytes.length, width * height * 5,
+    `SPHEREx ${epoch.role} raster should be float32 IMAGE + uint8 MASK (${width}x${height})`);
+  spherexRasters.push({
+    role: epoch.role,
+    status: rasterResponse.status,
+    width,
+    height,
+    bytes: bytes.length,
+    sha256: rasterResponse.headers.get('x-novochar-sha256'),
+  });
+}
+
 const report = {
   deployment: deploymentUrl.href,
   html: { status: htmlResponse.status, cacheControl: htmlResponse.headers.get('cache-control'), vercelCache: htmlResponse.headers.get('x-vercel-cache') },
@@ -76,6 +105,12 @@ const report = {
     cacheControl: dataResponse.headers.get('cache-control'),
     apiFallbackCacheControl: apiObjectsResponse.headers.get('cache-control'),
   },
+  spherex: {
+    status: spherexResponse.status,
+    schema: spherex.schema,
+    gate: spherex.gate,
+    rasters: spherexRasters,
+  },
   staleDocumentRecovery: 'not requested',
 };
 
@@ -83,7 +118,7 @@ if (staleUrl) {
   const staleHtmlResponse = await requireOk(staleUrl, 'previous deployment HTML');
   const staleHtml = await staleHtmlResponse.text();
   const staleScriptUrl = findAsset(staleHtml, /<script\b[^>]*\bsrc="([^"]+)"/, 'previous entry script', staleUrl);
-  const staleStyleMatch = staleHtml.match(/<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"/);
+  const staleStyleMatch = staleHtml.match(/<link\b(?=[^>]*\brel=["']stylesheet["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/i);
   const staleScriptResponse = await requireOk(staleScriptUrl, 'previous entry script');
   const staleScript = await staleScriptResponse.text();
   assert.ok(staleScript.includes('Retry feature'), 'previous deployment must include the recoverable lazy-load error UI');

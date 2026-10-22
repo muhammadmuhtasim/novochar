@@ -1,0 +1,333 @@
+{
+  "schema": "novochar.spherex.derived/v1",
+  "sidecar": {
+    "python": "3.14.7",
+    "astropy": "8.0.2",
+    "numpy": "2.5.4",
+    "reproject": "0.21.0",
+    "script_sha256": "5f5fa0be60f3daff85fa3b82959c7d41e0878e9316ad058ce46aa3ea204c39e8",
+    "script": "sidecar/reproject_common.py"
+  },
+  "milestone": "M3-B",
+  "method": {
+    "IMAGE": "reproject_interp order=bilinear",
+    "FLAGS": "reproject_interp order=0 (nearest-neighbour)",
+    "VARIANCE": "reproject_interp order=bilinear (see variance_model)",
+    "variance_model": "bilinear interpolation of the variance field with the same kernel as the flux. Assumption: the variance field varies smoothly on the pixel scale. Per-pixel independent propagation (sum of w_i^2 * sigma_i^2) is NOT applied, because reproject does not expose the interpolation weights.",
+    "footprint_threshold": 0.5,
+    "flags_outside_footprint": -1
+  },
+  "grid": {
+    "schema": "novochar.spherex.common-grid/v1",
+    "id": "nep-qr2-common",
+    "field": "nep",
+    "ra": 270,
+    "dec": 66.5,
+    "frame": "ICRS",
+    "projection": "TAN",
+    "pixel_scale_arcsec": 6.15,
+    "shape": [
+      294,
+      294
+    ],
+    "shape_order": "[nx, ny] — NAXIS1 first, the order the sidecar's build_target_grid reads",
+    "rotation_deg": 0,
+    "orientation": "north-up, east-left (viewer convention; det(CD) < 0 matches SPHEREx handedness)",
+    "validated_by": "sidecar M3-B gate — docs/spherex-m3b-reprojection.md",
+    "notes": [
+      "294x294 is the extent of the larger input cutout, so no input pixel is dropped at the edges.",
+      "Coverage is 0.834 / 0.846 rather than 1.0 because the two epochs are rotated differently on the sky (PA 123.6 deg vs -29.1 deg) even though both are centred on the requested position. The uncovered rim is masked, never filled.",
+      "The residual cross-epoch offset is below one integer pixel at 6.15 arcsec/px; sub-pixel offsets are not resolved by that diagnostic."
+    ]
+  },
+  "products": [
+    {
+      "role": "epoch-a",
+      "input": {
+        "path": "cutout-cache/2025W18_1B_0095_2_2_0.5deg.fits",
+        "sha256": "9ceb7ec1f298c1e460aae8c20f95d15ce5a2a79d0acb511099d1b251cf887780"
+      },
+      "checks": [
+        {
+          "id": "input_hash_matches_expected",
+          "status": "pass",
+          "detail": "input bytes match the manifest hash"
+        },
+        {
+          "id": "image_reprojected",
+          "status": "pass",
+          "detail": "shape [294, 294] vs target [294, 294], finite 72065/86436"
+        },
+        {
+          "id": "footprint_retained",
+          "status": "pass",
+          "detail": "covered 0.8337 at threshold 0.5"
+        },
+        {
+          "id": "flags_reprojected_nearest_neighbour",
+          "status": "pass",
+          "detail": "order=0 copies bit values; no interpolated bit patterns"
+        },
+        {
+          "id": "flags_bit_values_preserved",
+          "status": "pass",
+          "detail": "all 23 sampled flag values already exist in the input (outside-footprint sentinel -1 excluded)"
+        },
+        {
+          "id": "flag_definitions_from_header",
+          "status": "pass",
+          "detail": "16 MP_* bits read from the FLAGS header; unclassified (treated invalid): none"
+        },
+        {
+          "id": "validity_mask_derived_from_definitions",
+          "status": "pass",
+          "detail": "valid 0.8096; invalid roles ['not_sky', 'pathology', 'unclassified']"
+        },
+        {
+          "id": "variance_handling_explicit",
+          "status": "pass",
+          "detail": "bilinear interpolation of the variance field with the same kernel as the flux. Assumption: the variance field varies smoothly on the pixel scale. Per-pixel independent propagation (sum of w_i^2 * sigma_i^2) is NOT applied, because reproject does not expose the interpolation weights."
+        }
+      ],
+      "image": {
+        "shape": [
+          294,
+          294
+        ],
+        "bunit": "MJy / sr"
+      },
+      "stats": {
+        "covered_fraction": 0.833738,
+        "valid_fraction": 0.809628,
+        "finite_fraction": 0.833738,
+        "any_flag_fraction": 0.433733,
+        "quality_flag_fraction": 0.028918,
+        "informational_flag_fraction": 0.407799,
+        "median": 0.15851034412269016
+      },
+      "flag_policy": {
+        "source": "MP_* keywords in this product's FLAGS header",
+        "invalid_roles": [
+          "not_sky",
+          "pathology",
+          "unclassified"
+        ],
+        "unclassified_bits": [],
+        "per_bit": {
+          "MP_TRANSIENT": {
+            "bit": 0,
+            "role": "pathology",
+            "fraction": 0.004205
+          },
+          "MP_OVERFLOW": {
+            "bit": 1,
+            "role": "pathology",
+            "fraction": 0.000278
+          },
+          "MP_SUR_ERROR": {
+            "bit": 2,
+            "role": "pathology",
+            "fraction": 0.003136
+          },
+          "MP_NONFUNC": {
+            "bit": 6,
+            "role": "pathology",
+            "fraction": 0.000319
+          },
+          "MP_COLD": {
+            "bit": 11,
+            "role": "pathology",
+            "fraction": 0.000264
+          },
+          "MP_PERSIST": {
+            "bit": 17,
+            "role": "pathology",
+            "fraction": 0.001929
+          },
+          "MP_OUTLIER": {
+            "bit": 19,
+            "role": "pathology",
+            "fraction": 0.022965
+          },
+          "MP_SOURCE": {
+            "bit": 21,
+            "role": "informational",
+            "fraction": 0.407799
+          }
+        }
+      },
+      "output": {
+        "path": "data/spherex/derived/epoch-a_reprojected.fits",
+        "sha256": "7990fa39c27539d0aa85fe5470791643ea2cb3a93893dcc7d5c190c128dff45e"
+      },
+      "arrays_sha256": "667e5c6651331de773f1a7c6136926236605e171593246a911158a01beba584d"
+    },
+    {
+      "role": "epoch-b",
+      "input": {
+        "path": "cutout-cache/2025W46_2A_0537_1_2_0.5deg.fits",
+        "sha256": "bca6bf0d7f0d72924f8385681f40249295c3b881a273cf75953f67339ce33085"
+      },
+      "checks": [
+        {
+          "id": "input_hash_matches_expected",
+          "status": "pass",
+          "detail": "input bytes match the manifest hash"
+        },
+        {
+          "id": "image_reprojected",
+          "status": "pass",
+          "detail": "shape [294, 294] vs target [294, 294], finite 73083/86436"
+        },
+        {
+          "id": "footprint_retained",
+          "status": "pass",
+          "detail": "covered 0.8455 at threshold 0.5"
+        },
+        {
+          "id": "flags_reprojected_nearest_neighbour",
+          "status": "pass",
+          "detail": "order=0 copies bit values; no interpolated bit patterns"
+        },
+        {
+          "id": "flags_bit_values_preserved",
+          "status": "pass",
+          "detail": "all 28 sampled flag values already exist in the input (outside-footprint sentinel -1 excluded)"
+        },
+        {
+          "id": "flag_definitions_from_header",
+          "status": "pass",
+          "detail": "16 MP_* bits read from the FLAGS header; unclassified (treated invalid): none"
+        },
+        {
+          "id": "validity_mask_derived_from_definitions",
+          "status": "pass",
+          "detail": "valid 0.8203; invalid roles ['not_sky', 'pathology', 'unclassified']"
+        },
+        {
+          "id": "variance_handling_explicit",
+          "status": "pass",
+          "detail": "bilinear interpolation of the variance field with the same kernel as the flux. Assumption: the variance field varies smoothly on the pixel scale. Per-pixel independent propagation (sum of w_i^2 * sigma_i^2) is NOT applied, because reproject does not expose the interpolation weights."
+        }
+      ],
+      "image": {
+        "shape": [
+          294,
+          294
+        ],
+        "bunit": "MJy / sr"
+      },
+      "stats": {
+        "covered_fraction": 0.845516,
+        "valid_fraction": 0.820318,
+        "finite_fraction": 0.845516,
+        "any_flag_fraction": 0.43363,
+        "quality_flag_fraction": 0.029802,
+        "informational_flag_fraction": 0.406415,
+        "median": 0.1469318895466737
+      },
+      "flag_policy": {
+        "source": "MP_* keywords in this product's FLAGS header",
+        "invalid_roles": [
+          "not_sky",
+          "pathology",
+          "unclassified"
+        ],
+        "unclassified_bits": [],
+        "per_bit": {
+          "MP_TRANSIENT": {
+            "bit": 0,
+            "role": "pathology",
+            "fraction": 0.00494
+          },
+          "MP_OVERFLOW": {
+            "bit": 1,
+            "role": "pathology",
+            "fraction": 0.000151
+          },
+          "MP_SUR_ERROR": {
+            "bit": 2,
+            "role": "pathology",
+            "fraction": 0.003339
+          },
+          "MP_NONFUNC": {
+            "bit": 6,
+            "role": "pathology",
+            "fraction": 0.001382
+          },
+          "MP_COLD": {
+            "bit": 11,
+            "role": "pathology",
+            "fraction": 0.000328
+          },
+          "MP_PERSIST": {
+            "bit": 17,
+            "role": "pathology",
+            "fraction": 0.001095
+          },
+          "MP_OUTLIER": {
+            "bit": 19,
+            "role": "pathology",
+            "fraction": 0.023371
+          },
+          "MP_SOURCE": {
+            "bit": 21,
+            "role": "informational",
+            "fraction": 0.406415
+          }
+        }
+      },
+      "output": {
+        "path": "data/spherex/derived/epoch-b_reprojected.fits",
+        "sha256": "451962d01512d8895cb269fadfa86b340d3563797cc72782517ab8d753104a8c"
+      },
+      "arrays_sha256": "8bc408e4b92e3585e15dadffbbfd859d64f75f22bc1f98f5941e6788703e8de5"
+    }
+  ],
+  "checks": [
+    {
+      "id": "outputs_share_target_grid",
+      "status": "pass",
+      "detail": "target TAN plane 294x294 at 6.15\"/px; {\"epoch-a\": [294, 294], \"epoch-b\": [294, 294]}"
+    },
+    {
+      "id": "cross_epoch_alignment",
+      "status": "pass",
+      "detail": "residual integer-lag offset (+0,+0) px at peak correlation 0.639 over 65328 common pixels; 1 px = 6.15\" so the epochs are aligned to within one pixel (tolerance 1.0 px). Spatial only."
+    },
+    {
+      "id": "quantitative_difference_disabled",
+      "status": "pass",
+      "detail": "difference/photometry claims are off: spatial alignment only"
+    }
+  ],
+  "alignment": {
+    "pair": [
+      "epoch-a",
+      "epoch-b"
+    ],
+    "lag_px": [
+      0,
+      0
+    ],
+    "offset_px": 0,
+    "offset_arcsec": 0,
+    "peak_correlation": 0.6386,
+    "common_pixels": 65328,
+    "resolution": "integer-lag search within +/-4 px; 1 px = 6.15\" so an offset of 0 means \"below one pixel\", not literally zero. Sub-pixel offsets are not resolved by this diagnostic.",
+    "scope": "spatial alignment only - not a flux or variability measurement"
+  },
+  "gate": {
+    "spatial_alignment": true,
+    "quantitative_difference_enabled": false,
+    "acceptance_rule": "Matching output grids and successful reprojection tests establish spatial alignment - not scientific comparability.",
+    "still_required_for_comparability": [
+      "matching calibration and background subtraction",
+      "identical observing conditions / photometric response",
+      "uncertainty model validated against the variance extension",
+      "data-quality flag policy reviewed against the Explanatory Supplement"
+    ]
+  },
+  "ok": true,
+  "request": "data/spherex/derived/request.json"
+}
