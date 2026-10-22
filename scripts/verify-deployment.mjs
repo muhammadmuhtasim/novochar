@@ -38,7 +38,9 @@ assert.ok(htmlCache['max-age'] === '0' && (htmlCache['must-revalidate'] || htmlC
   `HTML should revalidate after deploy, received Cache-Control: ${htmlResponse.headers.get('cache-control')}`);
 
 const scriptUrl = findAsset(html, /<script\b[^>]*\bsrc="([^"]+)"/, 'entry script');
-const styleUrl = findAsset(html, /<link\b(?=[^>]*\brel=["']stylesheet["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/i, 'stylesheet');
+const styleUrl = findAsset(html,
+  /<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*\bhref=["'][^"']*\/assets\/[^"']+\.css["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/i,
+  'stylesheet');
 const assetResults = [];
 for (const [kind, url] of [['JavaScript entry', scriptUrl], ['stylesheet', styleUrl]]) {
   assert.equal(url.origin, deploymentUrl.origin, `${kind} should use the deployment origin`);
@@ -118,7 +120,9 @@ if (staleUrl) {
   const staleHtmlResponse = await requireOk(staleUrl, 'previous deployment HTML');
   const staleHtml = await staleHtmlResponse.text();
   const staleScriptUrl = findAsset(staleHtml, /<script\b[^>]*\bsrc="([^"]+)"/, 'previous entry script', staleUrl);
-  const staleStyleMatch = staleHtml.match(/<link\b(?=[^>]*\brel=["']stylesheet["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/i);
+  const staleStyleMatch = staleHtml.match(
+    /<link\b(?=[^>]*\brel=["']stylesheet["'])(?=[^>]*\bhref=["'][^"']*\/assets\/[^"']+\.css["'])[^>]*\bhref=["']([^"']+)["'][^>]*>/i,
+  );
   const staleScriptResponse = await requireOk(staleScriptUrl, 'previous entry script');
   const staleScript = await staleScriptResponse.text();
   assert.ok(staleScript.includes('Retry feature'), 'previous deployment must include the recoverable lazy-load error UI');
