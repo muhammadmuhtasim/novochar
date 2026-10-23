@@ -56,7 +56,12 @@ export class SkyTileLoader {
   request({ key, url, priority = 0 }) {
     if (this.disposed) return Promise.reject(new Error('sky tile loader is disposed'));
     if (!key || !url) return Promise.reject(new Error('sky tile request requires key and url'));
-    if (this.inflight.has(key)) return this.inflight.get(key);
+    if (this.inflight.has(key)) {
+      // A queued idle prefetch can be promoted when the user actually needs it.
+      // Already-active jobs cannot be reordered, but the promise is shared.
+      this.reprioritize(key, priority);
+      return this.inflight.get(key);
+    }
 
     let resolve;
     let reject;
@@ -88,6 +93,19 @@ export class SkyTileLoader {
   _sortQueue() {
     // Descending priority; stable FIFO within the same priority.
     this.queue.sort((a, b) => (b.priority - a.priority) || (a.id - b.id));
+  }
+
+  reprioritize(key, priority) {
+    let changed = false;
+    for (const job of this.queue) {
+      if (job.key !== key || job.canceled) continue;
+      job.priority = priority;
+      changed = true;
+    }
+    if (changed) {
+      this._sortQueue();
+      this._emitStats();
+    }
   }
 
   _idleWorker() {

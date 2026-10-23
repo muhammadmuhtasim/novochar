@@ -21,6 +21,7 @@ import {
   renderBase,
   renderTile,
   skyIndex,
+  splatGaussian,
   skySources,
   tileChildren,
 } from './sky-tiles.js';
@@ -36,6 +37,23 @@ test('PNG encoder writes a valid RGBA8 header and round-trips its dimensions', (
   assert.deepEqual(pngDimensions(png), { width: 4, height: 3 });
   assert.throws(() => encodePng(0, 3, rgba), RangeError);
   assert.throws(() => encodePng(4, 3, new Uint8ClampedArray(1)), RangeError);
+});
+
+test('circular splats treat the RA=0/360 seam as one edge', () => {
+  const width = 16;
+  const height = 8;
+  const wrapped = new Uint8ClampedArray(width * height * 4);
+  // x=-0.5 is the left edge of the equirectangular map. With circular
+  // addressing its flux must land on both column 15 and column 0.
+  splatGaussian(wrapped, width, height, -0.5, 4, 1.2, [255, 255, 255], 1, true);
+  assert.ok(wrapped[(4 * width + 0) * 4] > 0, 'column 0 receives seam flux');
+  assert.ok(wrapped[(4 * width + 15) * 4] > 0, 'column 15 receives seam flux');
+  assert.equal(wrapped[(4 * width + 8) * 4], 0, 'the opposite edge is unaffected');
+
+  const clamped = new Uint8ClampedArray(width * height * 4);
+  splatGaussian(clamped, width, height, -0.5, 4, 1.2, [255, 255, 255], 1, false);
+  assert.ok(clamped[(4 * width + 0) * 4] > 0);
+  assert.equal(clamped[(4 * width + 15) * 4], 0, 'non-wrapping splats stay off the far edge');
 });
 
 test('index declares a HEALPix NEST pyramid, four epochs and an explicit illustrative mode', () => {
@@ -68,6 +86,7 @@ test('base textures are valid, deterministic and epoch-specific', () => {
   clearSkyTileCache();
   const a = renderBase({ epoch: 'epoch-1' });
   assert.deepEqual(pngDimensions(a.png), { width: BASE_WIDTH, height: BASE_HEIGHT });
+  assert.ok(a.png.length > 100_000, 'the base contains actual sky texture, not a flat fill');
   assert.equal(a.mode, 'illustrative');
   assert.equal(a.epoch, 'epoch-1');
   assert.equal(a.cached, false);
@@ -93,6 +112,7 @@ test('tiles are valid PNGs at the declared size, deterministic and epoch-specifi
   clearSkyTileCache();
   const tile = renderTile({ epoch: 'epoch-1', order: 1, ipix: 0 });
   assert.deepEqual(pngDimensions(tile.png), { width: TILE_SIZE, height: TILE_SIZE });
+  assert.ok(tile.png.length > 1_000, 'the tile is not a constant/blank image');
   assert.equal(tile.order, 1);
   assert.equal(tile.ipix, 0);
   assert.equal(tile.size, TILE_SIZE);
@@ -117,7 +137,7 @@ test('tiles are valid PNGs at the declared size, deterministic and epoch-specifi
 });
 
 test('tile addressing is validated rather than clamped', () => {
-  const badOrder = [0, 5, 1.5, 'x', null];
+  const badOrder = [0, 5, 1.5, '1.5', '1e0', '2abc', 'x', null];
   for (const order of badOrder) {
     assert.throws(
       () => renderTile({ epoch: 'epoch-1', order, ipix: 0 }),
@@ -126,6 +146,12 @@ test('tile addressing is validated rather than clamped', () => {
   }
   assert.throws(() => renderTile({ epoch: 'epoch-1', order: 1, ipix: 48 }), (error) => error.code === 'bad_tile');
   assert.throws(() => renderTile({ epoch: 'epoch-1', order: 1, ipix: -1 }), (error) => error.code === 'bad_tile');
+  for (const ipix of ['0.5', '12abc', '1e1', '0x10']) {
+    assert.throws(
+      () => renderTile({ epoch: 'epoch-1', order: 1, ipix }),
+      (error) => error instanceof SkyTileError && error.code === 'bad_tile',
+    );
+  }
   assert.throws(() => renderTile({ epoch: 'missing', order: 1, ipix: 0 }), (error) => error.code === 'unknown_epoch');
 });
 

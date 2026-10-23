@@ -36,7 +36,7 @@ import {
 
 export const SKY_INDEX_SCHEMA = 'novochar.spherex.sky-index/v1';
 export const SKY_SOURCES_SCHEMA = 'novochar.spherex.sky-sources/v1';
-export const SKY_MODEL_REVISION = 'illustrative-2026-10-22.1';
+export const SKY_MODEL_REVISION = 'illustrative-2026-10-23.1';
 
 export const BASE_ORDER = 1;
 export const MIN_ORDER = 1;
@@ -123,10 +123,26 @@ function mulberry32(seed) {
   };
 }
 
-function hash2(x, y, seed) {
-  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(seed | 0, 69069);
+function hash3(x, y, z, seed) {
+  let h = Math.imul(x | 0, 374761393) ^
+    Math.imul(y | 0, 668265263) ^
+    Math.imul(z | 0, 2246822519) ^
+    Math.imul(seed | 0, 69069);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+// Grain is a function of sky direction, not texture pixel coordinates. Two
+// tiles that overlap, or a base pixel and a detail pixel at the same direction,
+// therefore see the same grain value instead of revealing a tile/LOD seam.
+function directionGrain(dir, epochIndex) {
+  const scale = 32768;
+  return hash3(
+    Math.round(dir[0] * scale),
+    Math.round(dir[1] * scale),
+    Math.round(dir[2] * scale),
+    0x9e37 + epochIndex * 977,
+  );
 }
 
 function clamp(value, lo, hi) {
@@ -300,7 +316,7 @@ function coverageForEpoch(epochIndex) {
 
 // --- diffuse sky + star splatting --------------------------------------------
 
-function diffuseColor(ra, dec, px, py, epochIndex) {
+function diffuseColor(ra, dec, epochIndex) {
   const dir = sciDir(ra, dec);
   const sinLat = dir[0] * GAL_POLE[0] + dir[1] * GAL_POLE[1] + dir[2] * GAL_POLE[2];
   const band = Math.exp(-((sinLat / 0.145) ** 2));
@@ -312,7 +328,7 @@ function diffuseColor(ra, dec, px, py, epochIndex) {
   const fine = 0.5 + 0.5 * Math.sin(a * 7.3 - d * 5.1 + 1.4);
   const filament = 0.5 + 0.5 * Math.sin(a * 17.0 + d * 11.0 + Math.sin(a * 3.0) * 2.0);
   const noise = clamp(0.55 * broad + 0.3 * fine + 0.15 * filament, 0, 1);
-  const grain = hash2(px, py, 0x9e37 + epochIndex * 977);
+  const grain = directionGrain(dir, epochIndex);
 
   let r = 5 + 34 * band + 88 * dust + 12 * noise + 7 * grain;
   let g = 8 + 50 * band + 44 * dust + 14 * noise + 8 * grain;
@@ -342,7 +358,7 @@ function diffuseColor(ra, dec, px, py, epochIndex) {
   ];
 }
 
-function splatGaussian(rgba, width, height, x, y, radius, color, intensity, wrapX) {
+export function splatGaussian(rgba, width, height, x, y, radius, color, intensity, wrapX) {
   const sigma = Math.max(0.55, radius);
   const reach = Math.ceil(sigma * 2.6);
   const x0 = Math.floor(x);
@@ -354,7 +370,14 @@ function splatGaussian(rgba, width, height, x, y, radius, color, intensity, wrap
       let px = x0 + dx;
       if (wrapX) px = ((px % width) + width) % width;
       else if (px < 0 || px >= width) continue;
-      const distance2 = (px - x) * (px - x) + (py - y) * (py - y);
+      // On the equirectangular base, distance must be measured on the circle.
+      // A star at RA ~0 has an unwrapped x near -0.5; using the wrapped column
+      // index directly would move its flux to the opposite edge of the map.
+      let deltaX = px - x;
+      if (wrapX) {
+        deltaX = ((deltaX + width / 2) % width + width) % width - width / 2;
+      }
+      const distance2 = deltaX * deltaX + (py - y) * (py - y);
       const weight = Math.exp(-distance2 / (2 * sigma * sigma));
       if (weight < 0.008) continue;
       const o = (py * width + px) * 4;
@@ -373,13 +396,21 @@ function starIntensity(mag) {
   return clamp(0.22 + 0.78 * Math.min(1, flux ** 0.55), 0.18, 1.0);
 }
 
-function splatStars(rgba, width, height, epochIndex, project) {
+// The synthetic stars have a fixed angular size. At the coarse base a resolved
+// star is smaller than a pixel, so a one-pixel floor keeps it visible; as the
+// HEALPix order increases the same angular size maps to more pixels instead of
+// the star shrinking by an order of magnitude between LODs.
+function starAngularRadiusDeg(mag) {
+  return clamp(0.082 + (6.4 - mag) * 0.037, 0.082, 0.235);
+}
+
+function splatStars(rgba, width, height, epochIndex, project, angularPixelScale) {
   for (const star of STARS) {
     const at = starAtEpoch(star, epochIndex);
     if (!at.visible || !isCovered(at.ra, at.dec, epochIndex)) continue;
     const p = project(at.ra, at.dec);
     if (!p) continue;
-    const radius = clamp(0.72 + (6.4 - at.mag) * 0.32, 0.8, 2.8);
+    const radius = clamp(starAngularRadiusDeg(at.mag) / angularPixelScale, 0.8, 12);
     splatGaussian(rgba, width, height, p.x, p.y, radius, at.color, starIntensity(at.mag), Boolean(p.wrapX));
   }
 }
@@ -408,7 +439,7 @@ function renderBasePixels(epochIndex, width, height) {
     const dec = 90 - ((py + 0.5) / height) * 180;
     for (let px = 0; px < width; px++) {
       const ra = ((px + 0.5) / width) * 360;
-      const [r, g, b] = diffuseColor(ra, dec, px, py, epochIndex);
+      const [r, g, b] = diffuseColor(ra, dec, epochIndex);
       const o = (py * width + px) * 4;
       rgba[o] = r;
       rgba[o + 1] = g;
@@ -421,7 +452,7 @@ function renderBasePixels(epochIndex, width, height) {
     y: ((90 - dec) / 180) * height - 0.5,
     wrapX: true,
   });
-  splatStars(rgba, width, height, epochIndex, project);
+  splatStars(rgba, width, height, epochIndex, project, angularPixelScale);
   splatTransients(rgba, width, height, epochIndex, project, angularPixelScale);
   return rgba;
 }
@@ -444,7 +475,9 @@ function renderTilePixels(epochIndex, order, ipix, size) {
     Math.cos(decRad),
   ];
   const half = tileHalfAngleRad(order);
-  const angularPixelScale = (2 * half) / size;
+  // Both star and transient radii are expressed in degrees; convert the
+  // tangent-plane pixel scale from radians so the LOD sizing is consistent.
+  const angularPixelScale = ((2 * half) / size) * RAD;
 
   const rgba = new Uint8ClampedArray(size * size * 4);
   for (let py = 0; py < size; py++) {
@@ -457,7 +490,7 @@ function renderTilePixels(epochIndex, order, ipix, size) {
         centerDir[2] + east[2] * u * half + north[2] * v * half,
       ]);
       const { ra, dec } = sciDirToRaDec(dir);
-      const [r, g, b] = diffuseColor(ra, dec, px, py, epochIndex);
+      const [r, g, b] = diffuseColor(ra, dec, epochIndex);
       const o = (py * size + px) * 4;
       rgba[o] = r;
       rgba[o + 1] = g;
@@ -480,7 +513,7 @@ function renderTilePixels(epochIndex, order, ipix, size) {
     };
   };
 
-  splatStars(rgba, size, size, epochIndex, project);
+  splatStars(rgba, size, size, epochIndex, project, angularPixelScale);
   splatTransients(rgba, size, size, epochIndex, project, angularPixelScale);
   return rgba;
 }
@@ -585,17 +618,26 @@ export function resolveEpoch(epochId) {
   return epoch;
 }
 
+function parseInteger(value) {
+  if (typeof value === 'number') return Number.isSafeInteger(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  if (!/^\d+$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function parseOrder(value) {
-  const order = typeof value === 'number' ? value : Number.parseInt(value, 10);
-  if (!Number.isInteger(order) || order < MIN_ORDER || order > MAX_ORDER) {
+  const order = parseInteger(value);
+  if (order === null || order < MIN_ORDER || order > MAX_ORDER) {
     throw new SkyTileError('bad_tile', `order must be an integer in [${MIN_ORDER}, ${MAX_ORDER}]`);
   }
   return order;
 }
 
 function parseIpix(value, npix) {
-  const ipix = typeof value === 'number' ? value : Number.parseInt(value, 10);
-  if (!Number.isInteger(ipix) || ipix < 0 || ipix >= npix) {
+  const ipix = parseInteger(value);
+  if (ipix === null || ipix < 0 || ipix >= npix) {
     throw new SkyTileError('bad_tile', `ipix must be an integer in [0, ${npix})`);
   }
   return ipix;

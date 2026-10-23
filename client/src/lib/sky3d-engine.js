@@ -14,7 +14,7 @@
 // prototype products described in server/spherex/sky-tiles.js.
 
 import * as THREE from 'three';
-import { order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
+import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
 import { raDecToSkyDirection } from './sky-coordinates.js';
 import { SkyTileLoader } from './sky-tile-loader.js';
 import {
@@ -420,7 +420,7 @@ export function createSky3DEngine({
       pixelRatio: +pixelRatio.toFixed(2),
       maxOrder: adaptiveMaxOrder,
       order,
-      resolutionDeg: +(360 / (order2nside(order) * 4)).toFixed(2),
+      resolutionDeg: +(nside2resolRad(order2nside(order)) * RAD).toFixed(2),
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
       tiles: { ...tileStats, textures: tileTextures.size, bytes: tileTextures.bytes },
@@ -547,7 +547,10 @@ export function createSky3DEngine({
       basePromises.delete(epochId);
       if (isTransientError(error)) throw error;
       lastError = { code: 'base_failed', message: error.message, epoch: epochId };
-      onError?.(lastError);
+      // A failed idle prefetch must not raise a warning over the epoch the user
+      // is actually looking at, and a late failure must not touch a disposed
+      // engine.
+      if (!disposed && activeEpoch.id === epochId) onError?.(lastError);
       throw error;
     });
     basePromises.set(epochId, promise);
@@ -559,8 +562,9 @@ export function createSky3DEngine({
       if (epochId !== state.epochId) other.group.visible = false;
     }
     state.group.visible = true;
-    // Sources are epoch-specific. Never show the new epoch's markers over the
-    // previous epoch's sky while the new base is still in flight.
+    // Sources are epoch-specific. The switch is atomic: once the active epoch
+    // changes, only that epoch's group and markers may be visible, even while
+    // its base texture is still in flight.
     updateSourcePositions();
     dirty = true;
   }
@@ -597,6 +601,13 @@ export function createSky3DEngine({
     const key = tileKey(state.epochId, order, ipix);
     const existing = state.meshes.get(key);
     if (existing) {
+      // The LRU can evict a texture while its mesh is still in the scene. When
+      // the texture is fetched again, reattach it instead of leaving a disposed
+      // map bound to the old material.
+      if (existing.material.map !== texture) {
+        existing.material.map = texture;
+        existing.material.needsUpdate = true;
+      }
       existing.visible = true;
       return existing;
     }
@@ -694,7 +705,12 @@ export function createSky3DEngine({
 
   function activateEpoch(index) {
     const nextIndex = clamp(index, 0, epochs.length - 1);
-    if (nextIndex === activeEpochIndex && epochStates.get(epochs[nextIndex].id)?.group?.visible) {
+    const nextState = epochStates.get(epochs[nextIndex].id);
+    if (
+      nextIndex === activeEpochIndex &&
+      nextState?.group?.visible &&
+      (nextState.baseReady || basePromises.has(epochs[nextIndex].id))
+    ) {
       return;
     }
     activeEpochIndex = nextIndex;
@@ -706,20 +722,19 @@ export function createSky3DEngine({
       showEpochState(state);
       markEpochReady(activeEpoch.id);
     } else {
+      // Do not leave the previous epoch's sky on screen under the new epoch's
+      // label while the base loads. The dark placeholder base plus any cached
+      // detail tiles stay epoch-consistent; a failure leaves the same new
+      // epoch visible and surfaces a warning instead of silently reverting.
+      showEpochState(state);
       loadBaseTexture(activeEpoch.id, 6000).then((texture) => {
         if (disposed || activeEpoch.id !== state.epochId) return;
         attachBaseTexture(state, texture);
         showEpochState(state);
         markEpochReady(activeEpoch.id);
       }).catch(() => {
-        // Keep the previous epoch visible rather than showing a black sphere.
-        // At startup there is no previous epoch, so show the dark base/tiles
-        // rather than a blank canvas; the HUD surfaces the base error.
-        if (disposed || activeEpoch.id !== state.epochId) return;
-        if (![...epochStates.values()].some((candidate) => candidate.group.visible)) {
-          showEpochState(state);
-          markEpochReady(activeEpoch.id);
-        }
+        // `loadBaseTexture` reports active-epoch failures through onError; the
+        // already-visible placeholder keeps the HUD and sky in agreement.
       });
     }
     updateDesiredTiles(true);
@@ -753,9 +768,9 @@ export function createSky3DEngine({
     if (!sourceLayer) return;
     const { positions, colors, sizes, visible, selected, count } = sourceLayer.userData;
     const color = new THREE.Color();
-    // The active epoch may not be on screen yet (base still loading, or the
-    // previous epoch is deliberately kept during the handoff). In that case
-    // hide every marker rather than mislabeling another epoch's sky.
+    // The active epoch group can be hidden briefly before its first activation
+    // or during disposal. In that case hide every marker rather than
+    // mislabeling another epoch's sky.
     if (!epochStates.get(activeEpoch.id)?.group?.visible) {
       visible.fill(0);
       sourceLayer.geometry.getAttribute('instanceVisible').needsUpdate = true;
@@ -797,6 +812,7 @@ export function createSky3DEngine({
   }
 
   function focusSource(id) {
+    if (!epochStates.get(activeEpoch.id)?.group?.visible) return;
     const candidate = sourceCandidates.find((item) => item.id === id);
     if (!candidate) return;
     const measurement = measurementFor(candidate, activeEpochIndex);
@@ -827,6 +843,9 @@ export function createSky3DEngine({
 
   function pickSource(clientX, clientY) {
     if (!sourceLayer || !showSources) return null;
+    // Instance visibility is hidden during an epoch handoff; picking must obey
+    // the same rule or the cursor can select an invisible marker.
+    if (!epochStates.get(activeEpoch.id)?.group?.visible) return null;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return null;
     const x = clientX - rect.left;

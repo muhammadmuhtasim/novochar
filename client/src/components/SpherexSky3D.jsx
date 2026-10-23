@@ -147,8 +147,18 @@ export default function SpherexSky3D({ onOpenField } = {}) {
         onStats: setStats,
         onView: setView,
         onSourceSelect: (candidate) => setSelectedSourceId(candidate?.id ?? null),
-        onReady: () => setEngineReady(true),
-        onError: (warning) => setTileWarning(warning),
+        onReady: () => {
+          setEngineReady(true);
+          // A successful active-epoch base (including a cached one) means the
+          // previous failure banner is stale.
+          setTileWarning(null);
+        },
+        onError: (warning) => {
+          // The first epoch can fail before onReady; there is still a usable
+          // placeholder/detail view, so leave the loading overlay.
+          setEngineReady(true);
+          setTileWarning(warning);
+        },
       });
     } catch (reason) {
       setRuntimeError({
@@ -180,6 +190,12 @@ export default function SpherexSky3D({ onOpenField } = {}) {
       return;
     }
     engineRef.current?.setEpoch(epochIndex);
+  }, [epochIndex]);
+
+  useEffect(() => {
+    // A warning belongs to the epoch that produced it; do not carry it across
+    // a timeline move (a new failure will raise a new warning).
+    setTileWarning(null);
   }, [epochIndex]);
 
   useEffect(() => {
@@ -258,6 +274,9 @@ export default function SpherexSky3D({ onOpenField } = {}) {
   const activeCandidates = sources?.candidates?.filter(
     (candidate) => measurementFor(candidate, epochIndex)?.visible,
   ).length ?? 0;
+  const warningEpoch = tileWarning?.epoch
+    ? epochs.find((epoch) => epoch.id === tileWarning.epoch)
+    : null;
 
   return (
     <div className="spherex sky3d">
@@ -351,8 +370,9 @@ export default function SpherexSky3D({ onOpenField } = {}) {
 
             {tileWarning && !runtimeError && (
               <div className="sky3d-warning" role="status">
-                Some epoch imagery failed to load ({tileWarning.message}). The view remains usable;
-                switch epoch or retry to fetch it again.
+                {warningEpoch ? `${warningEpoch.label} imagery` : 'Some epoch imagery'} failed to load
+                ({tileWarning.message}). The view remains usable; switch epoch or retry to fetch it
+                again.
               </div>
             )}
 
@@ -576,7 +596,7 @@ export default function SpherexSky3D({ onOpenField } = {}) {
 
         <p className="sky3d-footnote">
           {sourceCount} prototype candidates · {epochs.length} epoch layers ·
-          source measurements are rendered as GPU-instanced points; the sphere
+          source measurements are rendered as GPU-instanced billboards; the sphere
           itself is a WebGL2 mesh with progressively loaded textures, not a
           pre-rendered image.
         </p>
