@@ -8,7 +8,7 @@
     "dev": "node index.js",
     "build": "cd .. && npm run build",
     "start": "NODE_ENV=production node index.js",
-    "test": "node --test astro/healpix.test.js astro/healpix-nest-parity.test.js astro/coords.test.js astro/crossmatch.test.js astro/index.test.js ivoa/votable.test.js ivoa/ivoa.test.js ivoa/gaia.test.js ivoa/source-adapters.test.js ivoa/spherex.test.js spectra.test.js data.test.js api.test.js catalog/bsc5.test.js catalog/fixture.test.js shell/sources.test.js shell/query.test.js store/spherex-cache.test.js store/spherex-products.test.js routes/spherex-products.test.js routes/spherex-sky.test.js spherex/sky-tiles.test.js",
+    "test": "node --test astro/healpix.test.js astro/healpix-nest-parity.test.js astro/coords.test.js astro/crossmatch.test.js astro/index.test.js ivoa/votable.test.js ivoa/ivoa.test.js ivoa/gaia.test.js ivoa/source-adapters.test.js ivoa/spherex.test.js spectra.test.js data.test.js api.test.js catalog/bsc5.test.js catalog/fixture.test.js shell/sources.test.js shell/query.test.js store/spherex-cache.test.js store/spherex-products.test.js routes/spherex-products.test.js routes/spherex-sky.test.js spherex/sky-tiles.test.js spherex/archive-sky.test.js",
     "test:live": "NOVOCHAR_LIVE=1 node --test ivoa/ivoa.live.test.js"
   },
   "dependencies": {

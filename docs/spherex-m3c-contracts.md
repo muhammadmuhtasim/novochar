@@ -180,10 +180,12 @@ re-declared by the client.
    milestones must first flip the gate in the sidecar, where the reasons are
    recorded — not in the UI.
 
-The separate **SPHEREx 3D** tab extends the same rule to the global layer. Its
-four epochs are an explicitly illustrative HEALPix pyramid, not archive
-measurements; it exposes no difference/subtraction/variability route or control.
-The real NEP products above remain the validated detail layer. See
+The separate **SPHEREx 3D** tab extends the same rule. Its default archive mode
+uses the two verified NEP products on one regional tangent plane with a shared
+display stretch; its optional illustrative mode is an explicitly labelled
+four-epoch HEALPix pyramid, not archive measurements. Neither mode exposes a
+difference/subtraction/variability route or control. The real NEP products above
+remain the validated detail layer. See
 [`spherex-sky3d.md`](spherex-sky3d.md).
 
 ---

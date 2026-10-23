@@ -664,6 +664,7 @@ export function renderBase({ epoch, width = BASE_WIDTH, height = BASE_HEIGHT }) 
     png,
     etag: etagFor('base', resolved.id, `${width}x${height}`),
     mode: 'illustrative',
+    revision: SKY_MODEL_REVISION,
     epoch: resolved.id,
     width,
     height,
@@ -689,6 +690,7 @@ export function renderTile({ epoch, order, ipix }) {
     png,
     etag: etagFor('tile', resolved.id, orderValue, ipixValue),
     mode: 'illustrative',
+    revision: SKY_MODEL_REVISION,
     epoch: resolved.id,
     order: orderValue,
     ipix: ipixValue,
@@ -725,11 +727,26 @@ export function skyIndex() {
     modelRevision: SKY_MODEL_REVISION,
     notice:
       'The global four-epoch layer is a deterministic visualization prototype, not an archive measurement. ' +
-      'Real validated SPHEREx NEP products remain available in the SPHEREx FIELD tab.',
+      'Real validated SPHEREx NEP products remain available in the SPHEREx FIELD tab and in the regional archive mode.',
+    presentation: {
+      eyebrow: 'SPHEREx / GLOBAL SKY',
+      title: 'Four-epoch illustrative sky',
+      badge: 'ILLUSTRATIVE GLOBAL LAYER',
+      badgeTone: 'warn',
+      lede:
+        'A real-time sphere with four illustrative epoch layers, driven by the timeline below. ' +
+        'The whole sky is covered at low resolution first; finer HEALPix patches stream in only around the view. ' +
+        'Dark hatched regions are no-data, not unobserved sky rendered as black flux.',
+      noDataLabel: 'NO-DATA REGION',
+      observedLabel: 'ILLUSTRATIVE MODEL SKY',
+      coverageLabel: 'MODEL SKY',
+    },
     generatedAt: null,
     epochs: SKY_EPOCHS.map((epoch) => ({
       ...epoch,
       coverage: +coverageForEpoch(epoch.index).toFixed(4),
+      coverageLabel: 'model sky',
+      coverageScope: 'whole sky',
     })),
     tiles: {
       scheme: 'healpix-nest',

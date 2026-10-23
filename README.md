@@ -121,7 +121,7 @@ npm test
 
 (per-workspace: `npm test -w server`, `npm test -w client`.)
 
-After `npm run build`, the browser acceptance for the four-epoch 3D explorer is:
+After `npm run build`, the browser acceptance for the archive-backed 3D explorer and the separate four-epoch illustrative layer is:
 
 ```bash
 npm run check:spherex3d
@@ -180,8 +180,10 @@ GET /api/nasa/neo
 GET /api/spherex/products                (archive + derived metadata, and the gate)
 GET /api/spherex/products/:role/raster   (display raster: float32 IMAGE + uint8 MASK)
 
-# SPHEREx 3D illustrative global layer — see docs/spherex-sky3d.md
-GET /api/spherex/sky                     (four-epoch HEALPix NEST index)
+# SPHEREx 3D archive + illustrative modes — see docs/spherex-sky3d.md
+GET /api/spherex/sky/archive             (two verified NEP epochs, shared stretch, gate)
+GET /api/spherex/sky/archive/:epoch.png  (294x294 RGBA TAN observation, north-up)
+GET /api/spherex/sky                     (four-epoch illustrative HEALPix NEST index)
 GET /api/spherex/sky/sources             (prototype candidate measurements)
 GET /api/spherex/sky/base/:epoch.png     (512x256 RGBA equirectangular base)
 GET /api/spherex/sky/tile/:epoch/:order/:ipix.png   (128x128 RGBA NEST patch)
@@ -250,14 +252,17 @@ the app reports these as configured/unverified rather than claiming success.
 
   Commit the regenerated `data/spherex/derived/` files. This covers the current
   fixed NEP pair; a different observation or grid needs a new bundle.
-- The **SPHEREx 3D tab is an illustrative global layer**, not a four-epoch
-  archive. The repository has two real NEP observations, not all-sky coverage,
-  so the global tiles are deterministic prototype products for the interaction,
-  streaming and timeline. The page labels this in the HUD, provenance card and
-  API (`mode: "illustrative"`), and has no difference/subtraction control. The
-  real validated detail remains in **SPHEREx FIELD**. The 3D routes need no
-  Python, sidecar, network fetch or `/tmp`; the full contract and the real
-  archive-ingestion path are in [`docs/spherex-sky3d.md`](docs/spherex-sky3d.md).
+- The **SPHEREx 3D tab has two clearly separated modes.** Its default mode is a
+  **verified regional archive** built from the same two real NEP observations as
+  **SPHEREx FIELD**: one tangent plane, one shared display stretch, and two
+  observation stops. Only that plane is observed; the rest of the sphere is
+  explicitly rendered as no-data. The second mode is a deterministic
+  **four-epoch illustrative global layer** for exercising the streaming and
+  timeline UI; it is labelled illustrative in the HUD, provenance card and API
+  (`mode: "illustrative"`). Neither mode offers a difference or subtraction
+  control. The repository does not claim a four-epoch all-sky archive. The 3D
+  routes need no Python, sidecar, network fetch or `/tmp`; the full contract and
+  the archive-ingestion path are in [`docs/spherex-sky3d.md`](docs/spherex-sky3d.md).
 - The two epochs are shown **as a labelled visualization**: side by side (the
   reference), one at a time with a manual epoch toggle, or **blinking** between
   them at a chosen interval (250–2000 ms, pausable). Switching never moves the

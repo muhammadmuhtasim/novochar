@@ -107,8 +107,57 @@ for (const epoch of spherex.epochs) {
   });
 }
 
-// SPHEREx 3D must also run from the deployment alone: no Python, no local
-// cache. These routes are explicitly illustrative; the check pins the mode and
+// SPHEREx 3D archive mode must run from the deployment alone: no Python, no
+// local cache. The two verified NEP epochs are served from the committed
+// bundle; the rest of the sphere is no-data, never synthetic.
+const archiveIndexUrl = new URL('/api/spherex/sky/archive', deploymentUrl);
+const archiveResponse = await requireOk(archiveIndexUrl, 'SPHEREx 3D archive index');
+const archive = await archiveResponse.json();
+assert.equal(archive.schema, 'novochar.spherex.sky-archive/v1', 'archive index schema should be the v1 contract');
+assert.equal(archive.mode, 'archive', 'archive mode should declare itself archive');
+assert.equal(archive.dataset?.regionOnly, true, 'archive mode must declare its regional scope');
+assert.equal(archive.dataset?.globalCoverage, false, 'archive mode must not claim full-sky coverage');
+assert.equal(archive.epochs?.length, 2, 'archive mode should expose both verified NEP epochs');
+assert.equal(archive.comparison?.quantitativeDifferenceEnabled, false,
+  'archive mode must keep quantitative differences disabled');
+assert.equal(archive.display?.method, 'shared-linear-percentile',
+  'archive epochs should share one display stretch');
+assert.ok(archive.display?.sampleSize > 0, 'archive display stretch should be based on valid pixels');
+assert.equal(archive.surface?.kind, 'regional-tan', 'archive mode should expose one TAN surface');
+assert.equal(archive.surface?.x_axis_direction, 'west', 'archive image columns should be east-left');
+const archiveRasters = [];
+for (const epoch of archive.epochs) {
+  assert.ok(epoch.archive?.obs_id, `archive ${epoch.id} should carry an observation id`);
+  assert.ok(epoch.archive?.date_obs_utc, `archive ${epoch.id} should carry an observation time`);
+  assert.equal(epoch.archive?.cutout_sha256?.length, 64, `archive ${epoch.id} should carry its cutout hash`);
+  assert.equal(epoch.derived?.output_sha256?.length, 64, `archive ${epoch.id} should carry its output hash`);
+  const rasterResponse = await requireOk(new URL(epoch.raster, deploymentUrl), `SPHEREx 3D archive ${epoch.id} raster`);
+  const bytes = new Uint8Array(await rasterResponse.arrayBuffer());
+  assert.equal(rasterResponse.headers.get('content-type'), 'image/png', `${epoch.id} archive raster should be PNG`);
+  assert.equal(rasterResponse.headers.get('x-novochar-sky-mode'), 'archive',
+    `${epoch.id} archive raster should advertise archive mode`);
+  assert.equal(rasterResponse.headers.get('x-novochar-sky-epoch'), epoch.id,
+    `${epoch.id} archive raster should name its epoch`);
+  assert.equal(rasterResponse.headers.get('x-novochar-sky-source-sha256')?.length, 64,
+    `${epoch.id} archive raster should carry its wire source hash`);
+  assert.equal(rasterResponse.headers.get('x-novochar-sky-output-sha256'), epoch.derived.output_sha256,
+    `${epoch.id} archive raster should carry its derived-output hash`);
+  assert.deepEqual([...bytes.slice(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    `${epoch.id} archive raster should carry the PNG signature`);
+  const cache = directives(rasterResponse.headers.get('cache-control'));
+  assert.ok(Number(cache['max-age']) >= 86_400, `${epoch.id} archive raster should be CDN-cacheable`);
+  archiveRasters.push({
+    id: epoch.id,
+    status: rasterResponse.status,
+    bytes: bytes.length,
+    etag: rasterResponse.headers.get('etag'),
+    cacheControl: rasterResponse.headers.get('cache-control'),
+    sourceSha256: rasterResponse.headers.get('x-novochar-sky-source-sha256'),
+    outputSha256: rasterResponse.headers.get('x-novochar-sky-output-sha256'),
+  });
+}
+
+// The illustrative global layer remains a separate contract. Pin its mode and
 // the real-detail boundary so a future archive swap has to be deliberate.
 const skyIndexUrl = new URL('/api/spherex/sky', deploymentUrl);
 const skyResponse = await requireOk(skyIndexUrl, 'SPHEREx 3D sky index');
@@ -186,13 +235,26 @@ const report = {
     rasters: spherexRasters,
   },
   spherex3d: {
-    status: skyResponse.status,
-    schema: sky.schema,
-    mode: sky.mode,
-    epochs: sky.epochs.length,
-    tiles: { scheme: sky.tiles.scheme, baseOrder: sky.tiles.baseOrder, maxOrder: sky.tiles.maxOrder },
-    sources: { status: skySourcesResponse.status, schema: skySources.schema, count: skySources.candidates.length },
-    rasters: skyRasters,
+    archive: {
+      status: archiveResponse.status,
+      schema: archive.schema,
+      mode: archive.mode,
+      epochs: archive.epochs.length,
+      regionOnly: archive.dataset.regionOnly,
+      globalCoverage: archive.dataset.globalCoverage,
+      display: archive.display,
+      gate: archive.comparison,
+      rasters: archiveRasters,
+    },
+    illustrative: {
+      status: skyResponse.status,
+      schema: sky.schema,
+      mode: sky.mode,
+      epochs: sky.epochs.length,
+      tiles: { scheme: sky.tiles.scheme, baseOrder: sky.tiles.baseOrder, maxOrder: sky.tiles.maxOrder },
+      sources: { status: skySourcesResponse.status, schema: skySources.schema, count: skySources.candidates.length },
+      rasters: skyRasters,
+    },
   },
   staleDocumentRecovery: 'not requested',
 };

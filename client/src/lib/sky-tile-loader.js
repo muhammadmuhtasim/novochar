@@ -10,6 +10,7 @@
 //     thread path keeps the view functional.
 
 import { decodeSkyTile } from './sky-tile-decode.js';
+import { assertSkyResponseIdentity } from './sky-tile-contract.js';
 
 function abortError(message = 'tile request aborted') {
   const error = new Error(message);
@@ -53,7 +54,7 @@ export class SkyTileLoader {
     }
   }
 
-  request({ key, url, priority = 0 }) {
+  request({ key, url, priority = 0, expect = null }) {
     if (this.disposed) return Promise.reject(new Error('sky tile loader is disposed'));
     if (!key || !url) return Promise.reject(new Error('sky tile request requires key and url'));
     if (this.inflight.has(key)) {
@@ -74,6 +75,7 @@ export class SkyTileLoader {
       key,
       url,
       priority,
+      expect,
       resolve,
       reject,
       started: false,
@@ -131,7 +133,7 @@ export class SkyTileLoader {
     this.active.set(job.id, job);
     if (workerSlot) {
       workerSlot.busy = true;
-      workerSlot.worker.postMessage({ id: job.id, url: job.url });
+      workerSlot.worker.postMessage({ id: job.id, url: job.url, expect: job.expect });
     } else {
       this._fetchMainThread(job);
     }
@@ -207,6 +209,7 @@ export class SkyTileLoader {
         headers: { Accept: 'image/png' },
       });
       if (!response.ok) throw new Error(`tile HTTP ${response.status}`);
+      assertSkyResponseIdentity(response, job.expect);
       const blob = await response.blob();
       if (typeof createImageBitmap !== 'function') {
         throw new Error('createImageBitmap is unavailable in this browser');

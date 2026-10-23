@@ -110,6 +110,9 @@ export const api = {
   // tiles are fetched through the worker-backed loader in lib/sky3d-engine.js.
   spherexSkyIndex: ({ signal } = {}) => getJSON('/spherex/sky', { signal }),
   spherexSkySources: ({ signal } = {}) => getJSON('/spherex/sky/sources', { signal }),
+  // Verified regional archive view (the same NEP products as SPHEREx FIELD).
+  // Raster URLs come from the index and use the shared tile loader.
+  spherexSkyArchive: ({ signal } = {}) => getJSON('/spherex/sky/archive', { signal }),
 };
 
 export function fmtRA(ra) {

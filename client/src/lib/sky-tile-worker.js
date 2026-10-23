@@ -6,12 +6,13 @@
 // fetch as well.
 
 import { decodeSkyTile } from './sky-tile-decode.js';
+import { assertSkyResponseIdentity } from './sky-tile-contract.js';
 
 const controllers = new Map();
 
 self.onmessage = async (event) => {
   const data = event.data || {};
-  const { id, url, cancel } = data;
+  const { id, url, cancel, expect } = data;
 
   if (cancel) {
     controllers.get(id)?.abort();
@@ -31,6 +32,7 @@ self.onmessage = async (event) => {
     if (!response.ok) {
       throw new Error(`tile HTTP ${response.status}`);
     }
+    assertSkyResponseIdentity(response, expect);
     const blob = await response.blob();
     const bitmap = await decodeSkyTile(blob);
     controllers.delete(id);

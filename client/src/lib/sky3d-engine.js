@@ -1,17 +1,19 @@
-// Three.js / WebGL2 engine for the four-epoch SPHEREx sky.
+// Three.js / WebGL2 engine for the SPHEREx sky.
 //
 // The engine is deliberately renderer-only: React owns the timeline, the HUD
 // and the loading/error copy. This module owns:
 //
 //   * a camera inside a sphere with custom yaw/pitch/fov controls;
-//   * a low-resolution equirectangular base per epoch (always covers the sky);
+//   * a low-resolution equirectangular base per epoch (illustrative mode);
 //   * HEALPix NEST tangent-plane patches, progressively refined near the view;
+//   * a regional tangent-plane observation for verified archive mode;
+//   * an opaque no-data shell so gaps never reveal decorative background stars;
 //   * a worker-backed tile loader and an LRU texture budget;
-//   * a GPU-instanced source layer with a custom shader;
+//   * a GPU-instanced source layer with a custom shader (illustrative only);
 //   * adaptive pixel ratio / detail order based on measured frame time.
 //
-// It is not a measurement engine. The tiles it draws are the illustrative
-// prototype products described in server/spherex/sky-tiles.js.
+// It is not a measurement engine. In archive mode it draws only the pixels that
+// the verified product store exposed; everywhere else is explicitly no-data.
 
 import * as THREE from 'three';
 import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
@@ -28,8 +30,10 @@ import {
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
-const BASE_RADIUS = 1.04;
+const BASE_RADIUS = 1.015;
 const TILE_RADIUS = 1.0;
+const NO_DATA_RADIUS = 1.03;
+const REGIONAL_RADIUS = 1.02;
 const MAX_PIXEL_RATIO = 2;
 
 function normalizeRa(ra) {
@@ -45,8 +49,8 @@ function isTransientError(error) {
 }
 
 // A sphere whose UVs are defined from the same RA/Dec convention as the tiles.
-// j=0 is the south pole, j=lat is the north pole; the server base image row 0 is
-// north, which Three.js maps to v=1 with the default flipY.
+// j=0 is the south pole, j=lat is the north pole. Decoded ImageBitmaps are
+// pre-flipped, so the server base image row 0 (north) maps to v=1.
 function createSphereGeometry(radius, lonSegments = 96, latSegments = 48) {
   const positions = [];
   const uvs = [];
@@ -131,44 +135,134 @@ function createTileGeometry(order, ipix, segments = 10) {
   return { geometry };
 }
 
-function createStarfield(radius = 4, count = 2600) {
-  let seed = 0x8f31c2;
-  const rand = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
-  const positions = new Float32Array(count * 3);
-  const colors = new Float32Array(count * 3);
-  for (let index = 0; index < count; index++) {
-    const z = rand() * 2 - 1;
-    const theta = rand() * Math.PI * 2;
-    const ring = Math.sqrt(Math.max(0, 1 - z * z));
-    positions[index * 3] = Math.cos(theta) * ring * radius;
-    positions[index * 3 + 1] = z * radius;
-    positions[index * 3 + 2] = Math.sin(theta) * ring * radius;
-    const warmth = rand();
-    const intensity = 0.3 + rand() * 0.7;
-    colors[index * 3] = intensity * (0.8 + warmth * 0.2);
-    colors[index * 3 + 1] = intensity * 0.9;
-    colors[index * 3 + 2] = intensity;
+// A deliberately visible no-data shell. Alpha-0 sky pixels reveal this surface,
+// never the page background or a decorative starfield, so an uncovered region
+// cannot be mistaken for an observation.
+function createNoDataShell(radius = NO_DATA_RADIUS) {
+  const size = 64;
+  const rgba = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const o = (y * size + x) * 4;
+      // Sparse diagonal hatching over a near-black slate fill.
+      const hatch = ((x + y) % 16) < 2;
+      const value = hatch ? 34 : 13;
+      rgba[o] = value;
+      rgba[o + 1] = hatch ? 47 : 19;
+      rgba[o + 2] = hatch ? 58 : 27;
+      rgba[o + 3] = 255;
+    }
+  }
+  const texture = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(32, 16);
+  texture.needsUpdate = true;
+  const geometry = createSphereGeometry(radius, 96, 48);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    side: THREE.DoubleSide,
+    depthWrite: true,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.renderOrder = -20;
+  mesh.frustumCulled = false;
+  mesh.userData.noData = true;
+  return { mesh, texture };
+}
+
+// A verified regional observation as a TAN tangent plane. The server writes
+// north-up PNGs with image column increasing west, so the client's +u axis is
+// west and +v is north. The texture decode/orientation contract is the same one
+// the HEALPix tiles use.
+function createRegionalGeometry(surface, segments = 48) {
+  const center = surface?.center ?? { ra: 0, dec: 0 };
+  const shape = surface?.shape ?? [1, 1];
+  const scaleArcsec = surface?.pixel_scale_arcsec ?? 1;
+  const widthRad = ((shape[0] * scaleArcsec) / 3600) * DEG;
+  const heightRad = ((shape[1] * scaleArcsec) / 3600) * DEG;
+  const centerDir = new THREE.Vector3(...raDecToSkyDirection(center.ra, center.dec));
+  const raRad = center.ra * DEG;
+  const decRad = center.dec * DEG;
+  const east = new THREE.Vector3(Math.cos(raRad), 0, Math.sin(raRad));
+  const north = new THREE.Vector3(
+    -Math.sin(decRad) * Math.sin(raRad),
+    Math.cos(decRad),
+    Math.sin(decRad) * Math.cos(raRad),
+  );
+  // Archive image columns increase toward the west (CD1_1 < 0).
+  const uAxis = surface?.x_axis_direction === 'west' ? east.clone().negate() : east;
+
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  for (let j = 0; j <= segments; j++) {
+    const v = j / segments; // south -> north
+    for (let i = 0; i <= segments; i++) {
+      const u = i / segments; // image left -> right
+      const dir = centerDir.clone()
+        .addScaledVector(uAxis, (u - 0.5) * widthRad)
+        .addScaledVector(north, (v - 0.5) * heightRad)
+        .normalize();
+      positions.push(dir.x * REGIONAL_RADIUS, dir.y * REGIONAL_RADIUS, dir.z * REGIONAL_RADIUS);
+      uvs.push(u, v);
+    }
+  }
+  for (let j = 0; j < segments; j++) {
+    for (let i = 0; i < segments; i++) {
+      const a = j * (segments + 1) + i;
+      const b = a + 1;
+      const c = a + segments + 1;
+      const d = c + 1;
+      indices.push(a, b, d, a, d, c);
+    }
   }
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const material = new THREE.PointsMaterial({
-    size: 0.018,
-    sizeAttenuation: true,
-    vertexColors: true,
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+function createRegionalBorder(surface) {
+  const center = surface?.center ?? { ra: 0, dec: 0 };
+  const shape = surface?.shape ?? [1, 1];
+  const scaleArcsec = surface?.pixel_scale_arcsec ?? 1;
+  const widthRad = ((shape[0] * scaleArcsec) / 3600) * DEG;
+  const heightRad = ((shape[1] * scaleArcsec) / 3600) * DEG;
+  const centerDir = new THREE.Vector3(...raDecToSkyDirection(center.ra, center.dec));
+  const raRad = center.ra * DEG;
+  const decRad = center.dec * DEG;
+  const east = new THREE.Vector3(Math.cos(raRad), 0, Math.sin(raRad));
+  const north = new THREE.Vector3(
+    -Math.sin(decRad) * Math.sin(raRad),
+    Math.cos(decRad),
+    Math.sin(decRad) * Math.cos(raRad),
+  );
+  const uAxis = surface?.x_axis_direction === 'west' ? east.clone().negate() : east;
+  const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
+  const positions = [];
+  for (const [u, v] of corners) {
+    const dir = centerDir.clone()
+      .addScaledVector(uAxis, (u - 0.5) * widthRad)
+      .addScaledVector(north, (v - 0.5) * heightRad)
+      .normalize();
+    positions.push(dir.x * 1.018, dir.y * 1.018, dir.z * 1.018);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  const material = new THREE.LineBasicMaterial({
+    color: 0x61e6ff,
     transparent: true,
-    opacity: 0.5,
+    opacity: 0.55,
     depthWrite: false,
-    depthTest: false,
-    blending: THREE.AdditiveBlending,
   });
-  const points = new THREE.Points(geometry, material);
-  points.renderOrder = -100;
-  points.frustumCulled = false;
-  return points;
+  const line = new THREE.LineLoop(geometry, material);
+  line.renderOrder = 25;
+  line.frustumCulled = false;
+  return line;
 }
 
 function createGraticule(radius = 0.992) {
@@ -305,11 +399,33 @@ export function createSky3DEngine({
   if (!meta?.epochs?.length) throw new Error('sky engine requires an epoch index');
 
   const epochs = meta.epochs;
+  const regionalSurface = meta.surface?.kind === 'regional-tan' ? meta.surface : null;
   const baseOrder = meta.tiles?.baseOrder ?? 1;
   const configuredMaxOrder = Math.min(meta.tiles?.maxOrder ?? 4, quality.maxOrder ?? 4);
-  const tileTemplate = meta.tiles?.urlTemplate;
-  const baseTemplate = meta.tiles?.base?.urlTemplate;
-  if (!tileTemplate || !baseTemplate) throw new Error('sky index is missing tile URL templates');
+  const tileTemplate = meta.tiles?.urlTemplate ?? null;
+  const baseTemplate = regionalSurface?.urlTemplate ?? meta.tiles?.base?.urlTemplate;
+  if (!baseTemplate || (!regionalSurface && !tileTemplate)) {
+    throw new Error('sky index is missing tile or archive URL templates');
+  }
+  const minFov = Number.isFinite(meta.minFov)
+    ? meta.minFov
+    : Number.isFinite(regionalSurface?.minFov) ? regionalSurface.minFov : 12;
+  const maxFov = Number.isFinite(meta.maxFov)
+    ? meta.maxFov
+    : Number.isFinite(regionalSurface?.maxFov) ? regionalSurface.maxFov : 100;
+  const initialFov = clamp(
+    Number.isFinite(regionalSurface?.initialFovDeg)
+      ? regionalSurface.initialFovDeg
+      : quality.initialFov ?? 62,
+    minFov,
+    maxFov,
+  );
+  const initialYaw = regionalSurface?.center
+    ? -regionalSurface.center.ra * DEG
+    : 0;
+  const initialPitch = regionalSurface?.center
+    ? clamp(regionalSurface.center.dec * DEG, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01)
+    : 0;
 
   const renderer = new THREE.WebGLRenderer({
     canvas,
@@ -328,14 +444,20 @@ export function createSky3DEngine({
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x02040a);
-  const camera = new THREE.PerspectiveCamera(quality.initialFov ?? 62, 1, 0.01, 20);
+  const camera = new THREE.PerspectiveCamera(initialFov, 1, 0.001, 20);
   camera.position.set(0, 0, 0);
   camera.rotation.order = 'YXZ';
 
-  const backgroundStars = createStarfield();
-  scene.add(backgroundStars);
+  const noData = createNoDataShell();
+  scene.add(noData.mesh);
   const graticule = createGraticule();
+  // The archive view draws the real region at full fidelity; a coordinate grid
+  // over it would be mistaken for data, so keep the grid for the illustrative
+  // shell only.
+  graticule.visible = !regionalSurface;
   scene.add(graticule);
+  const regionBorder = regionalSurface ? createRegionalBorder(regionalSurface) : null;
+  if (regionBorder) scene.add(regionBorder);
 
   // Declared before the loader: the loader emits its first stats synchronously
   // from its constructor, and that callback marks the render loop dirty.
@@ -393,12 +515,12 @@ export function createSky3DEngine({
   let showSources = true;
 
   const look = {
-    yaw: 0,
-    pitch: 0,
-    fov: quality.initialFov ?? 62,
-    targetYaw: 0,
-    targetPitch: 0,
-    targetFov: quality.initialFov ?? 62,
+    yaw: initialYaw,
+    pitch: initialPitch,
+    fov: initialFov,
+    targetYaw: initialYaw,
+    targetPitch: initialPitch,
+    targetFov: initialFov,
   };
 
   const tileStats = {
@@ -415,15 +537,32 @@ export function createSky3DEngine({
       ? 1000 / (frameTimeSamples.reduce((sum, value) => sum + value, 0) / frameTimeSamples.length)
       : 0;
     const order = currentDetailOrder();
+    const resolutionDeg = regionalSurface
+      ? (regionalSurface.pixel_scale_arcsec ?? 0) / 3600
+      : +(nside2resolRad(order2nside(order)) * RAD).toFixed(2);
+    let textureBytes = tileTextures.bytes;
+    if (regionalSurface) {
+      textureBytes = 0;
+      for (const texture of baseTextures.values()) {
+        const image = texture.image;
+        textureBytes += (image?.width ?? 0) * (image?.height ?? 0) * 4;
+      }
+    }
     onStats?.({
       fps: +fps.toFixed(1),
       pixelRatio: +pixelRatio.toFixed(2),
       maxOrder: adaptiveMaxOrder,
       order,
-      resolutionDeg: +(nside2resolRad(order2nside(order)) * RAD).toFixed(2),
+      resolutionDeg,
+      mode: regionalSurface ? 'archive' : 'illustrative',
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
-      tiles: { ...tileStats, textures: tileTextures.size, bytes: tileTextures.bytes },
+      tiles: {
+        ...tileStats,
+        loaded: regionalSurface ? baseTextures.size : tileStats.loaded,
+        textures: regionalSurface ? baseTextures.size : tileTextures.size,
+        bytes: textureBytes,
+      },
       loader: {
         completed: loader.completed,
         active: loader.active.size,
@@ -446,6 +585,7 @@ export function createSky3DEngine({
   }
 
   function currentDetailOrder() {
+    if (regionalSurface) return 0;
     const fov = look.targetFov;
     if (fov <= 24 && adaptiveMaxOrder >= 4) return 4;
     if (fov <= 42 && adaptiveMaxOrder >= 3) return 3;
@@ -495,20 +635,41 @@ export function createSky3DEngine({
       baseMesh: null,
       baseReady: false,
     };
-    const geometry = createSphereGeometry(BASE_RADIUS);
-    const material = new THREE.MeshBasicMaterial({
-      color: 0x0b1020,
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.98,
-      depthWrite: false,
-      alphaTest: 0.01,
-    });
-    const baseMesh = new THREE.Mesh(geometry, material);
-    baseMesh.renderOrder = 0;
-    baseMesh.frustumCulled = false;
-    group.add(baseMesh);
-    state.baseMesh = baseMesh;
+    if (regionalSurface) {
+      // A verified archive epoch is exactly one tangent-plane observation.
+      // There is no generated base and no HEALPix refinement in this mode.
+      const geometry = createRegionalGeometry(regionalSurface);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x0a1118,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0,
+        depthWrite: true,
+        alphaTest: 0.01,
+        toneMapped: false,
+      });
+      const patch = new THREE.Mesh(geometry, material);
+      patch.renderOrder = 20;
+      patch.frustumCulled = false;
+      patch.visible = false;
+      group.add(patch);
+      state.baseMesh = patch;
+    } else {
+      const geometry = createSphereGeometry(BASE_RADIUS);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x0b1020,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.98,
+        depthWrite: false,
+        alphaTest: 0.01,
+      });
+      const baseMesh = new THREE.Mesh(geometry, material);
+      baseMesh.renderOrder = 0;
+      baseMesh.frustumCulled = false;
+      group.add(baseMesh);
+      state.baseMesh = baseMesh;
+    }
     epochStates.set(epochId, state);
     return state;
   }
@@ -519,6 +680,7 @@ export function createSky3DEngine({
     material.color.set(0xffffff);
     material.opacity = 1;
     material.needsUpdate = true;
+    state.baseMesh.visible = true;
     state.baseReady = true;
     if (state.epochId === activeEpoch.id) updateSourcePositions();
     dirty = true;
@@ -537,9 +699,16 @@ export function createSky3DEngine({
         throw new Error('engine disposed');
       }
       const texture = makeTexture(bitmap);
-      // The equirectangular base has a real RA=0/360 seam; wrap it so mipmap
-      // filtering blends the two edges instead of clamping them.
-      texture.wrapS = THREE.RepeatWrapping;
+      if (regionalSurface) {
+        // An archive observation has finite edges; wrapping would repeat the
+        // opposite side of the TAN plane along the rim.
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+      } else {
+        // The equirectangular base has a real RA=0/360 seam; wrap it so mipmap
+        // filtering blends the two edges instead of clamping them.
+        texture.wrapS = THREE.RepeatWrapping;
+      }
       baseTextures.set(epochId, texture);
       dirty = true;
       return texture;
@@ -612,11 +781,15 @@ export function createSky3DEngine({
       return existing;
     }
     const { geometry } = createTileGeometry(order, ipix);
+    // Illustrative tiles encode coverage as alpha 0/255 and carry no soft
+    // alpha. Rendering them as opaque after an alpha cut keeps same-order
+    // overlaps from double-blending (a star could otherwise look brighter
+    // simply because two tangent patches covered the same pixel).
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       side: THREE.DoubleSide,
-      transparent: true,
-      alphaTest: 0.01,
+      transparent: false,
+      alphaTest: 0.5,
       depthWrite: true,
       toneMapped: false,
     });
@@ -649,7 +822,7 @@ export function createSky3DEngine({
   }
 
   function updateDesiredTiles(force = false) {
-    if (disposed) return;
+    if (disposed || regionalSurface) return;
     const now = performance.now();
     if (!force && now - lastLodTime < 160) return;
     lastLodTime = now;
@@ -771,6 +944,12 @@ export function createSky3DEngine({
     // The active epoch group can be hidden briefly before its first activation
     // or during disposal. In that case hide every marker rather than
     // mislabeling another epoch's sky.
+    if (regionalSurface) {
+      visible.fill(0);
+      sourceLayer.geometry.getAttribute('instanceVisible').needsUpdate = true;
+      dirty = true;
+      return;
+    }
     if (!epochStates.get(activeEpoch.id)?.group?.visible) {
       visible.fill(0);
       sourceLayer.geometry.getAttribute('instanceVisible').needsUpdate = true;
@@ -921,7 +1100,7 @@ export function createSky3DEngine({
       const distance = Math.hypot(a.x - b.x, a.y - b.y);
       if (pinchDistance > 0 && distance > 0) {
         const ratio = pinchDistance / distance;
-        look.targetFov = clamp(look.targetFov * ratio, 12, 100);
+        look.targetFov = clamp(look.targetFov * ratio, minFov, maxFov);
         pinchDistance = distance;
         dirty = true;
       }
@@ -962,7 +1141,7 @@ export function createSky3DEngine({
   function onWheel(event) {
     event.preventDefault();
     const direction = event.deltaY > 0 ? 1 : -1;
-    look.targetFov = clamp(look.targetFov * (1 + direction * 0.09), 12, 100);
+    look.targetFov = clamp(look.targetFov * (1 + direction * 0.09), minFov, maxFov);
     dirty = true;
   }
 
@@ -984,10 +1163,10 @@ export function createSky3DEngine({
       look.targetPitch = clamp(look.targetPitch - step, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
       dirty = true;
     } else if (event.key === '+' || event.key === '=') {
-      look.targetFov = clamp(look.targetFov * 0.86, 12, 100);
+      look.targetFov = clamp(look.targetFov * 0.86, minFov, maxFov);
       dirty = true;
     } else if (event.key === '-' || event.key === '_') {
-      look.targetFov = clamp(look.targetFov * 1.14, 12, 100);
+      look.targetFov = clamp(look.targetFov * 1.14, minFov, maxFov);
       dirty = true;
     } else {
       handled = false;
@@ -1062,6 +1241,14 @@ export function createSky3DEngine({
     if (!next || next.id === activeEpoch.id) return;
     const run = () => {
       if (disposed || activeEpoch.id === next.id) return;
+      if (regionalSurface) {
+        // Archive mode has exactly one texture per epoch. Warm the next epoch
+        // so a timeline switch never waits on the network when possible.
+        if (!baseTextures.has(next.id) && !basePromises.has(next.id)) {
+          loadBaseTexture(next.id, -20).catch(() => {});
+        }
+        return;
+      }
       // One small base texture plus the nearest twelve order-1 tiles. This is
       // intentionally cheap: the next epoch becomes instant without competing
       // with the current view's detail requests.
@@ -1163,14 +1350,14 @@ export function createSky3DEngine({
     focusSource,
     pickSource,
     zoomBy(factor) {
-      look.targetFov = clamp(look.targetFov * factor, 12, 100);
+      look.targetFov = clamp(look.targetFov * factor, minFov, maxFov);
       dirty = true;
       updateDesiredTiles(true);
     },
     resetView() {
-      look.targetYaw = 0;
-      look.targetPitch = 0;
-      look.targetFov = quality.initialFov ?? 62;
+      look.targetYaw = initialYaw;
+      look.targetPitch = initialPitch;
+      look.targetFov = initialFov;
       dirty = true;
       updateDesiredTiles(true);
     },
@@ -1216,9 +1403,15 @@ export function createSky3DEngine({
         sourceLayer.material?.dispose?.();
         sourceLayer = null;
       }
-      scene.remove(backgroundStars);
-      backgroundStars.geometry.dispose();
-      backgroundStars.material.dispose();
+      scene.remove(noData.mesh);
+      noData.mesh.geometry.dispose();
+      noData.mesh.material.dispose();
+      noData.texture.dispose();
+      if (regionBorder) {
+        scene.remove(regionBorder);
+        regionBorder.geometry.dispose();
+        regionBorder.material.dispose();
+      }
       scene.remove(graticule);
       graticule.geometry.dispose();
       graticule.material.dispose();

@@ -26,6 +26,7 @@ function sendPng(req, res, result, headers = {}) {
   res.set('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
   res.set('ETag', result.etag);
   res.set('X-Novochar-Sky-Mode', result.mode ?? 'illustrative');
+  res.set('X-Novochar-Sky-Revision', result.revision ?? 'unknown');
   res.set('X-Novochar-Sky-Cached', result.cached ? '1' : '0');
   for (const [key, value] of Object.entries(headers)) {
     if (value !== undefined && value !== null) res.set(key, String(value));

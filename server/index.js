@@ -28,6 +28,7 @@ import {
 } from './ivoa/index.js';
 import { createProductStore } from './store/spherex-products.js';
 import { createSpherexProductsRouter } from './routes/spherex-products.js';
+import { createArchiveSkyService, createSpherexArchiveSkyRouter } from './spherex/archive-sky.js';
 import { createSpherexSkyRouter } from './routes/spherex-sky.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -350,10 +351,19 @@ app.get('/api/ivoa/ssa', async (req, res) => {
 // The routes live in their own module so they can be mounted against an
 // injected store in tests; the store itself is constructed lazily, so nothing
 // touches disk or Python until the first request.
-app.use('/api/spherex', createSpherexProductsRouter(createProductStore()));
+const spherexStore = createProductStore();
+app.use('/api/spherex', createSpherexProductsRouter(spherexStore));
+// Regional archive layer for the 3D explorer: the same verified NEP products,
+// rendered as two tangent-plane observations with a shared display stretch and
+// an explicit no-data sky everywhere else. This route must precede the
+// illustrative sky router because both share the /api/spherex/sky prefix.
+app.use(
+  '/api/spherex/sky/archive',
+  createSpherexArchiveSkyRouter(createArchiveSkyService({ store: spherexStore })),
+);
 // Four-epoch HEALPix tile pyramid for the 3D sky explorer. The global layer is
 // an explicitly labelled illustrative prototype; the real NEP products above
-// remain the validated detail layer.
+// remain the validated archive layer.
 app.use('/api/spherex/sky', createSpherexSkyRouter());
 
 // In production, serve the built React app alongside the API.

@@ -1,5 +1,5 @@
-// Browser acceptance for the four-epoch SPHEREx 3D sky (illustrative global
-// layer) and its boundary with the validated FIELD view.
+// Browser acceptance for the SPHEREx 3D explorer: the verified regional
+// archive and the separate illustrative global timeline.
 //
 // Run on demand after `npm run build`:
 //
@@ -8,11 +8,12 @@
 // It boots the production server, opens the built client in system Chromium,
 // and checks the things a screenshot alone cannot:
 //
-//   * the sky index/sources/raster routes answer with the illustrative contract;
-//   * the canvas really gets a WebGL2 context and draws a non-empty sky;
-//   * the timeline selects distinct epoch identities;
-//   * source markers can be selected, focused and hidden;
-//   * play/pause and RESET VIEW work;
+//   * the archive index exposes exactly two verified epochs and no global claim;
+//   * both archive rasters are PNGs with mode/epoch provenance headers;
+//   * the default view is the archive region, with no fabricated all-sky base;
+//   * switching archive epochs changes the real observation on screen;
+//   * the illustrative mode is a separate, clearly labelled four-epoch layer;
+//   * source markers, play/pause and RESET VIEW work in illustrative mode;
 //   * the page offers no difference/subtraction/variability action;
 //   * the mobile path selects the low-quality profile without side-scrolling;
 //   * a browser without WebGL2 gets an honest fallback, not a blank canvas;
@@ -55,16 +56,25 @@ async function waitForServer(origin, timeoutMs = 30_000) {
   throw new Error(`server did not become healthy at ${origin}`);
 }
 
+const cdpSessions = new WeakMap();
+
 async function canvasStats(page) {
-  // Playwright's stability check can wait forever on the live canvas, so scroll
-  // deterministically and let one layout pass settle.
+  // Playwright's stability check can wait forever on the live canvas, and
+  // page.screenshot() waits for document fonts. Capture through CDP instead:
+  // it reads the current compositor frame without either wait.
   await page.evaluate(() => {
     document.querySelector('.sky3d-canvas')?.scrollIntoView({ block: 'center', behavior: 'instant' });
   });
   await delay(150);
   const box = await page.locator('.sky3d-canvas').boundingBox();
   assert.ok(box && box.width > 0 && box.height > 0, 'canvas should have a layout box');
-  const screenshot = await page.screenshot();
+  let cdp = cdpSessions.get(page);
+  if (!cdp) {
+    cdp = await page.context().newCDPSession(page);
+    cdpSessions.set(page, cdp);
+  }
+  const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
+  const screenshot = Buffer.from(data, 'base64');
   return page.evaluate(async ({ base64, box }) => {
     const image = new Image();
     image.src = `data:image/png;base64,${base64}`;
@@ -177,7 +187,44 @@ try {
       PNG_SIGNATURE.every((byte, i) => bytes[i] === byte), `${bytes.length} bytes`);
   }
 
-  // --- desktop render --------------------------------------------------------
+  const archiveResponse = await fetch(`${origin}/api/spherex/sky/archive`, { cache: 'no-store' });
+  check('archive index answers', archiveResponse.status === 200, `HTTP ${archiveResponse.status}`);
+  const archive = await archiveResponse.json();
+  check('archive index schema', archive.schema === 'novochar.spherex.sky-archive/v1', archive.schema);
+  check('archive index is regional', archive.mode === 'archive'
+    && archive.dataset?.regionOnly === true
+    && archive.dataset?.globalCoverage === false);
+  check('archive has exactly two verified epochs', archive.epochs?.length === 2,
+    String(archive.epochs?.length));
+  check('archive epochs carry observation provenance',
+    archive.epochs.every((epoch) => epoch.archive?.obs_id && epoch.archive?.date_obs_utc
+      && epoch.archive?.cutout_sha256 && epoch.derived?.output_sha256));
+  check('archive keeps quantitative differences disabled',
+    archive.comparison?.quantitativeDifferenceEnabled === false);
+  check('archive declares one shared display stretch',
+    archive.display?.method === 'shared-linear-percentile'
+    && archive.display?.sampleSize > 0
+    && /shared by every archive epoch/i.test(archive.display?.note ?? ''));
+  check('archive declares a TAN tangent plane', archive.surface?.kind === 'regional-tan'
+    && archive.surface?.projection === 'TAN'
+    && archive.surface?.x_axis_direction === 'west');
+
+  for (const epoch of archive.epochs) {
+    const response = await fetch(`${origin}${epoch.raster}`, { cache: 'no-store' });
+    check(`${epoch.id} archive raster answers`, response.status === 200, `HTTP ${response.status}`);
+    check(`${epoch.id} archive raster is PNG`, response.headers.get('content-type') === 'image/png');
+    check(`${epoch.id} archive raster advertises archive mode`,
+      response.headers.get('x-novochar-sky-mode') === 'archive');
+    check(`${epoch.id} archive raster names its epoch`,
+      response.headers.get('x-novochar-sky-epoch') === epoch.id);
+    check(`${epoch.id} archive raster carries its source hash`,
+      response.headers.get('x-novochar-sky-source-sha256')?.length === 64);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    check(`${epoch.id} archive raster has the PNG signature`,
+      PNG_SIGNATURE.every((byte, i) => bytes[i] === byte), `${bytes.length} bytes`);
+  }
+
+  // --- desktop: verified regional archive (default) --------------------------
   browser = await chromium.launch({ headless: true, executablePath: systemChromium, args: browserArgs });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const pageErrors = [];
@@ -191,26 +238,69 @@ try {
   check('the 3D tab is active', (await page.locator('.sky3d').count()) === 1);
   check('the canvas is WebGL2',
     await page.evaluate(() => Boolean(document.querySelector('.sky3d-canvas')?.getContext('webgl2'))));
+  check('the verified archive mode is selected by default',
+    await page.getByRole('tab', { name: /NEP ARCHIVE/i }).getAttribute('aria-selected') === 'true');
+  check('the archive badge is visible',
+    (await page.locator('.sky3d-badges').innerText()).includes('VERIFIED REGIONAL ARCHIVE'));
+  check('the archive readout names the regional data',
+    await page.waitForFunction(() => /DETAIL\s+NEP/.test(document.querySelector('.sky3d-readout')?.innerText || ''), null, { timeout: 15_000 }).then(() => true).catch(() => false));
+  check('the real archive texture arrives',
+    await page.waitForFunction(() => /([1-9]\d*) TEX/.test(document.querySelector('.sky3d-telemetry')?.innerText || ''), null, { timeout: 40_000 }).then(() => true).catch(() => false));
+
+  const archiveInitial = await canvasStats(page);
+  check('the archive region is not blank', archiveInitial.fraction > 0.08, JSON.stringify(archiveInitial));
+  check('the archive region contains measured brightness', archiveInitial.bright > 100, String(archiveInitial.bright));
+
+  const archiveStops = page.locator('.sky3d-stop');
+  check('the archive timeline has two observations', (await archiveStops.count()) === 2);
+  check('the first epoch names its observation date',
+    (await page.locator('.sky3d-epoch-title').innerText()).includes('2025-04-29'));
+  const archiveCard = (await page.locator('.sky3d-sidebar').innerText()).replace(/\s+/g, ' ');
+  check('the active card carries the archive observation id', /2025W18_1B_0095_2/.test(archiveCard), archiveCard.slice(0, 200));
+  check('the active card carries release and calibration context',
+    /QR2/.test(archiveCard) && /6\.4\+psffix1/.test(archiveCard) && /valid grid/i.test(archiveCard));
+  check('the comparison gate is visibly disabled',
+    /QUANTITATIVE OFF/.test(archiveCard) && /DISABLED/.test(archiveCard));
+  check('archive mode offers no change candidates', (await page.locator('.sky3d-source').count()) === 0);
+  check('the archive legend distinguishes observation and no-data',
+    /VERIFIED NEP PIXELS/.test(await page.locator('.sky3d-legend').innerText())
+    && /NO ARCHIVE DATA/.test(await page.locator('.sky3d-legend').innerText()));
+
+  await archiveStops.nth(1).click();
+  await page.waitForFunction(() => /2025-11-16/.test(document.querySelector('.sky3d-epoch-title')?.innerText || ''), null, { timeout: 15_000 });
+  await delay(1600);
+  const archiveSecond = await canvasStats(page);
+  check('switching archive epochs changes the measured sky', archiveSecond.checksum !== archiveInitial.checksum,
+    `${archiveInitial.checksum} -> ${archiveSecond.checksum}`);
+  const secondCard = (await page.locator('.sky3d-sidebar').innerText()).replace(/\s+/g, ' ');
+  check('the second observation keeps its own provenance', /2025W46_2A_0537_1/.test(secondCard), secondCard.slice(0, 200));
+
+  // --- desktop: separate illustrative global layer ---------------------------
+  await page.getByRole('tab', { name: /ILLUSTRATIVE/i }).click();
+  await page.waitForFunction(() => /ILLUSTRATIVE GLOBAL LAYER/.test(document.querySelector('.sky3d-badges')?.innerText || ''), null, { timeout: 15_000 });
+  await waitForSky(page);
+  check('the illustrative mode is a separate explicit tab',
+    await page.getByRole('tab', { name: /ILLUSTRATIVE/i }).getAttribute('aria-selected') === 'true');
   check('the illustrative badge is visible',
     (await page.locator('.sky3d-badges').innerText()).includes('ILLUSTRATIVE GLOBAL LAYER'));
-  check('the detail order is L2 at the initial view',
+  check('the illustrative readout exposes HEALPix detail',
     await page.waitForFunction(() => /DETAIL\s+L2/.test(document.querySelector('.sky3d-readout')?.innerText || ''), null, { timeout: 15_000 }).then(() => true).catch(() => false));
-  check('detail tiles actually arrive',
+  check('illustrative detail tiles actually arrive',
     await page.waitForFunction(() => /([1-9]\d*) TEX/.test(document.querySelector('.sky3d-telemetry')?.innerText || ''), null, { timeout: 40_000 }).then(() => true).catch(() => false));
 
   const initial = await canvasStats(page);
-  check('the sky is not blank', initial.fraction > 0.08, JSON.stringify(initial));
-  check('the sky contains bright pixels', initial.bright > 100, String(initial.bright));
+  check('the illustrative sky is not blank', initial.fraction > 0.08, JSON.stringify(initial));
+  check('the illustrative sky contains bright pixels', initial.bright > 100, String(initial.bright));
   const telemetry = (await page.locator('.sky3d-telemetry').innerText()).replace(/\s+/g, ' ');
   check('telemetry reports frames and textures', /\d+(?:\.\d+)? FPS/.test(telemetry) && /([1-9]\d*) TEX/.test(telemetry), telemetry);
 
   const stops = page.locator('.sky3d-stop');
-  check('there are four timeline stops', (await stops.count()) === 4);
+  check('the illustrative timeline has four epochs', (await stops.count()) === 4);
   await stops.nth(1).click();
   await page.waitForFunction(() => /EPOCH 2/.test(document.querySelector('.sky3d-epoch-title')?.innerText || ''), null, { timeout: 15_000 });
   await delay(1600);
   const epoch2 = await canvasStats(page);
-  check('switching epochs changes the rendered sky', epoch2.checksum !== initial.checksum,
+  check('switching illustrative epochs changes the rendered sky', epoch2.checksum !== initial.checksum,
     `${initial.checksum} -> ${epoch2.checksum}`);
   check('the active epoch is labelled', (await page.locator('.sky3d-epoch-title').innerText()).includes('EPOCH 2'));
 
@@ -247,7 +337,7 @@ try {
 
   await page.getByRole('button', { name: /RESET VIEW/i }).click();
   await page.waitForFunction(() => /RA\s+00h 00m/.test(document.querySelector('.sky3d-readout')?.innerText || '') && /DEC\s+\+00°/.test(document.querySelector('.sky3d-readout')?.innerText || ''), null, { timeout: 10_000 });
-  check('RESET VIEW returns to the epoch meridian', true);
+  check('RESET VIEW returns to the illustrative epoch meridian', true);
 
   const buttons = await page.locator('button').allInnerTexts();
   check('no control offers an epoch difference',
@@ -274,6 +364,8 @@ try {
   await waitForSky(mobile);
   check('mobile selects the low-quality path',
     (await mobile.locator('.sky3d-badges').innerText()).includes('LOW PATH'));
+  check('mobile opens the verified regional archive by default',
+    (await mobile.locator('.sky3d-badges').innerText()).includes('VERIFIED REGIONAL ARCHIVE'));
   const layout = await mobile.evaluate(() => ({
     scrollWidth: document.body.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
@@ -282,7 +374,7 @@ try {
   }));
   check('mobile does not scroll sideways', layout.scrollWidth <= layout.clientWidth + 1,
     `${layout.scrollWidth} > ${layout.clientWidth}`);
-  check('mobile keeps the canvas and timeline', layout.canvas && layout.stops === 4);
+  check('mobile keeps the canvas and the two archive observations', layout.canvas && layout.stops === 2);
   const mobileCanvas = await mobile.evaluate(() => {
     const canvas = document.querySelector('.sky3d-canvas');
     return {
