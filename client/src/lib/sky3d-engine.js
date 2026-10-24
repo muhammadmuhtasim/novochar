@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
 import { raDecToSkyDirection } from './sky-coordinates.js';
 import { SkyTileLoader } from './sky-tile-loader.js';
+import { archiveExpectation, illustrativeExpectation } from './sky-tile-contract.js';
 import {
   SKY_TILE_BYTES,
   SkyTextureCache,
@@ -689,10 +690,26 @@ export function createSky3DEngine({
   function loadBaseTexture(epochId, priority = 5000) {
     if (baseTextures.has(epochId)) return Promise.resolve(baseTextures.get(epochId));
     if (basePromises.has(epochId)) return basePromises.get(epochId);
+    const epoch = epochs.find((entry) => entry.id === epochId);
+    const expect = regionalSurface
+      ? archiveExpectation({
+        revision: meta.modelRevision,
+        epoch: epochId,
+        width: regionalSurface.shape?.[0],
+        height: regionalSurface.shape?.[1],
+        outputSha256: epoch?.derived?.output_sha256,
+      })
+      : illustrativeExpectation({
+        revision: meta.modelRevision,
+        epoch: epochId,
+        width: meta.tiles?.base?.width,
+        height: meta.tiles?.base?.height,
+      });
     const promise = loader.request({
       key: `base:${epochId}`,
       url: baseUrl(baseTemplate, epochId),
       priority,
+      expect,
     }).then((bitmap) => {
       if (disposed) {
         bitmap?.close?.();
@@ -747,6 +764,12 @@ export function createSky3DEngine({
       key,
       url: tileUrl(tileTemplate, { epoch: epochId, order, ipix }),
       priority,
+      expect: illustrativeExpectation({
+        revision: meta.modelRevision,
+        epoch: epochId,
+        order,
+        ipix,
+      }),
     }).then((bitmap) => {
       if (disposed) {
         bitmap?.close?.();
