@@ -62,9 +62,10 @@ export default function App() {
   };
 
   const setTab = (t) => {
-    setTabRaw(t);
+    const mapped = OLD_TAB_MAP[t] || t;
+    setTabRaw(mapped);
     setMenuOpen(false);
-    writeHash(t, selectedId); // plain nav keeps the current selection
+    writeHash(mapped, selectedId); // plain nav keeps the current selection
   };
 
   // Select (or clear, with `null`) the shared object and reflect it in the URL.
