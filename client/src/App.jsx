@@ -28,6 +28,18 @@ const TABS = [
   { id: 'sources', label: 'DATA SOURCES', icon: '☍' },
 ];
 
+// Backward compatibility mapping for old routes
+const OLD_TAB_MAP = {
+  sky: 'skyview',
+  observe: 'skyview',
+  spherex: 'spherexview',
+  spherex3d: 'spherexview',
+  blink: 'blinkview',
+  spectra: 'blinkview',
+  catalogue: 'search',
+  archives: 'search',
+};
+
 export default function App() {
   // Read the initial tab + selection from the URL exactly once.
   const [initial] = useState(initialRoute);
@@ -71,8 +83,9 @@ export default function App() {
 
   const onHashChange = () => {
     const { tab: t, id } = parseHash(location.hash);
-    if (TABS.some((x) => x.id === t)) {
-      setTabRaw(t);
+    const mapped = OLD_TAB_MAP[t] || t;
+    if (TABS.some((x) => x.id === mapped)) {
+      setTabRaw(mapped);
       setSelectedId(id);
     }
   };
@@ -318,7 +331,7 @@ export default function App() {
       <main className="view" key={tab}>
         {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
         {tab === 'skyview' && <RetryableModule loader={loadSkyView} label="Loading sky view…" componentProps={{ selectedId, onSelect: selectObject, onTarget: goToTarget }} />}
-        {tab === 'spherexview' && <RetryableModule loader={loadSpherexView} label="Loading SPHEREx view…" />}
+        {tab === 'spherexview' && <RetryableModule loader={loadSpherexView} label="Loading SPHEREx view…" componentProps={{ onOpenSky3D: () => goToTarget('spherexview'), onOpenField: () => goToTarget('spherexview') }} />}
         {tab === 'blinkview' && (objectsLoaded
           ? <RetryableModule loader={loadBlinkView} label="Loading blink view…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
           : <ModuleLoading label="Loading survey objects…" />)}
@@ -345,7 +358,8 @@ function parseHash(hash) {
 function initialRoute() {
   if (typeof location === 'undefined') return { tab: 'home', id: null };
   const { tab, id } = parseHash(location.hash);
-  return { tab: TABS.some((x) => x.id === tab) ? tab : 'home', id };
+  const mapped = OLD_TAB_MAP[tab] || tab;
+  return { tab: TABS.some((x) => x.id === mapped) ? mapped : 'home', id };
 }
 
 function Navbar({ tab, setTab, stats, menuOpen, onToggleMenu }) {
