@@ -75,10 +75,11 @@ export default function App() {
 
   // Navigate to a tab and select a target candidate (presets / "open in" links).
   const goToTarget = (t, id) => {
+    const mapped = OLD_TAB_MAP[t] || t;
     if (id) setSelectedId(id);
-    setTabRaw(t);
+    setTabRaw(mapped);
     setMenuOpen(false);
-    writeHash(t, id || selectedId);
+    writeHash(mapped, id || selectedId);
   };
 
   const onHashChange = () => {

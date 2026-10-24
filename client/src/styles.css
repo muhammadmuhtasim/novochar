@@ -4491,3 +4491,51 @@ html.nc-cursor-on [contenteditable="true"] {
     transition: none;
   }
 }
+
+/* Combined view section tabs */
+.sky-view-header, .spherex-view-header, .blink-view-header, .search-view-header {
+  margin: 0 0 16px 0;
+  padding: 0 20px;
+}
+
+.sky-view-tabs, .spherex-view-tabs, .blink-view-tabs, .search-view-tabs {
+  display: inline-flex;
+  gap: 4px;
+  background: rgba(6, 8, 14, 0.7);
+  border: 1px solid var(--border-dim);
+  padding: 4px;
+  border-radius: 2px;
+}
+
+.sky-view-tab, .spherex-view-tab, .blink-view-tab, .search-view-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all var(--trans-fast);
+  white-space: nowrap;
+}
+
+.sky-view-tab:hover, .spherex-view-tab:hover, .blink-view-tab:hover, .search-view-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sky-view-tab.active, .spherex-view-tab.active, .blink-view-tab.active, .search-view-tab.active {
+  color: #FFFFFF;
+  background: linear-gradient(135deg, rgba(97, 230, 255, 0.2) 0%, rgba(97, 230, 255, 0.08) 100%);
+  border: 1px solid rgba(97, 230, 255, 0.5);
+  box-shadow: inset 0 0 8px rgba(97, 230, 255, 0.15);
+}
+
+.sky-view-content, .spherex-view-content, .blink-view-content, .search-view-content {
+  min-height: calc(100vh - 200px);
+}

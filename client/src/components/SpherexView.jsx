@@ -1,4 +1,4 @@
-import React, { Suspense, useState } from 'react';
+import React, { useState } from 'react';
 import RetryableModule from './RetryableModule.jsx';
 
 const loadSpherexViewer = () => import('./SpherexViewer.jsx');
