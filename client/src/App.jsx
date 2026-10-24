@@ -4,39 +4,27 @@ import Logo from './components/Logo.jsx';
 import Home from './components/Home.jsx';
 import RetryableModule from './components/RetryableModule.jsx';
 
-const loadSkyViewer = () => import('./components/SkyViewer.jsx');
-const loadObserve = () => import('./components/Observe.jsx');
-const loadBlinkComparator = () => import('./components/BlinkComparator.jsx');
-const loadCatalogue = () => import('./components/Catalogue.jsx');
+const loadSkyView = () => import('./components/SkyView.jsx');
+const loadSpherexView = () => import('./components/SpherexView.jsx');
+const loadBlinkView = () => import('./components/BlinkView.jsx');
+const loadSearchView = () => import('./components/SearchView.jsx');
 const loadDataSources = () => import('./components/DataSources.jsx');
-const loadSpectraView = () => import('./components/SpectraView.jsx');
-const loadIvoaLab = () => import('./components/IvoaLab.jsx');
-const loadSpherexViewer = () => import('./components/SpherexViewer.jsx');
-const loadSpherexSky3D = () => import('./components/SpherexSky3D.jsx');
 
 const TAB_MODULES = {
-  sky: loadSkyViewer,
-  observe: loadObserve,
-  blink: loadBlinkComparator,
-  catalogue: loadCatalogue,
+  skyview: loadSkyView,
+  spherexview: loadSpherexView,
+  blinkview: loadBlinkView,
+  search: loadSearchView,
   sources: loadDataSources,
-  spectra: loadSpectraView,
-  archives: loadIvoaLab,
-  spherex: loadSpherexViewer,
-  spherex3d: loadSpherexSky3D,
 };
-const OBJECT_DATA_TABS = new Set(['blink', 'catalogue', 'spectra']);
+const OBJECT_DATA_TABS = new Set(['blinkview', 'search']);
 
 const TABS = [
   { id: 'home', label: 'MISSION', icon: '◉' },
-  { id: 'sky', label: 'SKY VIEWER', icon: '⌖' },
-  { id: 'observe', label: 'OBSERVE (β)', icon: '◐' },
-  { id: 'spherex', label: 'SPHEREx FIELD', icon: '▣' },
-  { id: 'spherex3d', label: 'SPHEREx 3D', icon: '◍' },
-  { id: 'blink', label: 'BLINK COMPARATOR', icon: '⧗' },
-  { id: 'catalogue', label: 'CATALOGUE', icon: '≋' },
-  { id: 'spectra', label: 'SPECTRA', icon: '∿' },
-  { id: 'archives', label: 'LIVE ARCHIVES', icon: '⇆' },
+  { id: 'skyview', label: 'SKY VIEW', icon: '⌖' },
+  { id: 'spherexview', label: 'SPHEREx VIEW', icon: '▣' },
+  { id: 'blinkview', label: 'BLINK VIEW', icon: '⧗' },
+  { id: 'search', label: 'SEARCH', icon: '≋' },
   { id: 'sources', label: 'DATA SOURCES', icon: '☍' },
 ];
 
@@ -329,20 +317,14 @@ export default function App() {
       </div>
       <main className="view" key={tab}>
         {tab === 'home' && <Home stats={stats} health={health} onNavigate={setTab} />}
-        {tab === 'sky' && <RetryableModule loader={loadSkyViewer} label="Loading sky viewer…" componentProps={{ selectedId, onSelect: selectObject, onTarget: goToTarget }} />}
-        {tab === 'observe' && <RetryableModule loader={loadObserve} label="Loading observe view…" componentProps={{ selectedId, onSelect: selectObject }} />}
-        {tab === 'spherex' && <RetryableModule loader={loadSpherexViewer} label="Loading SPHEREx products…" componentProps={{ onOpenSky3D: () => goToTarget('spherex3d') }} />}
-        {tab === 'spherex3d' && <RetryableModule loader={loadSpherexSky3D} label="Loading the 3D sky…" componentProps={{ onOpenField: () => goToTarget('spherex') }} />}
-        {tab === 'blink' && (objectsLoaded
-          ? <RetryableModule loader={loadBlinkComparator} label="Loading blink comparator…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
+        {tab === 'skyview' && <RetryableModule loader={loadSkyView} label="Loading sky view…" componentProps={{ selectedId, onSelect: selectObject, onTarget: goToTarget }} />}
+        {tab === 'spherexview' && <RetryableModule loader={loadSpherexView} label="Loading SPHEREx view…" />}
+        {tab === 'blinkview' && (objectsLoaded
+          ? <RetryableModule loader={loadBlinkView} label="Loading blink view…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
           : <ModuleLoading label="Loading survey objects…" />)}
-        {tab === 'catalogue' && (objectsLoaded
-          ? <RetryableModule loader={loadCatalogue} label="Loading catalogue…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
-          : <ModuleLoading label="Loading catalogue…" />)}
-        {tab === 'spectra' && (objectsLoaded
-          ? <RetryableModule loader={loadSpectraView} label="Loading spectra…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
-          : <ModuleLoading label="Loading spectral targets…" />)}
-        {tab === 'archives' && <RetryableModule loader={loadIvoaLab} label="Loading live archives…" />}
+        {tab === 'search' && (objectsLoaded
+          ? <RetryableModule loader={loadSearchView} label="Loading search…" componentProps={{ objects, selectedId, onSelect: selectObject, onTarget: goToTarget }} />
+          : <ModuleLoading label="Loading search data…" />)}
         {tab === 'sources' && <RetryableModule loader={loadDataSources} label="Loading data sources…" />}
       </main>
       <Ticker />
