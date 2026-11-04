@@ -344,9 +344,9 @@ try {
     !buttons.some((label) => /DIFFERENCE|SUBTRACT|DELTA|VARIABILITY/i.test(label)), buttons.join(' | '));
 
   await page.getByRole('button', { name: /OPEN VALIDATED FIELD/i }).last().click();
-  await page.waitForFunction(() => location.hash === '#spherex', null, { timeout: 15_000 });
+  await page.waitForFunction(() => location.hash === '#spherexview', null, { timeout: 15_000 });
   await page.locator('.spherex').first().waitFor({ state: 'visible', timeout: 20_000 });
-  check('the FIELD bridge lands in the validated tab', page.url().endsWith('#spherex'));
+  check('the FIELD bridge lands in the validated tab', page.url().endsWith('#spherexview'));
   check('desktop page has no uncaught errors', pageErrors.length === 0, pageErrors.join(' | '));
   await page.close();
   await delay(500);

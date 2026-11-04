@@ -191,6 +191,12 @@ export function createArchiveSkyService({ store } = {}) {
     const meta = await metadata();
     const display = await stretch();
     const revision = modelRevision(meta, display);
+    // Address the PNGs by revision. The raster path alone is stable across
+    // rebuilds, so a browser or CDN could otherwise replay a cached PNG from
+    // an older archive revision while the index advertises the new one. The
+    // client rejects that as an identity mismatch, so the cache key has to
+    // change whenever the revision does.
+    const revisionQuery = `?rev=${encodeURIComponent(revision)}`;
     const grid = meta.grid ?? {};
     const scaleArcsec = grid.pixel_scale_arcsec ?? 6.15;
     const [width, height] = grid.shape ?? [294, 294];
@@ -205,7 +211,7 @@ export function createArchiveSkyService({ store } = {}) {
       x_axis_direction: 'west',
       y_axis_direction: 'north',
       projection: grid.projection ?? 'TAN',
-      urlTemplate: '/api/spherex/sky/archive/{epoch}.png',
+      urlTemplate: `/api/spherex/sky/archive/{epoch}.png${revisionQuery}`,
       initialFovDeg: 1.05,
       minFov: 0.18,
       maxFov: 12,
@@ -239,7 +245,7 @@ export function createArchiveSkyService({ store } = {}) {
         arrays_sha256: epoch.derived?.arrays_sha256 ?? null,
         checks: epoch.derived?.checks ?? [],
       },
-      raster: `/api/spherex/sky/archive/${epoch.role}.png`,
+      raster: `/api/spherex/sky/archive/${epoch.role}.png${revisionQuery}`,
     }));
 
     return {

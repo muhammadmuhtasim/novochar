@@ -297,7 +297,7 @@ main.view {
 .nav {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   padding: 12px 28px;
   height: 64px;
 }
@@ -343,8 +343,12 @@ main.view {
 
 .nav-tabs {
   display: flex;
-  gap: 6px;
-  margin-left: 12px;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px;
+  margin-left: 8px;
 }
 
 /* CHAMFERED NAVIGATION TAB BUTTON */
@@ -354,10 +358,10 @@ main.view {
   border: 1px solid rgba(255, 77, 0, 0.18);
   color: var(--text-secondary);
   font-family: var(--font-display);
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.12em;
-  padding: 8px 16px;
+  letter-spacing: 0.09em;
+  padding: 8px 10px;
   cursor: pointer;
   transition: all var(--trans-fast);
   /* Top-Right & Bottom-Left Chamfer based on Reference Image */
@@ -409,7 +413,8 @@ main.view {
 }
 
 .nav-status {
-  margin-left: auto;
+  margin-left: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -450,6 +455,7 @@ main.view {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-decoration: none;
+  flex: 0 0 auto;
   transition: all var(--trans-fast);
   clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
 }
@@ -1964,14 +1970,49 @@ main.view {
    RESPONSIVE DESIGN ADAPTATIONS
    ========================================================================== */
 
-/* The full header row — brand + the eight-mode tab strip + the passes status +
-   the GitHub link — has an intrinsic width of ~1500px. That is measured, not
-   assumed: across a sweep of widths (Chromium 150, the app's loaded fonts) the
-   trailing GitHub link still clips at 1516px and nothing clips at 1520px. Below
-   this the tab strip gives way to the burger, which opens the same modes in the
-   mobile menu; above it the full strip is shown. This nav collapse is separate
-   from the grid collapse below, which stays at 1180px. */
-@media (max-width: 1560px) {
+/* Keep the full navigation visible on desktop and compact it as space narrows.
+   The burger menu is reserved for tablet and phone widths. */
+@media (max-width: 1440px) {
+  .nav {
+    gap: 10px;
+    padding-inline: 20px;
+  }
+  .nav-brand {
+    gap: 9px;
+  }
+  .logo {
+    width: 44px;
+    height: 44px;
+  }
+  .brand-name {
+    font-size: 17px;
+  }
+  .brand-sub {
+    font-size: 8px;
+  }
+  .nav-tabs {
+    gap: 2px;
+    margin-left: 2px;
+  }
+  .tab {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 8px 7px;
+    gap: 4px;
+  }
+  .nav-status {
+    gap: 7px;
+    padding: 6px 9px;
+    font-size: 9px;
+  }
+  .nav-repo {
+    gap: 6px;
+    padding: 6px 9px;
+    font-size: 9px;
+  }
+}
+
+@media (max-width: 1100px) {
   .nav-tabs {
     display: none;
   }
@@ -2003,16 +2044,7 @@ main.view {
   .nav {
     padding: 10px 16px;
   }
-  /* The header is a single non-wrapping flex row. Once `.nav-tabs` is hidden
-     (<=1560px) the burger is the only mode switcher, but it sits last in the
-     row: with the brand, the passes status and the GitHub link all still
-     present, the row cannot fit a phone, so the burger is pushed past the
-     right edge and clipped by the root's `overflow-x: hidden` — leaving no
-     way to change modes. Drop the two secondary desktop-only items (the
-     status and the header's GitHub link, which the mobile menu already
-     re-exposes) and let the brand shrink, so the burger always stays on
-     screen and clickable. `> .nav-repo` is scoped to the header so the
-     `.nav-mobile` menu's GitHub link is untouched. */
+  /* Keep the compact phone header focused on the brand and menu control. */
   .nav > .nav-status,
   .nav > .nav-repo {
     display: none;

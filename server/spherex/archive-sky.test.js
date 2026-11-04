@@ -209,8 +209,13 @@ test('the archive service exposes the two real epochs, their provenance and the 
   assert.deepEqual(index.surface.shape, [2, 2]);
   assert.equal(index.comparison.quantitativeDifferenceEnabled, false);
   assert.deepEqual(index.gate.still_required_for_comparability, ['matching calibration']);
-  assert.ok(index.epochs.every((epoch) => /\/api\/spherex\/sky\/archive\/epoch-[ab]\.png$/.test(epoch.raster)));
-  assert.match(index.surface.urlTemplate, /archive\/\{epoch\}\.png$/);
+  assert.ok(index.epochs.every((epoch) => epoch.raster.endsWith(
+    `/api/spherex/sky/archive/${epoch.role}.png?rev=${index.modelRevision}`,
+  )));
+  assert.equal(
+    index.surface.urlTemplate,
+    `/api/spherex/sky/archive/{epoch}.png?rev=${index.modelRevision}`,
+  );
   assert.equal(index.sources.candidates.length, 0);
   assert.match(index.notice, /not a full-sky archive/i);
 });
@@ -247,12 +252,13 @@ test('the archive router serves the index, the PNG and an honest 404', async () 
     assert.equal(index.mode, 'archive');
     assert.equal(index.epochs.length, 2);
 
-    const pngRes = await fetch(`${base}/api/spherex/sky/archive/epoch-a.png`);
+    const pngRes = await fetch(`${base}${index.epochs[0].raster}`);
     assert.equal(pngRes.status, 200);
     assert.equal(pngRes.headers.get('content-type'), 'image/png');
     assert.equal(pngRes.headers.get('x-novochar-sky-mode'), 'archive');
     assert.equal(pngRes.headers.get('x-novochar-sky-epoch'), 'epoch-a');
     assert.equal(pngRes.headers.get('x-novochar-sky-role'), 'epoch-a');
+    assert.equal(pngRes.headers.get('x-novochar-sky-revision'), index.modelRevision);
     assert.equal(pngRes.headers.get('x-novochar-sky-output-sha256'), 'a'.repeat(64));
     assert.equal(pngRes.headers.get('x-novochar-sky-width'), '2');
     assert.equal(pngRes.headers.get('x-novochar-sky-height'), '2');
