@@ -17,7 +17,12 @@
 
 import * as THREE from 'three';
 import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
-import { raDecToSkyDirection } from './sky-coordinates.js';
+import {
+  raToYaw,
+  skyRenderDirection,
+  skyTangentBasis,
+  yawToRa,
+} from './sky3d-orientation.js';
 import { SkyTileLoader } from './sky-tile-loader.js';
 import { archiveExpectation, illustrativeExpectation } from './sky-tile-contract.js';
 import {
@@ -36,10 +41,6 @@ const TILE_RADIUS = 1.0;
 const NO_DATA_RADIUS = 1.03;
 const REGIONAL_RADIUS = 1.02;
 const MAX_PIXEL_RATIO = 2;
-
-function normalizeRa(ra) {
-  return ((ra % 360) + 360) % 360;
-}
 
 function clamp(value, lo, hi) {
   return value < lo ? lo : value > hi ? hi : value;
@@ -62,7 +63,7 @@ function createSphereGeometry(radius, lonSegments = 96, latSegments = 48) {
     for (let i = 0; i <= lonSegments; i++) {
       const u = i / lonSegments;
       const ra = u * 360;
-      const dir = raDecToSkyDirection(ra, dec);
+      const dir = skyRenderDirection(ra, dec);
       positions.push(dir[0] * radius, dir[1] * radius, dir[2] * radius);
       uvs.push(u, v);
     }
@@ -89,15 +90,10 @@ function createSphereGeometry(radius, lonSegments = 96, latSegments = 48) {
 function createTileGeometry(order, ipix, segments = 10) {
   const half = tileHalfAngleRad(order);
   const center = pixelCenterRaDec(order, ipix);
-  const centerDir = new THREE.Vector3(...raDecToSkyDirection(center.ra, center.dec));
-  const raRad = center.ra * DEG;
-  const decRad = center.dec * DEG;
-  const east = new THREE.Vector3(Math.cos(raRad), 0, Math.sin(raRad));
-  const north = new THREE.Vector3(
-    -Math.sin(decRad) * Math.sin(raRad),
-    Math.cos(decRad),
-    Math.sin(decRad) * Math.cos(raRad),
-  );
+  const centerDir = new THREE.Vector3(...skyRenderDirection(center.ra, center.dec));
+  const basis = skyTangentBasis(center.ra, center.dec);
+  const east = new THREE.Vector3(...basis.east);
+  const north = new THREE.Vector3(...basis.north);
 
   const positions = [];
   const uvs = [];
@@ -138,30 +134,13 @@ function createTileGeometry(order, ipix, segments = 10) {
 
 // A deliberately visible no-data shell. Alpha-0 sky pixels reveal this surface,
 // never the page background or a decorative starfield, so an uncovered region
-// cannot be mistaken for an observation.
+// cannot be mistaken for an observation. The shell is a flat dark slate: an
+// earlier 64px hatch DataTexture was nearest-filtered and magnified into large
+// chessboard squares at archive zoom, which read as corrupted image data.
 function createNoDataShell(radius = NO_DATA_RADIUS) {
-  const size = 64;
-  const rgba = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const o = (y * size + x) * 4;
-      // Sparse diagonal hatching over a near-black slate fill.
-      const hatch = ((x + y) % 16) < 2;
-      const value = hatch ? 34 : 13;
-      rgba[o] = value;
-      rgba[o + 1] = hatch ? 47 : 19;
-      rgba[o + 2] = hatch ? 58 : 27;
-      rgba[o + 3] = 255;
-    }
-  }
-  const texture = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(32, 16);
-  texture.needsUpdate = true;
   const geometry = createSphereGeometry(radius, 96, 48);
   const material = new THREE.MeshBasicMaterial({
-    map: texture,
+    color: 0x0a1118,
     side: THREE.DoubleSide,
     depthWrite: true,
     toneMapped: false,
@@ -170,7 +149,7 @@ function createNoDataShell(radius = NO_DATA_RADIUS) {
   mesh.renderOrder = -20;
   mesh.frustumCulled = false;
   mesh.userData.noData = true;
-  return { mesh, texture };
+  return { mesh };
 }
 
 // A verified regional observation as a TAN tangent plane. The server writes
@@ -183,15 +162,10 @@ function createRegionalGeometry(surface, segments = 48) {
   const scaleArcsec = surface?.pixel_scale_arcsec ?? 1;
   const widthRad = ((shape[0] * scaleArcsec) / 3600) * DEG;
   const heightRad = ((shape[1] * scaleArcsec) / 3600) * DEG;
-  const centerDir = new THREE.Vector3(...raDecToSkyDirection(center.ra, center.dec));
-  const raRad = center.ra * DEG;
-  const decRad = center.dec * DEG;
-  const east = new THREE.Vector3(Math.cos(raRad), 0, Math.sin(raRad));
-  const north = new THREE.Vector3(
-    -Math.sin(decRad) * Math.sin(raRad),
-    Math.cos(decRad),
-    Math.sin(decRad) * Math.cos(raRad),
-  );
+  const centerDir = new THREE.Vector3(...skyRenderDirection(center.ra, center.dec));
+  const basis = skyTangentBasis(center.ra, center.dec);
+  const east = new THREE.Vector3(...basis.east);
+  const north = new THREE.Vector3(...basis.north);
   // Archive image columns increase toward the west (CD1_1 < 0).
   const uAxis = surface?.x_axis_direction === 'west' ? east.clone().negate() : east;
 
@@ -233,15 +207,10 @@ function createRegionalBorder(surface) {
   const scaleArcsec = surface?.pixel_scale_arcsec ?? 1;
   const widthRad = ((shape[0] * scaleArcsec) / 3600) * DEG;
   const heightRad = ((shape[1] * scaleArcsec) / 3600) * DEG;
-  const centerDir = new THREE.Vector3(...raDecToSkyDirection(center.ra, center.dec));
-  const raRad = center.ra * DEG;
-  const decRad = center.dec * DEG;
-  const east = new THREE.Vector3(Math.cos(raRad), 0, Math.sin(raRad));
-  const north = new THREE.Vector3(
-    -Math.sin(decRad) * Math.sin(raRad),
-    Math.cos(decRad),
-    Math.sin(decRad) * Math.cos(raRad),
-  );
+  const centerDir = new THREE.Vector3(...skyRenderDirection(center.ra, center.dec));
+  const basis = skyTangentBasis(center.ra, center.dec);
+  const east = new THREE.Vector3(...basis.east);
+  const north = new THREE.Vector3(...basis.north);
   const uAxis = surface?.x_axis_direction === 'west' ? east.clone().negate() : east;
   const corners = [[0, 0], [1, 0], [1, 1], [0, 1]];
   const positions = [];
@@ -269,7 +238,7 @@ function createRegionalBorder(surface) {
 function createGraticule(radius = 0.992) {
   const vertices = [];
   const push = (ra, dec) => {
-    const dir = raDecToSkyDirection(ra, dec);
+    const dir = skyRenderDirection(ra, dec);
     vertices.push(dir[0] * radius, dir[1] * radius, dir[2] * radius);
   };
   // Meridians every 30 degrees.
@@ -421,8 +390,10 @@ export function createSky3DEngine({
     minFov,
     maxFov,
   );
+  // With the east-left render basis (see skyRenderDirection), yaw is the
+  // right ascension the camera faces, not its negation.
   const initialYaw = regionalSurface?.center
-    ? -regionalSurface.center.ra * DEG
+    ? raToYaw(regionalSurface.center.ra)
     : 0;
   const initialPitch = regionalSurface?.center
     ? clamp(regionalSurface.center.dec * DEG, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01)
@@ -596,7 +567,7 @@ export function createSky3DEngine({
 
   function viewRaDec() {
     return {
-      ra: normalizeRa(-look.yaw * RAD),
+      ra: yawToRa(look.yaw),
       dec: clamp(look.pitch * RAD, -90, 90),
     };
   }
@@ -986,7 +957,7 @@ export function createSky3DEngine({
         visible[index] = 0;
         continue;
       }
-      const dir = raDecToSkyDirection(measurement.ra, measurement.dec);
+      const dir = skyRenderDirection(measurement.ra, measurement.dec);
       positions[index * 3] = dir[0] * 0.965;
       positions[index * 3 + 1] = dir[1] * 0.965;
       positions[index * 3 + 2] = dir[2] * 0.965;
@@ -1020,7 +991,7 @@ export function createSky3DEngine({
     const measurement = measurementFor(candidate, activeEpochIndex);
     if (!measurement?.visible) return;
     selectedSourceId = id;
-    look.targetYaw = -measurement.ra * DEG;
+    look.targetYaw = raToYaw(measurement.ra);
     // Choose the shortest yaw path so focusing across RA=0 does not spin the
     // long way around.
     const current = look.yaw;
@@ -1059,7 +1030,7 @@ export function createSky3DEngine({
     for (const candidate of sourceCandidates) {
       const measurement = measurementFor(candidate, activeEpochIndex);
       if (!measurement?.visible) continue;
-      const dir = raDecToSkyDirection(measurement.ra, measurement.dec);
+      const dir = skyRenderDirection(measurement.ra, measurement.dec);
       // A point behind the camera can project into the viewport after the
       // perspective divide; reject it before comparing screen distances.
       if (dir[0] * forward.x + dir[1] * forward.y + dir[2] * forward.z <= 0) continue;
@@ -1429,7 +1400,6 @@ export function createSky3DEngine({
       scene.remove(noData.mesh);
       noData.mesh.geometry.dispose();
       noData.mesh.material.dispose();
-      noData.texture.dispose();
       if (regionBorder) {
         scene.remove(regionBorder);
         regionBorder.geometry.dispose();

@@ -736,7 +736,7 @@ export function skyIndex() {
       lede:
         'A real-time sphere with four illustrative epoch layers, driven by the timeline below. ' +
         'The whole sky is covered at low resolution first; finer HEALPix patches stream in only around the view. ' +
-        'Dark hatched regions are no-data, not unobserved sky rendered as black flux.',
+        'Dark regions are no-data, not unobserved sky rendered as black flux.',
       noDataLabel: 'NO-DATA REGION',
       observedLabel: 'ILLUSTRATIVE MODEL SKY',
       coverageLabel: 'MODEL SKY',

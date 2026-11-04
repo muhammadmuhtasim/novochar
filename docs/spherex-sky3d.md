@@ -74,15 +74,28 @@ pixels).
   and north is the local `+v` axis. The renderer reconstructs the same patch
   with `normalize(center + east*u*half + north*v*half)` and the same
   `tileHalfAngleRad(order)` as the server.
-* Alpha 0 marks no-coverage model sky. The client draws an opaque hatched
+* Alpha 0 marks no-coverage model sky. The client draws an opaque, flat dark
   no-data shell behind the sphere so a gap can never reveal decorative stars or
-  the page background.
+  the page background. A flat shell is used instead of a tiled hatch: at the
+  archive field of view a low-resolution hatch texture magnifies into large
+  nearest-neighbour squares that read as corrupted image data.
 
 The client decodes every PNG into an `ImageBitmap` that is **pre-flipped during
 decode** (`imageOrientation: "flipY"`), then uploads it with `texture.flipY =
 false`. WebGL ignores `UNPACK_FLIP_Y_WEBGL` for `ImageBitmap` uploads; without
 the explicit flip the sky would be vertically mirrored. The contract is pinned
 by `client/src/lib/sky-tile-decode.test.js`.
+
+### 3D camera basis
+
+The shared `raDecToSkyDirection` contract is used by the 2D FIELD canvas and
+the space views. Seen from inside a sphere it puts increasing RA (east) on the
+right, which would mirror the sky relative to the north-up/east-left rasters.
+`client/src/lib/sky3d-orientation.js` mirrors that direction across X for the
+3D renderer, making its tangent planes, graticule and markers right-handed and
+east-left. Camera yaw is the right ascension the camera faces (not its
+negation); the basis and the archive/tile column mapping are pinned by
+`sky3d-orientation.test.js`.
 
 ### Cache and error semantics
 
@@ -102,6 +115,7 @@ durable storage.
 | --- | --- |
 | `client/src/components/SpherexSky3D.jsx` | Mode switch, timeline, observation/candidate cards, performance HUD, FIELD bridge, error/WebGL2 states |
 | `client/src/lib/sky3d-engine.js` | Three.js scene, camera controls, archive TAN patch, illustrative base/tiles, no-data shell, instanced candidates, adaptive DPR/detail, prefetch, disposal |
+| `client/src/lib/sky3d-orientation.js` | Right-handed east-left render basis, yaw/RA conversion, tangent basis shared by the 3D scene |
 | `client/src/lib/sky-tile-loader.js` | Deduplicating priority queue, worker pool, abort/cancel, main-thread fallback, stats |
 | `client/src/lib/sky-tile-worker.js` | Fetch + decode off the main thread |
 | `client/src/lib/sky-tile-decode.js` | North-up `ImageBitmap` decode (the flip contract) |

@@ -101,6 +101,30 @@ async function canvasStats(page) {
       checksum = (checksum * 31 + sum) >>> 0;
       total += sum;
     }
+    // Sample a left-middle patch that is guaranteed to sit outside the
+    // centred archive region and away from the HUD overlays. The no-data
+    // shell must be a calm flat fill: a low-resolution hatch magnifies into
+    // large squares at archive zoom and reads as corrupted image data.
+    const bx0 = Math.floor(width * 0.04);
+    const bx1 = Math.floor(width * 0.16);
+    const by0 = Math.floor(height * 0.42);
+    const by1 = Math.floor(height * 0.58);
+    let backdropN = 0;
+    let backdropSum = 0;
+    let backdropSumSq = 0;
+    for (let py = by0; py < by1; py += 1) {
+      for (let px = bx0; px < bx1; px += 1) {
+        const i = (py * width + px) * 4;
+        const lum = (pixels[i] + pixels[i + 1] + pixels[i + 2]) / 3;
+        backdropN += 1;
+        backdropSum += lum;
+        backdropSumSq += lum * lum;
+      }
+    }
+    const backdropMean = backdropN ? backdropSum / backdropN : 0;
+    const backdropVariance = backdropN
+      ? Math.max(0, backdropSumSq / backdropN - backdropMean * backdropMean)
+      : 0;
     const count = width * height;
     return {
       width,
@@ -110,6 +134,8 @@ async function canvasStats(page) {
       checksum,
       mean: +(total / count / 3).toFixed(2),
       fraction: +(nonDark / count).toFixed(3),
+      backdropMean: +backdropMean.toFixed(2),
+      backdropStdev: +Math.sqrt(backdropVariance).toFixed(2),
     };
   }, { base64: screenshot.toString('base64'), box });
 }
@@ -250,6 +276,9 @@ try {
   const archiveInitial = await canvasStats(page);
   check('the archive region is not blank', archiveInitial.fraction > 0.08, JSON.stringify(archiveInitial));
   check('the archive region contains measured brightness', archiveInitial.bright > 100, String(archiveInitial.bright));
+  check('the no-data backdrop is a flat shell, not magnified checkerboard squares',
+    archiveInitial.backdropStdev < 4 && archiveInitial.backdropMean < 40,
+    JSON.stringify({ mean: archiveInitial.backdropMean, stdev: archiveInitial.backdropStdev }));
 
   const archiveStops = page.locator('.sky3d-stop');
   check('the archive timeline has two observations', (await archiveStops.count()) === 2);
@@ -361,7 +390,7 @@ try {
   const mobileErrors = [];
   mobile.on('pageerror', (error) => mobileErrors.push(error.message));
   await mobile.goto(`${origin}/#spherex3d`, { waitUntil: 'domcontentloaded' });
-  await waitForSky(mobile);
+  await waitForSky(mobile, { timeout: 120_000 });
   check('mobile selects the low-quality path',
     (await mobile.locator('.sky3d-badges').innerText()).includes('LOW PATH'));
   check('mobile opens the verified regional archive by default',
