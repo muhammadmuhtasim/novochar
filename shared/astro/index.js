@@ -7,6 +7,7 @@
 
 export * from './vector.js';
 export * from './healpix-nest.js';
+export * from './mollweide.js';
 export * from './epochs.js';
 export * from './frames.js';
 export * from './proper-motion.js';

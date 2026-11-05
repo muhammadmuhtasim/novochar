@@ -14,7 +14,22 @@ const AU_PER_LIGHT_YEAR = 63241.077;
 const MIN_VIEW_DISTANCE_LY = 1e-6;
 const PICK_RADIUS_PX = 7;
 
+const SPECTRAL_COLORS = {
+  O: '#9bb0ff', B: '#aabfff', A: '#cad7ff', F: '#f8f7ff',
+  G: '#fff4ea', K: '#ffd2a1', M: '#ffcc6f',
+};
+
+function spectralColor(object) {
+  const sp = (object.spectralType || '').trim().toUpperCase();
+  if (!sp) return null;
+  const letter = sp[0];
+  return SPECTRAL_COLORS[letter] || null;
+}
+
 function categoryColor(object) {
+  if (object.type === 'STAR') {
+    return spectralColor(object) || object.color || '#F4F7FF';
+  }
   return CATEGORY_COLORS[object.type] || object.color || '#F4F7FF';
 }
 

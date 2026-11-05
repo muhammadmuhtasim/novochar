@@ -6,7 +6,7 @@
 //   * a HEALPix NEST pixel pyramid (order 1 = 48 tiles, order 4 = 3,072);
 //   * one RGBA tile per (epoch, order, pixel), rendered as a tangent-plane
 //     patch by the browser;
-//   * a low-resolution equirectangular base per epoch, so the sphere is always
+//   * a low-resolution Mollweide all-sky base per epoch, so the sphere is always
 //     covered while the finer tiles stream in;
 //   * a source-measurement endpoint for the GPU-instanced change layer.
 //
@@ -26,17 +26,24 @@
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import {
+  MOLLWEIDE_X_MAX,
+  MOLLWEIDE_X_MIN,
+  MOLLWEIDE_Y_MAX,
+  MOLLWEIDE_Y_MIN,
+  mollweidePlaneToRaDec,
   nestChildren,
   nside2npix,
   nside2resolRad,
   order2nside,
   pixelCenterRaDec,
+  raDecToMollweidePlane,
   tileHalfAngleRad,
 } from '@novochar/astro';
 
 export const SKY_INDEX_SCHEMA = 'novochar.spherex.sky-index/v1';
 export const SKY_SOURCES_SCHEMA = 'novochar.spherex.sky-sources/v1';
-export const SKY_MODEL_REVISION = 'illustrative-2026-10-23.1';
+export const SKY_MODEL_REVISION = 'illustrative-2026-11-05.1';
+export const SKY_PROJECTION = 'mollweide';
 
 export const BASE_ORDER = 1;
 export const MIN_ORDER = 1;
@@ -430,15 +437,42 @@ function splatTransients(rgba, width, height, epochIndex, project, angularPixelS
   }
 }
 
-// --- base equirectangular texture ---------------------------------------------
+// --- base Mollweide all-sky texture ---------------------------------------------
 
+/**
+ * Render one epoch's all-sky base texture on the Mollweide equal-area ellipse.
+ *
+ * The canonical Mollweide extent is 2·2√2 × 2·√2 (width × height, aspect 2), so
+ * a base whose height is half its width is exactly one full all-sky map: no
+ * rectangular sampling distortion, equal area on both axes, whole-sphere
+ * coverage — the reason this projection replaces the flat TAN/equirectangular
+ * grids for the all-sky layer.
+ *
+ * Texture conventions (kept identical to the HEALPix tiles):
+ *   * row 0 is north, column 0 is the western edge of the map (longitude -180);
+ *   * a pixel is addressed as a plane coordinate and read back through the
+ *     shared Mollweide inverse, so texture and sky never disagree;
+ *   * alpha 0 marks no-coverage model sky, never a filled zero.
+ */
 function renderBasePixels(epochIndex, width, height) {
   const rgba = new Uint8ClampedArray(width * height * 4);
-  const angularPixelScale = 180 / height;
+  const xMin = MOLLWEIDE_X_MIN;
+  const xMax = MOLLWEIDE_X_MAX;
+  const yMin = MOLLWEIDE_Y_MIN;
+  const yMax = MOLLWEIDE_Y_MAX;
+  const planeWidth = xMax - xMin;
+  const planeHeight = yMax - yMin;
+  const angularPixelScale = planeHeight / height;
+  const centralMeridianRad = 0;
   for (let py = 0; py < height; py++) {
-    const dec = 90 - ((py + 0.5) / height) * 180;
+    const vFromTop = (py + 0.5) / height;
+    const y = yMax - vFromTop * planeHeight;
     for (let px = 0; px < width; px++) {
-      const ra = ((px + 0.5) / width) * 360;
+      const u = (px + 0.5) / width;
+      const x = xMin + u * planeWidth;
+      const sky = mollweidePlaneToRaDec(x, y, { centralMeridianRad });
+      const ra = sky?.ra ?? 0;
+      const dec = sky?.dec ?? 0;
       const [r, g, b] = diffuseColor(ra, dec, epochIndex);
       const o = (py * width + px) * 4;
       rgba[o] = r;
@@ -447,11 +481,17 @@ function renderBasePixels(epochIndex, width, height) {
       rgba[o + 3] = isCovered(ra, dec, epochIndex) ? 255 : 0;
     }
   }
-  const project = (ra, dec) => ({
-    x: (ra / 360) * width - 0.5,
-    y: ((90 - dec) / 180) * height - 0.5,
-    wrapX: true,
-  });
+  const project = (ra, dec) => {
+    const plane = raDecToMollweidePlane(ra, dec, { centralMeridianRad });
+    if (!plane) return null;
+    const u = (plane.x - MOLLWEIDE_X_MIN) / planeWidth;
+    const vFromTop = (MOLLWEIDE_Y_MAX - plane.y) / planeHeight;
+    return {
+      x: (u - 0.5) * width,
+      y: (vFromTop - 0.5) * height,
+      wrapX: true,
+    };
+  };
   splatStars(rgba, width, height, epochIndex, project, angularPixelScale);
   splatTransients(rgba, width, height, epochIndex, project, angularPixelScale);
   return rgba;
@@ -650,7 +690,7 @@ function etagFor(kind, epochId, order = '', ipix = '') {
   return `"${digest}"`;
 }
 
-/** Serve one equirectangular base texture for an epoch. */
+/** Serve one Mollweide all-sky base texture for an epoch. */
 export function renderBase({ epoch, width = BASE_WIDTH, height = BASE_HEIGHT }) {
   const resolved = resolveEpoch(epoch);
   if (!Number.isInteger(width) || width <= 0 || width > 2048 || !Number.isInteger(height) || height <= 0 || height > 1024) {
@@ -736,11 +776,16 @@ export function skyIndex() {
       lede:
         'A real-time sphere with four illustrative epoch layers, driven by the timeline below. ' +
         'The whole sky is covered at low resolution first; finer HEALPix patches stream in only around the view. ' +
+        'The all-sky base is a Mollweide equal-area map, so no pixel is over- or under-sampled as the view pans. ' +
         'Dark regions are no-data, not unobserved sky rendered as black flux.',
       noDataLabel: 'NO-DATA REGION',
       observedLabel: 'ILLUSTRATIVE MODEL SKY',
       coverageLabel: 'MODEL SKY',
     },
+    // The whole-sky layer is rendered through the Mollweide equal-area projection
+    // rather than a flat tangent/equirectangular grid; HEALPix stays the pixel
+    // scheme that refines it.
+    projection: SKY_PROJECTION,
     generatedAt: null,
     epochs: SKY_EPOCHS.map((epoch) => ({
       ...epoch,

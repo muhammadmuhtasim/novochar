@@ -16,7 +16,7 @@
 // the verified product store exposed; everywhere else is explicitly no-data.
 
 import * as THREE from 'three';
-import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
+import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad, MOLLWEIDE_X_MIN, MOLLWEIDE_X_MAX, MOLLWEIDE_Y_MIN, MOLLWEIDE_Y_MAX, mollweidePlaneToRaDec } from '@novochar/astro';
 import {
   raToYaw,
   skyRenderDirection,
@@ -53,17 +53,28 @@ function isTransientError(error) {
 // A sphere whose UVs are defined from the same RA/Dec convention as the tiles.
 // j=0 is the south pole, j=lat is the north pole. Decoded ImageBitmaps are
 // pre-flipped, so the server base image row 0 (north) maps to v=1.
-function createSphereGeometry(radius, lonSegments = 96, latSegments = 48) {
+// Projection can be 'equirectangular' (default) or 'mollweide'.
+function createSphereGeometry(radius, lonSegments = 96, latSegments = 48, projection = 'equirectangular') {
   const positions = [];
   const uvs = [];
   const indices = [];
+  const planeX = MOLLWEIDE_X_MAX - MOLLWEIDE_X_MIN; // 4√2
+  const planeY = MOLLWEIDE_Y_MAX - MOLLWEIDE_Y_MIN; // 2√2
   for (let j = 0; j <= latSegments; j++) {
-    const v = j / latSegments;
+    const v = j / latSegments; // 0 = south, 1 = north
     const dec = -90 + v * 180;
     for (let i = 0; i <= lonSegments; i++) {
-      const u = i / lonSegments;
-      const ra = u * 360;
-      const dir = skyRenderDirection(ra, dec);
+      const u = i / lonSegments; // 0 = lon -180 (or RA 0), 1 = lon +180 (or RA 360)
+      let dir;
+      if (projection === 'mollweide') {
+        const x = MOLLWEIDE_X_MIN + u * planeX;
+        const y = MOLLWEIDE_Y_MIN + v * planeY;
+        const sky = mollweidePlaneToRaDec(x, y, { centralMeridianRad: 0 });
+        dir = sky ? skyRenderDirection(sky.ra, sky.dec) : skyRenderDirection(0, dec);
+      } else {
+        const ra = u * 360;
+        dir = skyRenderDirection(ra, dec);
+      }
       positions.push(dir[0] * radius, dir[1] * radius, dir[2] * radius);
       uvs.push(u, v);
     }
@@ -627,7 +638,7 @@ export function createSky3DEngine({
       group.add(patch);
       state.baseMesh = patch;
     } else {
-      const geometry = createSphereGeometry(BASE_RADIUS);
+      const geometry = createSphereGeometry(BASE_RADIUS, 96, 48, 'mollweide');
       const material = new THREE.MeshBasicMaterial({
         color: 0x0b1020,
         side: THREE.DoubleSide,
@@ -693,8 +704,9 @@ export function createSky3DEngine({
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
       } else {
-        // The equirectangular base has a real RA=0/360 seam; wrap it so mipmap
-        // filtering blends the two edges instead of clamping them.
+        // The Mollweide/equirectangular base has a real seam (Mollweide: ±180°
+        // meridian; equirectangular: RA=0/360); wrap it so mipmap filtering blends
+        // the two edges instead of clamping them.
         texture.wrapS = THREE.RepeatWrapping;
       }
       baseTextures.set(epochId, texture);

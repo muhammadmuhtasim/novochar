@@ -65,6 +65,78 @@ function writeShellColor(record, target, offset) {
   }
 }
 
+// Spectral type -> effective temperature lookup (Kelvin)
+const SPECTRAL_TEMPERATURES = {
+    'O3': 50000, 'O4': 45000, 'O5': 42000, 'O6': 38000, 'O7': 35000, 'O8': 33000, 'O9': 31000,
+    'B0': 28000, 'B1': 26000, 'B2': 22000, 'B3': 18000, 'B4': 16000, 'B5': 15000, 'B6': 14000, 'B7': 13500, 'B8': 12500, 'B9': 11500,
+    'A0': 9500, 'A1': 9200, 'A2': 8800, 'A3': 8500, 'A4': 8200, 'A5': 8000, 'A6': 7800, 'A7': 7600, 'A8': 7300, 'A9': 7100,
+    'F0': 6700, 'F1': 6550, 'F2': 6300, 'F3': 6100, 'F4': 5900, 'F5': 5750, 'F6': 5650, 'F7': 5550, 'F8': 5450, 'F9': 5300,
+    'G0': 5250, 'G1': 5200, 'G2': 5050, 'G3': 4950, 'G4': 4800, 'G5': 4700, 'G6': 4600, 'G7': 4550, 'G8': 4450, 'G9': 4350,
+    'K0': 3800, 'K1': 3700, 'K2': 3650, 'K3': 3550, 'K4': 3450, 'K5': 3350, 'K6': 3250, 'K7': 3150, 'K8': 3050, 'K9': 2950,
+    'M0': 2800, 'M1': 2700, 'M2': 2550, 'M3': 2400, 'M4': 2250, 'M5': 2050, 'M6': 1900, 'M7': 1700, 'M8': 1500, 'M9': 1400,
+};
+
+// Temperature-reference RGB values for blackbody color approximation
+const KNOWN_TEMPS = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
+                     15000, 20000, 30000, 50000];
+const KNOWN_RGB = [
+    [0.991, 0.998, 1.0],    # 1000K - deep red
+    [0.986, 0.946, 0.733],  # 2000K - orange-red
+    [0.974, 0.826, 0.347],  # 3000K - red
+    [0.958, 0.676, 0.000],  # 4000K - deep orange
+    [0.927, 0.466, 0.001],  # 5000K - orange
+    [0.893, 0.328, 0.000],  # 6000K - amber
+    [0.853, 0.225, 0.000],  # 7000K - amber-yellow
+    [0.774, 0.154, 0.000],  # 8000K - yellow
+    [0.656, 0.108, 0.000],  # 9000K - yellow-green
+    [0.535, 0.068, 0.000],  # 10000K - green-yellow
+    [0.283, 0.031, 0.000],  # 15000K - green
+    [0.153, 0.015, 0.001],  # 20000K - blue-green
+    [0.058, 0.004, 0.001],  # 30000K - blue
+    [0.015, 0.002, 0.002],  # 50000K - blue
+];
+
+// Pre-compute spectral type colors using blackbody approximation
+const SPECTRAL_COLORS = {};
+for (const st of ['O3','O4','O5','O6','O7','O8','O9',
+                  'B0','B1','B2','B3','B4','B5','B6','B7','B8','B9',
+                  'A0','A1','A2','A3','A4','A5','A6','A7','A8','A9',
+                  'F0','F1','F2','F3','F4','F5','F6','F7','F8','F9',
+                  'G0','G1','G2','G3','G4','G5','G6','G7','G8','G9',
+                  'K0','K1','K2','K3','K4','K5','K6','K7','K8','K9',
+                  'M0','M1','M2','M3','M4','M5','M6','M7','M8','M9']) {
+    const base = st.match(/^[OBAFGKM]/)[0];
+    const temp = SPECTRAL_TEMPERATURES[base] || 5500;
+    let rgb = [0.8, 0.8, 0.8];
+    if (temp <= 1000) rgb = KNOWN_RGB[0];
+    else if (temp >= 50000) rgb = KNOWN_RGB[KNOWN_RGB.length - 1];
+    else {
+        for (let i = 0; i < KNOWN_TEMPS.length - 1; i++) {
+            if (KNOWN_TEMPS[i] <= temp && temp <= KNOWN_TEMPS[i + 1]) {
+                const t0 = KNOWN_TEMPS[i], t1 = KNOWN_TEMPS[i + 1];
+                const r0 = KNOWN_RGB[i][0], g0 = KNOWN_RGB[i][1], b0 = KNOWN_RGB[i][2];
+                const r1 = KNOWN_RGB[i + 1][0], g1 = KNOWN_RGB[i + 1][1], b1 = KNOWN_RGB[i + 1][2];
+                const ratio = (temp - t0) / (t1 - t0);
+                rgb = [
+                    Math.max(0, Math.min(1, r0 + (r1 - r0) * ratio)),
+                    Math.max(0, Math.min(1, g0 + (g1 - g0) * ratio)),
+                    Math.max(0, Math.min(1, b0 + (b1 - b0) * ratio))
+                ];
+                break;
+            }
+        }
+    }
+    SPECTRAL_COLORS[st] = rgb;
+}
+
+/** Map a stellar spectral type to an sRGB color (0–1 range),
+    using a blackbody radiation model for physical accuracy. */
+function get_star_color(spectral_type) {
+    if (!spectral_type) return [0.8, 0.8, 0.8];
+    const st = spectral_type.trim().toUpperCase();
+    return SPECTRAL_COLORS[st] || SPECTRAL_COLORS['G2'] || [0.8, 0.8, 0.8];
+}
+
 export default function ObserveSphere3D({ scene, selectedId = null, onSelect = () => {}, shell = null }) {
   const wrapRef = useRef(null);
   const canvasRef = useRef(null);
@@ -249,11 +321,84 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
       render();
     };
 
+function pmVector(record, baselineYrs = 10) {
+  const pmRa = record.pmRaMasYr;   // mas/yr
+  const pmDec = record.pmDecMasYr; // mas/yr
+  if (pmRa == null || pmDec == null || !Number.isFinite(pmRa) || !Number.isFinite(pmDec)) {
+    return null;
+  }
+  const raArcsec = pmRa * baselineYrs;   // arcsec
+  const decArcsec = pmDec * baselineYrs; // arcsec
+  const raRad = (raArcsec / 3600) * (Math.PI / 180);   // radians
+  const decRad = (decArcsec / 3600) * (Math.PI / 180); // radians
+  return sphericalToUnit(raRad, decRad);
+}
+
+function buildPmVectors(records, dirs) {
+  const vectors = [];
+  records.forEach((record, index) => {
+    const vec = pmVector(record);
+    vectors[index] = vec;
+  });
+  return vectors;
+}
+
+function pmVectorToSpherePos(pmVec, starDir) {
+  if (!pmVec) return null;
+  const scale = 0.5;
+  const x = starDir[0] + pmVec[0] * scale;
+  const y = starDir[1] + pmVec[1] * scale;
+  const z = starDir[2] + pmVec[2] * scale;
+  const norm = Math.hypot(x, y, z);
+  if (norm > 0) {
+    return [x / norm, y / norm, z / norm];
+  }
+  return [x, y, z];
+}
+
+function buildPmLines(pmVectors, starDirs) {
+  const lines = [];
+  const MAX_VISIBLE = 200;
+  let visibleCount = 0;
+  for (let i = 0; i < pmVectors.length; i++) {
+    if (pmVectors[i] === null) continue;
+    if (visibleCount >= MAX_VISIBLE) break;
+    const start = starDirs[i];
+    const end = pmVectorToSpherePos(pmVectors[i], starDirs[i]);
+    if (!end) continue;
+    lines.push({ start, end });
+    visibleCount++;
+  }
+  return lines;
+}
+
+function buildPmLabels(records, dirs) {
+  const labels = [];
+  records.forEach((record, index) => {
+    const pmVec = pmVector(record);
+    if (!pmVec) return;
+    const offset = 0.1;
+    const labelPos = [
+      dirs[index][0] + pmVec[0] * offset,
+      dirs[index][1] + pmVec[1] * offset,
+      dirs[index][2] + pmVec[2] * offset,
+    ];
+    const mag = record.mag ?? '?';
+    const pmRa = record.pmRaMasYr ?? '?';
+    const pmDec = record.pmDecMasYr ?? '?';
+    labels.push({
+      position: labelPos,
+      text: 'mag ' + mag + ' \u00b7 pmRA ' + pmRa + ' mas/yr \u00b7 pmDec ' + pmDec + ' mas/yr',
+    });
+  });
+  return labels;
+}
     const setCatalog = (nextScene) => {
       const records = nextScene?.catalog?.records ?? [];
       const positions = new Float32Array(records.length * 3);
       const colors = new Float32Array(records.length * 3);
       const dirs = new Array(records.length);
+      const starSizes = new Float32Array(records.length);
       stars = records.map((record, index) => {
         const dir = skyDirectionOf(nextScene, record);
         dirs[index] = dir;
@@ -261,16 +406,46 @@ export default function ObserveSphere3D({ scene, selectedId = null, onSelect = (
         positions[index * 3] = dir[0] * radius;
         positions[index * 3 + 1] = dir[1] * radius;
         positions[index * 3 + 2] = dir[2] * radius;
-        writeShellColor(record, colors, index * 3);
-        return { record, dir, radius };
+
+        // Spectral-type-based color (OBAFGKM) + magnitude-scaled brightness
+        const spType = record.spectralType || record.type || null;
+        const baseColor = get_star_color(spType);
+        // Encode brightness via the green channel; R and B support the hue
+        const mag = record.mag ?? 6;
+        const brightness = Math.max(0, Math.min(1, (6 - mag) / 8));
+        colors[index * 3]     = baseColor[0] * brightness;
+        colors[index * 3 + 1] = baseColor[1] * brightness + 0.1 * (1 - brightness);
+        colors[index * 3 + 2] = baseColor[2] * brightness;
+
+        // Size: brighter stars are larger; minimum 0.5, maximum 3.0
+        const size = 0.5 + 2.5 * brightness;
+        starSizes[index] = size;
+
+        return { record, dir, radius, spType, size };
       });
       const nextPoints = new THREE.BufferGeometry();
       nextPoints.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       nextPoints.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      // Use a larger size at the GPU for a soft Gaussian-like glow;
+      // the material size is a base size; the GPU will stretch it.
+      pointsMaterial.size = Math.max(...starSizes) || 1;
+      pointsMaterial.needsUpdate = true;
       replaceGeometry(points, nextPoints);
       replaceGeometry(grid, buildWireSphere(SPHERE_RADIUS * 1.001));
 
       // The sky dome is shown only when there is a band and at least one record
+
+  // Proper motion vectors and labels
+  const pmVectors = buildPmVectors(records, dirs);
+  const pmLines = buildPmLines(pmVectors);
+  replaceGeometry(pmGeometry, pmLines.geometry);
+  pmLines.visible = pmLines.geometry.getAttribute('position').count > 0;
+
+  // Crosshair labels
+  const pmLabels = buildPmLabels(records, dirs);
+  replaceGeometry(labelGeometry, pmLabels.geometry);
+  pmLabels.visible = pmLabels.geometry.getAttribute('position').count > 0;
+
       // has no distance to place; its size makes the directional convention
       // unmistakable against the spatial shell.
       const showDome = Boolean(
