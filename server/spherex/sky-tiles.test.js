@@ -6,6 +6,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { inflateSync } from 'node:zlib';
 import {
   BASE_ORDER,
   BASE_HEIGHT,
@@ -29,6 +30,39 @@ import {
 function pngDimensions(buffer) {
   assert.equal(buffer.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', 'PNG signature');
   return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+function decodePngRgba(png) {
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  const idat = [];
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset);
+    const type = png.toString('ascii', offset + 4, offset + 8);
+    const data = png.subarray(offset + 8, offset + 8 + length);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+    } else if (type === 'IDAT') {
+      idat.push(data);
+    }
+    offset += 12 + length;
+  }
+  const raw = inflateSync(Buffer.concat(idat));
+  const stride = width * 4;
+  const rgba = new Uint8Array(stride * height);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)];
+    assert.equal(filter, 0, 'our PNG encoder always writes filter 0');
+    rgba.set(raw.subarray(y * (stride + 1) + 1, y * (stride + 1) + 1 + stride), y * stride);
+  }
+  return { width, height, rgba };
+}
+
+function pixelAt(image, x, y) {
+  const offset = (y * image.width + x) * 4;
+  return Array.from(image.rgba.subarray(offset, offset + 4));
 }
 
 test('PNG encoder writes a valid RGBA8 header and round-trips its dimensions', () => {
@@ -72,6 +106,8 @@ test('index declares a HEALPix NEST pyramid, four epochs and an explicit illustr
   assert.equal(index.tiles.textureSize, TILE_SIZE);
   assert.deepEqual(index.tiles.levels.map((l) => l.order), [1, 2, 3, 4]);
   assert.equal(index.tiles.levels.find((l) => l.initial).npix, 48);
+  assert.equal(index.projection, 'mollweide');
+  assert.equal(index.tiles.base.projection, 'mollweide');
   assert.equal(index.tiles.base.width, BASE_WIDTH);
   assert.equal(index.tiles.base.height, BASE_HEIGHT);
   assert.match(index.tiles.urlTemplate, /healpix|tile/);
@@ -86,7 +122,18 @@ test('base textures are valid, deterministic and epoch-specific', () => {
   clearSkyTileCache();
   const a = renderBase({ epoch: 'epoch-1' });
   assert.deepEqual(pngDimensions(a.png), { width: BASE_WIDTH, height: BASE_HEIGHT });
-  assert.ok(a.png.length > 100_000, 'the base contains actual sky texture, not a flat fill');
+  // Assert on decoded content rather than compressed byte size: a correct base
+  // must contain a real gradient of sky colours, while a flat or saturated fill
+  // collapses to a handful of values and compresses to a tiny PNG.
+  const decoded = decodePngRgba(a.png);
+  const colours = new Set();
+  let opaque = 0;
+  for (let i = 0; i < decoded.rgba.length; i += 4) {
+    if (decoded.rgba[i + 3] !== 0) opaque++;
+    colours.add((decoded.rgba[i] << 16) | (decoded.rgba[i + 1] << 8) | decoded.rgba[i + 2]);
+  }
+  assert.ok(colours.size > 1_000, `the base contains actual sky texture, got ${colours.size} colours`);
+  assert.ok(opaque > BASE_WIDTH * BASE_HEIGHT * 0.7, 'the ellipse interior is covered');
   assert.equal(a.mode, 'illustrative');
   assert.equal(a.epoch, 'epoch-1');
   assert.equal(a.cached, false);
@@ -106,6 +153,59 @@ test('base textures are valid, deterministic and epoch-specific', () => {
 
   assert.throws(() => renderBase({ epoch: 'nope' }), (error) => error.code === 'unknown_epoch');
   assert.throws(() => renderBase({ epoch: 'epoch-1', width: 5000 }), (error) => error.code === 'bad_request');
+});
+
+test('the Mollweide base is transparent outside its ellipse and opaque inside', () => {
+  clearSkyTileCache();
+  const width = 64;
+  const height = 32;
+  const result = renderBase({ epoch: 'epoch-1', width, height });
+  const image = decodePngRgba(result.png);
+  assert.deepEqual({ width: image.width, height: image.height }, { width, height });
+
+  // The rectangle corners are outside the equal-area ellipse. They must be
+  // fully transparent and carry no colour: the old renderer substituted
+  // RA=0/Dec=0 and painted a fake sky there.
+  for (const [x, y] of [[0, 0], [width - 1, 0], [0, height - 1], [width - 1, height - 1]]) {
+    assert.deepEqual(pixelAt(image, x, y), [0, 0, 0, 0], `corner ${x},${y} must be empty`);
+  }
+
+  // The centre and the north/south poles are real sky. Epoch 1 has full
+  // model coverage, so they are opaque.
+  for (const [x, y] of [[Math.floor(width / 2), Math.floor(height / 2)], [Math.floor(width / 2), 0], [Math.floor(width / 2), height - 1]]) {
+    const [, , , alpha] = pixelAt(image, x, y);
+    assert.equal(alpha, 255, `sky pixel ${x},${y} must be opaque`);
+  }
+
+  // A row near the top is narrow: a point 15% in from the left is outside the
+  // ellipse even though it is inside the image rectangle.
+  const row = Math.floor(height * 0.15);
+  const outsideX = Math.floor(width * 0.15);
+  assert.equal(pixelAt(image, outsideX, row)[3], 0, 'narrow polar rows keep transparent corners');
+  assert.equal(pixelAt(image, Math.floor(width / 2), row)[3], 255, 'the polar centreline is sky');
+});
+
+test('Mollweide seam splats stay inside the ellipse', () => {
+  const width = 64;
+  const height = 32;
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  const isInside = (x, y) => {
+    const u = (x + 0.5) / width;
+    const v = (y + 0.5) / height;
+    const px = (u - 0.5) * 2;
+    const py = (v - 0.5) * 2;
+    return px * px + py * py <= 1 + 1e-9;
+  };
+  // At the equator the map is full width: pixel centres run from -0.5 at the
+  // left seam to width-0.5 at the right seam, so a source on either seam has a
+  // periodic copy on the other side.
+  splatGaussian(rgba, width, height, -0.5, height / 2, 2.5, [255, 255, 255], 1, true, {
+    periodPx: width,
+    clip: isInside,
+  });
+  assert.ok(rgba[((height / 2) * width + 0) * 4] > 0, 'the left edge receives seam flux');
+  assert.ok(rgba[((height / 2) * width + (width - 1)) * 4] > 0, 'the right seam receives the wrapped half');
+  assert.equal(rgba[((height / 2) * width + (width / 2)) * 4], 0, 'the map centre is untouched');
 });
 
 test('tiles are valid PNGs at the declared size, deterministic and epoch-specific', () => {

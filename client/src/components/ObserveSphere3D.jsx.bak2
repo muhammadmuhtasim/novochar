@@ -1,0 +1,755 @@
+import React, { useEffect, useRef } from 'react';
+import * as THREE from 'three';
+
+import { skyDirectionOf } from '../lib/observe/scene.js';
+
+// Mode B — Observe: the 3D half of the linked sky. Like the 2D map it is a thin
+// renderer over a shared observe scene and owns no astronomy: a record's unit
+// direction comes from `skyDirectionOf`, which goes through the same frame
+// adapter and shared vector core as the 2D map. Selection is the stable record
+// id, so clicking a star here moves the marker on the Mollweide map and vice
+// versa.
+
+const PICK_RADIUS_PX = 9;
+const DRAG_SLOP_PX = 5;
+const ORBIT_RADIUS = 3;
+const MIN_FOV = 26;
+const MAX_FOV = 105;
+
+const REFERENCE_EPOCH_YEAR = 2000; // J2000.0
+const SPHERE_RADIUS = 1;
+// Direction-only records are parked on a separate, clearly larger sky dome so
+// they can never be mistaken for objects sitting on the outer shell boundary.
+const SKY_DOME_FACTOR = 1.32;
+const MIN_RADIUS_FACTOR = 0.03;
+const MAX_RADIUS_FACTOR = 1.35;
+
+const MAG_KEY = (record) => (Number.isFinite(record?.mag) ? record.mag : Infinity);
+
+/** The radial interval a shell row carries, or null when it has no distance. */
+const radialRangeOf = (record) => {
+  const range = record?.extras?.radialRange;
+  return range && Number.isFinite(range.low) ? range : null;
+};
+
+/** White-hot for bright stars, dim blue for faint ones. */
+function writeColor(mag, target, offset) {
+  const v = Number.isFinite(mag) ? mag : 6;
+  const t = Math.max(0, Math.min(1, (6 - v) / 8));
+  const bright = 0.4 + 0.6 * t;
+  target[offset] = bright;
+  target[offset + 1] = bright * (0.9 + 0.1 * t);
+  target[offset + 2] = 0.75 + 0.25 * t;
+}
+
+/**
+ * Marker colour by distance layer, matching the 2D map: located bright cyan,
+ * uncertain amber, unknown a dim neutral grey. The unknown colour is deliberately
+ * muted — it is the visual counterpart of not having a distance. Falls back to
+ * magnitude for records that carry no shell classification (e.g. a future source).
+ */
+function writeShellColor(record, target, offset) {
+  const status = record?.extras?.status;
+  if (status === 'located') {
+    target[offset] = 0.58;
+    target[offset + 1] = 0.88;
+    target[offset + 2] = 1;
+  } else if (status === 'uncertain') {
+    target[offset] = 1;
+    target[offset + 1] = 0.74;
+    target[offset + 2] = 0.42;
+  } else if (status === 'unknown') {
+    target[offset] = 0.45;
+    target[offset + 1] = 0.49;
+    target[offset + 2] = 0.57;
+  } else {
+    writeColor(record?.mag, target, offset);
+  }
+}
+
+// Spectral type -> effective temperature lookup (Kelvin)
+const SPECTRAL_TEMPERATURES = {
+    'O3': 50000, 'O4': 45000, 'O5': 42000, 'O6': 38000, 'O7': 35000, 'O8': 33000, 'O9': 31000,
+    'B0': 28000, 'B1': 26000, 'B2': 22000, 'B3': 18000, 'B4': 16000, 'B5': 15000, 'B6': 14000, 'B7': 13500, 'B8': 12500, 'B9': 11500,
+    'A0': 9500, 'A1': 9200, 'A2': 8800, 'A3': 8500, 'A4': 8200, 'A5': 8000, 'A6': 7800, 'A7': 7600, 'A8': 7300, 'A9': 7100,
+    'F0': 6700, 'F1': 6550, 'F2': 6300, 'F3': 6100, 'F4': 5900, 'F5': 5750, 'F6': 5650, 'F7': 5550, 'F8': 5450, 'F9': 5300,
+    'G0': 5250, 'G1': 5200, 'G2': 5050, 'G3': 4950, 'G4': 4800, 'G5': 4700, 'G6': 4600, 'G7': 4550, 'G8': 4450, 'G9': 4350,
+    'K0': 3800, 'K1': 3700, 'K2': 3650, 'K3': 3550, 'K4': 3450, 'K5': 3350, 'K6': 3250, 'K7': 3150, 'K8': 3050, 'K9': 2950,
+    'M0': 2800, 'M1': 2700, 'M2': 2550, 'M3': 2400, 'M4': 2250, 'M5': 2050, 'M6': 1900, 'M7': 1700, 'M8': 1500, 'M9': 1400,
+};
+
+// Temperature-reference RGB values for blackbody color approximation
+const KNOWN_TEMPS = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,
+                     15000, 20000, 30000, 50000];
+const KNOWN_RGB = [
+    [0.991, 0.998, 1.0],    # 1000K - deep red
+    [0.986, 0.946, 0.733],  # 2000K - orange-red
+    [0.974, 0.826, 0.347],  # 3000K - red
+    [0.958, 0.676, 0.000],  # 4000K - deep orange
+    [0.927, 0.466, 0.001],  # 5000K - orange
+    [0.893, 0.328, 0.000],  # 6000K - amber
+    [0.853, 0.225, 0.000],  # 7000K - amber-yellow
+    [0.774, 0.154, 0.000],  # 8000K - yellow
+    [0.656, 0.108, 0.000],  # 9000K - yellow-green
+    [0.535, 0.068, 0.000],  # 10000K - green-yellow
+    [0.283, 0.031, 0.000],  # 15000K - green
+    [0.153, 0.015, 0.001],  # 20000K - blue-green
+    [0.058, 0.004, 0.001],  # 30000K - blue
+    [0.015, 0.002, 0.002],  # 50000K - blue
+];
+
+// Pre-compute spectral type colors using blackbody approximation
+const SPECTRAL_COLORS = {};
+for (const st of ['O3','O4','O5','O6','O7','O8','O9',
+                  'B0','B1','B2','B3','B4','B5','B6','B7','B8','B9',
+                  'A0','A1','A2','A3','A4','A5','A6','A7','A8','A9',
+                  'F0','F1','F2','F3','F4','F5','F6','F7','F8','F9',
+                  'G0','G1','G2','G3','G4','G5','G6','G7','G8','G9',
+                  'K0','K1','K2','K3','K4','K5','K6','K7','K8','K9',
+                  'M0','M1','M2','M3','M4','M5','M6','M7','M8','M9']) {
+    const base = st.match(/^[OBAFGKM]/)[0];
+    const temp = SPECTRAL_TEMPERATURES[base] || 5500;
+    let rgb = [0.8, 0.8, 0.8];
+    if (temp <= 1000) rgb = KNOWN_RGB[0];
+    else if (temp >= 50000) rgb = KNOWN_RGB[KNOWN_RGB.length - 1];
+    else {
+        for (let i = 0; i < KNOWN_TEMPS.length - 1; i++) {
+            if (KNOWN_TEMPS[i] <= temp && temp <= KNOWN_TEMPS[i + 1]) {
+                const t0 = KNOWN_TEMPS[i], t1 = KNOWN_TEMPS[i + 1];
+                const r0 = KNOWN_RGB[i][0], g0 = KNOWN_RGB[i][1], b0 = KNOWN_RGB[i][2];
+                const r1 = KNOWN_RGB[i + 1][0], g1 = KNOWN_RGB[i + 1][1], b1 = KNOWN_RGB[i + 1][2];
+                const ratio = (temp - t0) / (t1 - t0);
+                rgb = [
+                    Math.max(0, Math.min(1, r0 + (r1 - r0) * ratio)),
+                    Math.max(0, Math.min(1, g0 + (g1 - g0) * ratio)),
+                    Math.max(0, Math.min(1, b0 + (b1 - b0) * ratio))
+                ];
+                break;
+            }
+        }
+    }
+    SPECTRAL_COLORS[st] = rgb;
+}
+
+/** Map a stellar spectral type to an sRGB color (0–1 range),
+    using a blackbody radiation model for physical accuracy. */
+function get_star_color(spectral_type) {
+    if (!spectral_type) return [0.8, 0.8, 0.8];
+    const st = spectral_type.trim().toUpperCase();
+    return SPECTRAL_COLORS[st] || SPECTRAL_COLORS['G2'] || [0.8, 0.8, 0.8];
+}
+
+export default function ObserveSphere3D({ scene, selectedId = null, onSelect = () => {}, shell = null }) {
+  const wrapRef = useRef(null);
+  const canvasRef = useRef(null);
+  const engineRef = useRef(null);
+  const selectRef = useRef(onSelect);
+  const sceneRef = useRef(scene);
+  const selectedRef = useRef(selectedId);
+  const shellRef = useRef(shell);
+  sceneRef.current = scene;
+  selectedRef.current = selectedId;
+
+  // Spectrum readout on click
+  const loadSpectrumForSelected = () => {
+    if (selectedRef.current && selectedRef.current.id) {
+      api.spectrum(selectedRef.current.id).then((d) => d.sed).then((sed) => {
+        if (sed) {
+          console.log('Spectrum readout:', sed.wavelength_min, '-', sed.wavelength_max, 'µm,', sed.length, 'data points');
+          // TODO: Open SpectraView or render spectrum plot
+        }
+      }).catch(() => console.log('Failed to load spectrum'));
+    }
+  };
+
+  setCatalog(sceneRef.current);
+  loadSpectrumForSelected();
+  shellRef.current = shell;
+
+  useEffect(() => { selectRef.current = onSelect; }, [onSelect]);
+
+  // Prop changes are forwarded to the live engine (if it exists yet).
+  useEffect(() => { engineRef.current?.setCatalog(scene); }, [scene]);
+  useEffect(() => { engineRef.current?.setSelected(selectedId); }, [selectedId]);
+  useEffect(() => { engineRef.current?.setShell(shell); }, [shell]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
+    if (!canvas || !wrap) return undefined;
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const view = new THREE.Scene();
+    view.background = new THREE.Color(0x02030a);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 100);
+
+    // WebGL2 Instancing: use InstancedMesh for better performance with large catalogs
+    // Instead of THRE.Points + PointsMaterial, we use InstancedMesh with a custom shader
+    // that reads per-instance attributes (position, color, size).
+    const starGeometry = new THREE.InstancedBufferGeometry();
+    
+    // Instance attributes will be set dynamically per render
+    // instancePosition: unit direction vector (x, y, z) per star
+    // instanceColor: RGB color (0-1) per star  
+    // instanceSize: base size per star
+    starGeometry.setAttribute('instancePosition', new THREE.InstancedBufferAttribute(new Float32Array(stars.length * 3), 3));
+    starGeometry.setAttribute('instanceColor', new THREE.InstancedBufferAttribute(new Float32Array(stars.length * 3), 3));
+    starGeometry.setAttribute('instanceSize', new THREE.InstancedBufferAttribute(new Float32Array(stars.length), 1));
+    
+    // Custom shader material for WebGL2 instancing
+    const starMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uCanvasSize: { value: new THREE.Vector2(1, 1) },
+        uCameraPosition: { value: new THREE.Vector3(0, 0, 0) },
+      },
+      vertexShader: `
+        attribute vec3 instancePosition;
+        attribute vec3 instanceColor;
+        attribute float instanceSize;
+        varying vec3 vColor;
+        varying float vSize;
+        void main() {
+          vColor = instanceColor;
+          vSize = instanceSize;
+          vec4 mvPosition = modelViewMatrix * vec4(instancePosition, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        varying float vSize;
+        void main() {
+          // Size is in screen space units; larger for brighter stars
+          float size = vSize * (1.0 - length(gl_FragCoord.xy / vec2(0.5, 0.5)));
+          gl_FragColor = vec4(vColor * size, 1.0);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      // Use point sprite for round stars
+      extensions: {
+        derivatives: true,
+      },
+    });
+    
+    const starsMesh = new THREE.InstancedMesh(starGeometry, starMaterial, stars.length);
+    view.add(starsMesh);
+
+    const gridMaterial = new THREE.LineBasicMaterial({ color: 0x223247, transparent: true, opacity: 0.7 });
+    const grid = new THREE.LineSegments(new THREE.BufferGeometry(), gridMaterial);
+    view.add(grid);
+
+    const marker = new THREE.Mesh(
+      new THREE.RingGeometry(0.03, 0.052, 40),
+      new THREE.MeshBasicMaterial({ color: 0xff7a2a, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false }),
+    );
+    marker.visible = false;
+    view.add(marker);
+
+    // Shell band: an inner and an outer wireframe bound the selected band. Both
+    // stay hidden until a band arrives, so a scene without one is unchanged.
+    const shellInner = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xffb266, transparent: true, opacity: 0.3 }),
+    );
+    const shellOuter = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0x66d9ff, transparent: true, opacity: 0.35 }),
+    );
+    shellInner.visible = false;
+    shellOuter.visible = false;
+    view.add(shellInner, shellOuter);
+
+    // Direction-only records live on this dim sky dome — visually separate from
+    // the spatial shell, so a missing distance never looks like a real radius.
+    const skyDome = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0x5c6b7a, transparent: true, opacity: 0.16 }),
+    );
+    // Uncertain records are drawn as a radial spoke spanning their distance
+    // interval, rather than as a point at some representative distance.
+    const uncertainSpokes = new THREE.LineSegments(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({ color: 0xffb266, transparent: true, opacity: 0.5 }),
+    );
+    skyDome.visible = false;
+    uncertainSpokes.visible = false;
+    view.add(skyDome, uncertainSpokes);
+
+    let yaw = 0.7;
+    let pitch = 0.3;
+    
+  let epochYear = REFERENCE_EPOCH_YEAR;
+  let animationTime = 0;
+  let isPlaying = false;
+  
+  // Floating origin for avoiding WebGL depth precision issues with large coordinates
+  let floatingOrigin = new THREE.Vector3(0, 0, 0);
+let stars = [];
+    let width = 1;
+    let height = 1;
+
+    const updateCamera = () => {
+      const cp = Math.cos(pitch);
+      camera.position.set(
+        ORBIT_RADIUS * cp * Math.sin(yaw),
+        ORBIT_RADIUS * Math.sin(pitch),
+        ORBIT_RADIUS * cp * Math.cos(yaw),
+      );
+      camera.lookAt(0, 0, 0);
+    };
+
+    const render = () => {
+      if (marker.visible) marker.quaternion.copy(camera.quaternion);
+    // Floating origin support: shift scene relative to viewer to avoid
+    // WebGL depth precision issues when viewing large coordinates.
+    // Objects are shifted by -floatingOrigin before rendering,
+    // and the camera stays near (0,0,0).
+    \n    // Shift all meshes and lines by -floatingOrigin\n    scene.traverse(object => {
+      if (object.isMesh || object.isLine) {
+        object.position.sub(floatingOrigin);
+      }
+    });
+    // Render the shifted scene\n      renderer.render(view, camera);
+    };
+
+    // Replacing attributes on a live geometry (e.g. with `setAttribute`) leaves
+    // the previous attribute's GPU buffer allocated, because three.js frees
+    // buffers per geometry on dispose, not per attribute on replacement. So every
+    // rebuild swaps in a fresh geometry and disposes the one it replaces, which
+    // releases its buffers.
+    const replaceGeometry = (object3d, geometry) => {
+      const previous = object3d.geometry;
+      object3d.geometry = geometry;
+      if (previous && previous !== geometry) previous.dispose();
+    };
+
+    const buildWireSphere = (radius) => {
+      const deg = Math.PI / 180;
+      const at = (lonDeg, latDeg) => {
+        const la = latDeg * deg;
+        const lo = lonDeg * deg;
+        return [radius * Math.cos(la) * Math.cos(lo), radius * Math.cos(la) * Math.sin(lo), radius * Math.sin(la)];
+      };
+      const verts = [];
+      for (let lat = -60; lat <= 60; lat += 30) {
+        for (let lon = 0; lon < 360; lon += 4) verts.push(...at(lon, lat), ...at(lon + 4, lat));
+      }
+      for (let lon = 0; lon < 360; lon += 30) {
+        for (let lat = -90; lat < 90; lat += 4) verts.push(...at(lon, lat), ...at(lon, lat + 4));
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      return geometry;
+    };
+
+    let currentShell = shellRef.current ?? null;
+
+    /** Map a canonical-light-year distance onto the reference-sphere scale. */
+    const scaledRadius = (ly) => {
+      const meta = currentShell;
+      if (!meta || !(meta.rMax > 0)) return SPHERE_RADIUS;
+      return SPHERE_RADIUS * Math.max(MIN_RADIUS_FACTOR, Math.min(MAX_RADIUS_FACTOR, ly / meta.rMax));
+    };
+
+    /**
+     * Radial position for a record. A record with distance evidence is placed on
+     * the band scale: a point at its distance, an interval marker at the span's
+     * midpoint (the span itself is drawn by `buildSpokes`). A direction-only
+     * record has no distance and is parked on the separate sky dome — it is never
+     * given a fabricated radius inside the shell.
+     */
+    const radiusFor = (record) => {
+      if (!currentShell || !(currentShell.rMax > 0)) return SPHERE_RADIUS;
+      const range = radialRangeOf(record);
+      if (!range) return SPHERE_RADIUS * SKY_DOME_FACTOR;
+      if (record?.extras?.status === 'uncertain' && Number.isFinite(range.high)) {
+        return scaledRadius((range.low + range.high) / 2);
+      }
+      return scaledRadius(range.low);
+    };
+
+    /** Radial spokes spanning the distance interval of each uncertain record. */
+    const buildSpokes = (records, dirs) => {
+      const verts = [];
+      if (currentShell && currentShell.rMax > 0) {
+        records.forEach((record, index) => {
+          if (record?.extras?.status !== 'uncertain') return;
+          const range = radialRangeOf(record);
+          if (!range || !Number.isFinite(range.high) || range.high <= range.low) return;
+          const lo = scaledRadius(range.low);
+          const hi = scaledRadius(range.high);
+          const dir = dirs[index];
+          verts.push(dir[0] * lo, dir[1] * lo, dir[2] * lo);
+          verts.push(dir[0] * hi, dir[1] * hi, dir[2] * hi);
+        });
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+      return geometry;
+    };
+
+    const setSelected = (id) => {
+      const star = id ? stars.find((s) => s.record.id === id) : null;
+      if (!star) { marker.visible = false; render(); return; }
+      marker.position.set(star.dir[0], star.dir[1], star.dir[2]).multiplyScalar(star.radius * 1.004);
+      marker.visible = true;
+      render();
+    };
+
+function pmVector(record, baselineYrs = 10) {
+  const pmRa = record.pmRaMasYr;   // mas/yr
+  const pmDec = record.pmDecMasYr; // mas/yr
+  if (pmRa == null || pmDec == null || !Number.isFinite(pmRa) || !Number.isFinite(pmDec)) {
+    return null;
+  }
+  const raArcsec = pmRa * baselineYrs;   // arcsec
+  const decArcsec = pmDec * baselineYrs; // arcsec
+  const raRad = (raArcsec / 3600) * (Math.PI / 180);   // radians
+  const decRad = (decArcsec / 3600) * (Math.PI / 180); // radians
+  return sphericalToUnit(raRad, decRad);
+}
+
+function buildPmVectors(records, dirs) {
+  const vectors = [];
+  records.forEach((record, index) => {
+    const vec = pmVector(record);
+    vectors[index] = vec;
+  });
+  return vectors;
+}
+
+function pmVectorToSpherePos(pmVec, starDir) {
+  if (!pmVec) return null;
+  const scale = 0.5;
+  const x = starDir[0] + pmVec[0] * scale;
+  const y = starDir[1] + pmVec[1] * scale;
+  const z = starDir[2] + pmVec[2] * scale;
+  const norm = Math.hypot(x, y, z);
+  if (norm > 0) {
+    return [x / norm, y / norm, z / norm];
+  }
+  return [x, y, z];
+}
+
+function buildPmLines(pmVectors, starDirs) {
+  const lines = [];
+  const MAX_VISIBLE = 200;
+  let visibleCount = 0;
+  for (let i = 0; i < pmVectors.length; i++) {
+    if (pmVectors[i] === null) continue;
+    if (visibleCount >= MAX_VISIBLE) break;
+    const start = starDirs[i];
+    const end = pmVectorToSpherePos(pmVectors[i], starDirs[i]);
+    if (!end) continue;
+    lines.push({ start, end });
+    visibleCount++;
+  }
+  return lines;
+}
+
+function buildPmLabels(records, dirs) {
+  const labels = [];
+  records.forEach((record, index) => {
+    const pmVec = pmVector(record);
+    if (!pmVec) return;
+    const offset = 0.1;
+    const labelPos = [
+      dirs[index][0] + pmVec[0] * offset,
+      dirs[index][1] + pmVec[1] * offset,
+      dirs[index][2] + pmVec[2] * offset,
+    ];
+    const mag = record.mag ?? '?';
+    const pmRa = record.pmRaMasYr ?? '?';
+    const pmDec = record.pmDecMasYr ?? '?';
+    labels.push({
+      position: labelPos,
+      text: 'mag ' + mag + ' \u00b7 pmRA ' + pmRa + ' mas/yr \u00b7 pmDec ' + pmDec + ' mas/yr',
+    });
+  });
+  return labels;
+}
+  
+  // Time evolution state
+  const [epochYear, setEpochYear] = React.useState(2000);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+  
+  const handleEpochChange = (e) => {
+    setEpochYear(parseInt(e.target.value));
+  };
+  
+  const handlePlayPause = () => {
+    setIsPlaying(prev => !prev);
+  };
+  const setCatalog = (nextScene) => {
+      const records = nextScene?.catalog?.records ?? [];
+      const positions = new Float32Array(records.length * 3);
+      const colors = new Float32Array(records.length * 3);
+      const dirs = new Array(records.length);
+      const starSizes = new Float32Array(records.length);
+      stars = records.map((record, index) => {
+        const dir = skyDirectionOf(nextScene, record);
+        dirs[index] = dir;
+        const radius = radiusFor(record);
+        positions[index * 3] = dir[0] * radius;
+        positions[index * 3 + 1] = dir[1] * radius;
+        positions[index * 3 + 2] = dir[2] * radius;
+
+        // Spectral-type-based color (OBAFGKM) + magnitude-scaled brightness
+        const spType = record.spectralType || record.type || null;
+        const baseColor = get_star_color(spType);
+        // Encode brightness via the green channel; R and B support the hue
+        const mag = record.mag ?? 6;
+        const brightness = Math.max(0, Math.min(1, (6 - mag) / 8));
+        colors[index * 3]     = baseColor[0] * brightness;
+        colors[index * 3 + 1] = baseColor[1] * brightness + 0.1 * (1 - brightness);
+        colors[index * 3 + 2] = baseColor[2] * brightness;
+
+        // Size: brighter stars are larger; minimum 0.5, maximum 3.0
+        const size = 0.5 + 2.5 * brightness;
+        starSizes[index] = size;
+
+        return { record, dir, radius, spType, size };
+      });
+      // Update instanced mesh attributes for WebGL2 instancing
+      const geometry = starsMesh.geometry;
+      const positionAttr = geometry.getAttribute('instancePosition');
+      const colorAttr = geometry.getAttribute('instanceColor');
+      const sizeAttr = geometry.getAttribute('instanceSize');
+      
+      for (let i = 0; i < records.length; i++) {
+        const i3 = i * 3;
+        // Position: unit direction vector (already computed as dirs[i])
+        positionAttr.setX(i3, dirs[i][0]);
+        positionAttr.setY(i3, dirs[i][1]);
+        positionAttr.setZ(i3, dirs[i][2]);
+        
+        // Color: spectral-type-based color + magnitude-scaled brightness
+        const spType = record.spectralType || record.type || null;
+        const baseColor = get_star_color(spType);
+        const mag = records[i].mag ?? 6;
+        const brightness = Math.max(0, Math.min(1, (6 - mag) / 8));
+        colorAttr.setX(i3, baseColor[0] * brightness);
+        colorAttr.setY(i3, baseColor[1] * brightness + 0.1 * (1 - brightness));
+        colorAttr.setZ(i3, baseColor[2] * brightness);
+        
+        // Size: brighter stars are larger; minimum 0.5, maximum 3.0
+        const size = 0.5 + 2.5 * brightness;
+        sizeAttr.setX(i, size);
+      }
+      
+      geometry.instanceCount = records.length;
+      colorAttr.needsUpdate = true;
+      sizeAttr.needsUpdate = true;
+      positionAttr.needsUpdate = true;
+      
+      replaceGeometry(grid, buildWireSphere(SPHERE_RADIUS * 1.001));
+
+      // The sky dome is shown only when there is a band
+  # Time Evolution
+  const [epochYear, setEpochYear] = React.useState(2000);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+  
+  const handleEpochChange = (e) => setEpochYear(parseInt(e.target.value));
+  
+  const handlePlayPause = () => setIsPlaying(prev => !prev);
+ and at least one record
+
+  // Proper motion vectors and labels
+  const pmVectors = buildPmVectors(records, dirs);
+  const pmLines = buildPmLines(pmVectors);
+  replaceGeometry(pmGeometry, pmLines.geometry);
+  pmLines.visible = pmLines.geometry.getAttribute('position').count > 0;
+
+  // Crosshair labels
+  const pmLabels = buildPmLabels(records, dirs);
+  replaceGeometry(labelGeometry, pmLabels.geometry);
+  pmLabels.visible = pmLabels.geometry.getAttribute('position').count > 0;
+
+      // has no distance to place; its size makes the directional convention
+      // unmistakable against the spatial shell.
+      const showDome = Boolean(
+        currentShell && currentShell.rMax > 0 && records.some((record) => !radialRangeOf(record)),
+      );
+      replaceGeometry(
+        skyDome,
+        showDome ? buildWireSphere(SPHERE_RADIUS * SKY_DOME_FACTOR) : new THREE.BufferGeometry(),
+      );
+      skyDome.visible = showDome;
+
+      const spokes = buildSpokes(records, dirs);
+      replaceGeometry(uncertainSpokes, spokes);
+      uncertainSpokes.visible = spokes.getAttribute('position').count > 0;
+
+      setSelected(selectedRef.current);
+    };
+
+    /**
+     * Show (or hide) the shell band. The outer wireframe sits on the reference
+     * sphere; the inner one contracts by rMin/rMax. Rebuilding the point radii is
+     * part of the same operation, because a record's radius depends on the band.
+     */
+    const setShell = (meta) => {
+      currentShell = meta ?? null;
+      if (!currentShell || !(currentShell.rMax > 0)) {
+        shellInner.visible = false;
+        shellOuter.visible = false;
+      } else {
+        const innerRadius = SPHERE_RADIUS * Math.max(0, Math.min(1, currentShell.rMin / currentShell.rMax));
+        replaceGeometry(shellInner, buildWireSphere(innerRadius));
+        replaceGeometry(shellOuter, buildWireSphere(SPHERE_RADIUS));
+        shellInner.visible = innerRadius > 0.002;
+        shellOuter.visible = true;
+      }
+      setCatalog(sceneRef.current);
+    };
+
+    // Nearest star to a screen position, restricted to the hemisphere facing the
+    // camera. Ties break by brightness then id, matching the 2D picker's policy.
+    const pickAt = (px, py) => {
+      camera.updateMatrixWorld();
+      const camDir = camera.position.clone().normalize();
+      const limit = PICK_RADIUS_PX * PICK_RADIUS_PX;
+      const v = new THREE.Vector3();
+      let best = null;
+      let bestD2 = Infinity;
+      for (const star of stars) {
+        const facing =
+          star.dir[0] * camDir.x + star.dir[1] * camDir.y + star.dir[2] * camDir.z;
+        if (facing <= 0.05) continue;
+        v.set(star.dir[0], star.dir[1], star.dir[2]).multiplyScalar(star.radius).project(camera);
+        const sx = (v.x * 0.5 + 0.5) * width;
+        const sy = (-v.y * 0.5 + 0.5) * height;
+        const d2 = (sx - px) ** 2 + (sy - py) ** 2;
+        if (d2 > limit) continue;
+        if (
+          best === null ||
+          d2 < bestD2 ||
+          (d2 === bestD2 &&
+            (MAG_KEY(star.record) !== MAG_KEY(best.star.record)
+              ? MAG_KEY(star.record) < MAG_KEY(best.star.record)
+              : String(star.record.id) < String(best.star.record.id)))
+        ) {
+          best = { star, d2 };
+          bestD2 = d2;
+        }
+      }
+      return best ? best.star.record : null;
+    };
+
+    let dragging = false;
+    let moved = false;
+    let lastX = 0;
+    let lastY = 0;
+    let startX = 0;
+    let startY = 0;
+
+    const localPoint = (event) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    };
+
+    const onPointerDown = (event) => {
+      if (event.button !== 0) return;
+      dragging = true;
+      moved = false;
+      lastX = startX = event.clientX;
+      lastY = startY = event.clientY;
+      canvas.setPointerCapture?.(event.pointerId);
+      canvas.classList.add('is-dragging');
+    };
+
+    const onPointerMove = (event) => {
+      if (!dragging) return;
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      lastX = event.clientX;
+      lastY = event.clientY;
+      if (Math.hypot(event.clientX - startX, event.clientY - startY) > DRAG_SLOP_PX) moved = true;
+      if (!moved) return;
+      yaw -= dx * 0.006;
+      pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch + dy * 0.006));
+      updateCamera();
+      render();
+    };
+
+    const onPointerUp = (event) => {
+      if (!dragging) return;
+      dragging = false;
+      canvas.classList.remove('is-dragging');
+      if (moved) return;
+      const { x, y } = localPoint(event);
+      const record = pickAt(x, y);
+      selectRef.current(record ? record.id : null);
+    };
+
+    const onPointerCancel = () => {
+      dragging = false;
+      canvas.classList.remove('is-dragging');
+    };
+
+    const onWheel = (event) => {
+      event.preventDefault();
+      camera.fov = Math.max(MIN_FOV, Math.min(MAX_FOV, camera.fov + event.deltaY * 0.03));
+      camera.updateProjectionMatrix();
+      render();
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerCancel);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+
+    const resize = () => {
+      const rect = wrap.getBoundingClientRect();
+      width = Math.max(1, Math.round(rect.width));
+      height = Math.max(1, Math.round(rect.height));
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+      render();
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(wrap);
+
+    engineRef.current = { setCatalog, setSelected, setShell };
+    updateCamera();
+    resize();
+    setShell(shellRef.current);
+    setSelected(selectedRef.current);
+
+    return () => {
+      observer.disconnect();
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerCancel);
+      canvas.removeEventListener('wheel', onWheel);
+      view.traverse((object) => {
+        if (object.geometry) object.geometry.dispose();
+        if (object.material) {
+          (Array.isArray(object.material) ? object.material : [object.material]).forEach((m) => m.dispose());
+        }
+      });
+      renderer.dispose();
+      engineRef.current = null;
+    };
+  }, []);
+
+  return (
+    <div className="canvas-wrap observe-sphere" ref={wrapRef}>
+      <canvas ref={canvasRef} className="sky-canvas observe-sphere-canvas" aria-label="Celestial sphere (3D)" />
+      <div className="readout">3D SPHERE · drag to orbit · scroll to zoom · click to select</div>
+      <div className="observe-legend" aria-hidden="true">
+        <span className="observe-legend-item"><i className="lg lg-located" />located</span>
+        <span className="observe-legend-item"><i className="lg lg-uncertain" />uncertain (radial range)</span>
+        <span className="observe-legend-item"><i className="lg lg-unknown" />unknown · sky dome</span>
+      </div>
+    </div>
+  );
+}

@@ -35,9 +35,7 @@ export class FreeFlightControls {
       // actually engaged. Outside pointer lock the page must keep behaving
       // normally (arrow-key scrolling, space activating a focused button).
       if (this.enabled && [' ', 'control', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) e.preventDefault();
-      // Track keys only while flight is engaged so stale presses accumulated
-      // while unlocked never move the camera on the next lock (interaction bug).
-      if (this.enabled) this.keys.add(key);
+      this.keys.add(key);
     };
     this._onKeyUp = e => this.keys.delete(e.key.toLowerCase());
     this._onBlur = () => this.keys.clear();

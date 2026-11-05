@@ -30,6 +30,7 @@ import {
   MOLLWEIDE_X_MIN,
   MOLLWEIDE_Y_MAX,
   MOLLWEIDE_Y_MIN,
+  isInsideMap,
   mollweidePlaneToRaDec,
   nestChildren,
   nside2npix,
@@ -365,33 +366,53 @@ function diffuseColor(ra, dec, epochIndex) {
   ];
 }
 
-export function splatGaussian(rgba, width, height, x, y, radius, color, intensity, wrapX) {
+export function splatGaussian(rgba, width, height, x, y, radius, color, intensity, wrapX, options = null) {
   const sigma = Math.max(0.55, radius);
   const reach = Math.ceil(sigma * 2.6);
-  const x0 = Math.floor(x);
   const y0 = Math.floor(y);
+  const clip = options?.clip ?? null;
+  // `periodPx` is the visible row width at the source's latitude. When given,
+  // the same source is repeated one period to each side, which is how a star
+  // that crosses the ±180° seam of the Mollweide ellipse continues on the
+  // opposite side instead of being cut in half. The periodic copies are
+  // discarded by `clip` wherever they fall outside the ellipse.
+  const periodPx = Number.isFinite(options?.periodPx) && options.periodPx > 0.5
+    ? options.periodPx
+    : null;
+  const copies = periodPx ? [-1, 0, 1] : [0];
   for (let dy = -reach; dy <= reach; dy++) {
     const py = y0 + dy;
     if (py < 0 || py >= height) continue;
-    for (let dx = -reach; dx <= reach; dx++) {
-      let px = x0 + dx;
-      if (wrapX) px = ((px % width) + width) % width;
-      else if (px < 0 || px >= width) continue;
-      // On the equirectangular base, distance must be measured on the circle.
-      // A star at RA ~0 has an unwrapped x near -0.5; using the wrapped column
-      // index directly would move its flux to the opposite edge of the map.
-      let deltaX = px - x;
-      if (wrapX) {
-        deltaX = ((deltaX + width / 2) % width + width) % width - width / 2;
+    for (const copy of copies) {
+      const centerX = periodPx ? x + copy * periodPx : x;
+      const x0 = Math.floor(centerX);
+      for (let dx = -reach; dx <= reach; dx++) {
+        let px = x0 + dx;
+        if (periodPx) {
+          if (px < 0 || px >= width) continue;
+        } else if (wrapX) {
+          px = ((px % width) + width) % width;
+        } else if (px < 0 || px >= width) {
+          continue;
+        }
+        if (clip && !clip(px, py)) continue;
+        // On a rectangular equirectangular base, distance must be measured on
+        // the circle. A star at RA ~0 has an unwrapped x near -0.5; using the
+        // wrapped column index directly would move its flux to the opposite
+        // edge of the map.
+        let deltaX = px - centerX;
+        if (!periodPx && wrapX) {
+          deltaX = ((deltaX + width / 2) % width + width) % width - width / 2;
+        }
+        const distance2 = deltaX * deltaX + (py - y) * (py - y);
+        const weight = Math.exp(-distance2 / (2 * sigma * sigma));
+        if (weight < 0.008) continue;
+        const o = (py * width + px) * 4;
+        const add = intensity * weight;
+        rgba[o] = clamp(Math.round(rgba[o] + color[0] * add), 0, 255);
+        rgba[o + 1] = clamp(Math.round(rgba[o + 1] + color[1] * add), 0, 255);
+        rgba[o + 2] = clamp(Math.round(rgba[o + 2] + color[2] * add), 0, 255);
       }
-      const distance2 = deltaX * deltaX + (py - y) * (py - y);
-      const weight = Math.exp(-distance2 / (2 * sigma * sigma));
-      if (weight < 0.008) continue;
-      const o = (py * width + px) * 4;
-      const add = intensity * weight;
-      rgba[o] = clamp(Math.round(rgba[o] + color[0] * add), 0, 255);
-      rgba[o + 1] = clamp(Math.round(rgba[o + 1] + color[1] * add), 0, 255);
-      rgba[o + 2] = clamp(Math.round(rgba[o + 2] + color[2] * add), 0, 255);
     }
   }
 }
@@ -418,7 +439,10 @@ function splatStars(rgba, width, height, epochIndex, project, angularPixelScale)
     const p = project(at.ra, at.dec);
     if (!p) continue;
     const radius = clamp(starAngularRadiusDeg(at.mag) / angularPixelScale, 0.8, 12);
-    splatGaussian(rgba, width, height, p.x, p.y, radius, at.color, starIntensity(at.mag), Boolean(p.wrapX));
+    splatGaussian(rgba, width, height, p.x, p.y, radius, at.color, starIntensity(at.mag), Boolean(p.wrapX), {
+      periodPx: p.periodPx,
+      clip: p.clip,
+    });
   }
 }
 
@@ -433,7 +457,10 @@ function splatTransients(rgba, width, height, epochIndex, project, angularPixelS
     // it stays physically consistent across LODs; clamp so it is still visible
     // at the coarse base layer.
     const radius = clamp(state.radius / angularPixelScale, 1.1, 26);
-    splatGaussian(rgba, width, height, p.x, p.y, radius, transient.color, 0.5 * state.flux, Boolean(p.wrapX));
+    splatGaussian(rgba, width, height, p.x, p.y, radius, transient.color, 0.5 * state.flux, Boolean(p.wrapX), {
+      periodPx: p.periodPx,
+      clip: p.clip,
+    });
   }
 }
 
@@ -462,8 +489,22 @@ function renderBasePixels(epochIndex, width, height) {
   const yMax = MOLLWEIDE_Y_MAX;
   const planeWidth = xMax - xMin;
   const planeHeight = yMax - yMin;
-  const angularPixelScale = planeHeight / height;
+  // Star and transient radii are expressed in degrees, so the plane scale must
+  // be converted back to degrees per pixel. Using the raw radian scale here
+  // inflates every splat by ~57x and saturates the whole ellipse to white.
+  const angularPixelScale = (planeHeight / height) * RAD;
   const centralMeridianRad = 0;
+
+  // Pixels whose plane coordinate falls outside the Mollweide ellipse are not
+  // sky at all. Leave them fully transparent (RGBA 0) instead of substituting
+  // RA=0/Dec=0, which previously painted four fake sky triangles into the
+  // corners of every base texture.
+  const insideEllipse = (px, py) => {
+    const u = (px + 0.5) / width;
+    const vFromTop = (py + 0.5) / height;
+    return isInsideMap(xMin + u * planeWidth, yMax - vFromTop * planeHeight);
+  };
+
   for (let py = 0; py < height; py++) {
     const vFromTop = (py + 0.5) / height;
     const y = yMax - vFromTop * planeHeight;
@@ -471,14 +512,13 @@ function renderBasePixels(epochIndex, width, height) {
       const u = (px + 0.5) / width;
       const x = xMin + u * planeWidth;
       const sky = mollweidePlaneToRaDec(x, y, { centralMeridianRad });
-      const ra = sky?.ra ?? 0;
-      const dec = sky?.dec ?? 0;
-      const [r, g, b] = diffuseColor(ra, dec, epochIndex);
+      if (!sky) continue;
+      const [r, g, b] = diffuseColor(sky.ra, sky.dec, epochIndex);
       const o = (py * width + px) * 4;
       rgba[o] = r;
       rgba[o + 1] = g;
       rgba[o + 2] = b;
-      rgba[o + 3] = isCovered(ra, dec, epochIndex) ? 255 : 0;
+      rgba[o + 3] = isCovered(sky.ra, sky.dec, epochIndex) ? 255 : 0;
     }
   }
   const project = (ra, dec) => {
@@ -486,10 +526,18 @@ function renderBasePixels(epochIndex, width, height) {
     if (!plane) return null;
     const u = (plane.x - MOLLWEIDE_X_MIN) / planeWidth;
     const vFromTop = (MOLLWEIDE_Y_MAX - plane.y) / planeHeight;
+    // The map is as wide as the equator only at the equator; at higher
+    // latitudes its two ±180° edges are closer together. A star on the seam
+    // must be repeated across that row's width, not the texture rectangle's.
+    const cosTheta = Math.sqrt(Math.max(0, 1 - (plane.y / MOLLWEIDE_Y_MAX) ** 2));
     return {
-      x: (u - 0.5) * width,
-      y: (vFromTop - 0.5) * height,
+      // The base renderer addresses pixel centres as integer coordinates, so
+      // the left/top edge is -0.5 and the right/bottom edge is size - 0.5.
+      x: u * width - 0.5,
+      y: vFromTop * height - 0.5,
       wrapX: true,
+      periodPx: cosTheta * width,
+      clip: insideEllipse,
     };
   };
   splatStars(rgba, width, height, epochIndex, project, angularPixelScale);
@@ -803,6 +851,7 @@ export function skyIndex() {
       base: {
         width: BASE_WIDTH,
         height: BASE_HEIGHT,
+        projection: SKY_PROJECTION,
         urlTemplate: '/api/spherex/sky/base/{epoch}.png',
       },
       urlTemplate: '/api/spherex/sky/tile/{epoch}/{order}/{ipix}.png',

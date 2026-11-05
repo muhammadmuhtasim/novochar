@@ -35,7 +35,7 @@ export function tileUrl(template, { epoch, order, ipix }) {
   return fillTileTemplate(template, { epoch, order, ipix });
 }
 
-/** URL for the equirectangular base texture of an epoch. */
+/** URL for the Mollweide all-sky base texture of an epoch. */
 export function baseUrl(template, epoch) {
   return fillTileTemplate(template, { epoch });
 }

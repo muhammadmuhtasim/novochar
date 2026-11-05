@@ -76,7 +76,7 @@ function bytes(n) {
 }
 
 /** A single epoch's image. Drawn at native resolution and scaled by CSS. */
-function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCursor, selection, onSelect, stretchType = 'asinh' }) {
+function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCursor, selection, onSelect }) {
   const canvasRef = useRef(null);
   const transform = useMemo(() => makeScreenTransform({ width, height }), [width, height]);
 
@@ -84,9 +84,9 @@ function EpochPanel({ epoch, raster, stretch, wcs, width, height, cursor, onCurs
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const rgba = renderRaster(raster, { lo: stretch.lo, hi: stretch.hi, colormap: 'viridis', stretch: stretchType });
+    const rgba = renderRaster(raster, stretch);
     ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
-  }, [raster, stretch, width, height, stretchType]);
+  }, [raster, stretch, width, height]);
 
   const pointer = (event) => {
     const canvas = canvasRef.current;
@@ -254,35 +254,6 @@ export default function SpherexViewer({ onOpenSky3D } = {}) {
     return computeStretch(image, mask);
   }, [state]);
 
-  const [stretchType, setStretchType] = useState<'linear' | 'log' | 'sqrt' | 'asinh'>('asinh');
-
-  // Multi-band RGB compositing state
-  const [bandIds, setBandIds] = useState<'1' | '2' | '3'>('1|2|3');
-  const [weights, setWeights] = useState<{ r: number; g: number; b: number }>({ r: 1, g: 1, b: 1 });
-
-  // Histogram of valid pixel values across both epochs, binned for display.
-  const histogram = useMemo(() => {
-    if (!stretch) return { bins: [], min: 0, max: 1 };
-    const allValues: number[] = [];
-    for (const p of state.meta.epochs) {
-      const img = state.rasters[p.role].image;
-      const msk = state.rasters[p.role].mask;
-      for (let i = 0; i < img.length; i++) if (msk[i] === 1 && Number.isFinite(img[i])) allValues.push(img[i]);
-    }
-    if (!allValues.length) return { bins: [], min: 0, max: 1 };
-    allValues.sort((a, b) => a - b);
-    const min = allValues[0];
-    const max = allValues[allValues.length - 1];
-    const binCount = 50;
-    const binWidth = (max - min) / binCount;
-    const bins = new Uint16Array(binCount);
-    for (const v of allValues) {
-      const binIndex = Math.min(binCount - 1, Math.floor((v - min) / binWidth));
-      bins[binIndex]++;
-    }
-    return { bins, min, max };
-  }, [stretch, state.meta.epochs]);
-
   if (state.status === 'loading') {
     return <div className="module-loading" role="status">Loading SPHEREx products</div>;
   }
@@ -410,69 +381,6 @@ export default function SpherexViewer({ onOpenSky3D } = {}) {
                 {BLINK_SPEEDS_MS.map((ms) => <option key={ms} value={ms}>{ms} ms</option>)}
               </select>
               <span className="spherex-hint">selecting an epoch pauses the blink</span>
-              <span className="tb-label">STRETCH</span>
-            <select
-              className="spherex-speed"
-              aria-label="Stretch type"
-              value={stretchType}
-              onChange={(event) => setStretchType(event.target.value as "linear" | "log" | "sqrt" | "asinh")}>
-                {["linear", "log", "sqrt", "asinh"].map((stretch) => (
-                  <option key={stretch} value={stretch}>
-                    {stretch === "linear" ? "Linear" : stretch.charAt(0).toUpperCase() + stretch.slice(1)}
-                  </option>
-                ))}
-
-              <span className="tb-label">BANDS</span>
-              <select
-                className="spherex-speed"
-                aria-label="Select 3 SPHEREx bands"
-                value={bandIds[0]}
-                onChange={(event) => setBandIds(event.target.value + "|" + bandIds[1] + "|" + bandIds[2])}>
-                {["1", "2", "3", "4", "5", "6"].map((b) => (
-                  <option key={b} value={b}>
-                    Band {b}
-                  </option>
-                ))}
-              </select>
-              <span className="spherex-hint">select 3 of 6 SPHEREx near-IR bands</span>
-              <span className="tb-label">WEIGHTS</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={weights.r}
-                  onChange={(e) => setWeights({ ...weights, r: Number(e.target.value) })}
-                  style={{ width: 80 }}
-                />
-                <span>{weights.r.toFixed(1)}</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={weights.g}
-                  onChange={(e) => setWeights({ ...weights, g: Number(e.target.value) })}
-                  style={{ width: 80 }}
-                />
-                <span>{weights.g.toFixed(1)}</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="2"
-                  step="0.1"
-                  value={weights.b}
-                  onChange={(e) => setWeights({ ...weights, b: Number(e.target.value) })}
-                  style={{ width: 80 }}
-                />
-                <span>{weights.b.toFixed(1)}</span>
-              </div>
-              <span className="spherex-hint">adjust per-channel contribution</span>
-            </>
-              </select>
-              <span className="spherex-hint">changes how pixel values map to colors</span>
-            </>
             </>
           )}
 
@@ -552,13 +460,6 @@ export default function SpherexViewer({ onOpenSky3D } = {}) {
           <span className="spherex-swatch" aria-hidden="true">
             <i className="spherex-nodata" />
             <span className="mono">no data (outside footprint or invalid per the product flags)</span>
-          </span>
-          <span className="spherex-swatch" aria-hidden="true">
-            <i className="spherex-histogram" />
-            <span className="mono">
-              histogram: {histogram.bins.length} bins, range [{histogram.min.toFixed(2)}, {histogram.max.toFixed(2)}] ·
-              {histogram.bins.map((c, i) => `${i * 10}–${(i + 1) * 10}%`).join(', ')}
-            </span>
           </span>
         </div>
 

@@ -186,6 +186,9 @@ try {
   check('sky index has four epochs', index.epochs?.length === 4, String(index.epochs?.length));
   check('sky index uses HEALPix NEST', index.tiles?.scheme === 'healpix-nest' && index.tiles?.ordering === 'NEST');
   check('sky pyramid is order 1..4', index.tiles?.baseOrder === 1 && index.tiles?.maxOrder === 4);
+  check('sky index declares the Mollweide all-sky base',
+    index.projection === 'mollweide' && index.tiles?.base?.projection === 'mollweide',
+    `${index.projection} / ${index.tiles?.base?.projection}`);
   check('sky index carries the non-measurement notice', /not an archive measurement|visualization prototype/i.test(index.notice ?? ''));
 
   const sourcesResponse = await fetch(`${origin}/api/spherex/sky/sources`, { cache: 'no-store' });

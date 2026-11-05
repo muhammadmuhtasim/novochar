@@ -4,7 +4,7 @@
 // and the loading/error copy. This module owns:
 //
 //   * a camera inside a sphere with custom yaw/pitch/fov controls;
-//   * a low-resolution equirectangular base per epoch (illustrative mode);
+//   * a low-resolution Mollweide all-sky base per epoch (illustrative mode);
 //   * HEALPix NEST tangent-plane patches, progressively refined near the view;
 //   * a regional tangent-plane observation for verified archive mode;
 //   * an opaque no-data shell so gaps never reveal decorative background stars;
@@ -16,7 +16,8 @@
 // the verified product store exposed; everywhere else is explicitly no-data.
 
 import * as THREE from 'three';
-import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad, MOLLWEIDE_X_MIN, MOLLWEIDE_X_MAX, MOLLWEIDE_Y_MIN, MOLLWEIDE_Y_MAX, mollweidePlaneToRaDec } from '@novochar/astro';
+import { nside2resolRad, order2nside, pixelCenterRaDec, tileHalfAngleRad } from '@novochar/astro';
+import { buildSkySphereGrid } from './sky3d-geometry.js';
 import {
   raToYaw,
   skyRenderDirection,
@@ -53,41 +54,16 @@ function isTransientError(error) {
 // A sphere whose UVs are defined from the same RA/Dec convention as the tiles.
 // j=0 is the south pole, j=lat is the north pole. Decoded ImageBitmaps are
 // pre-flipped, so the server base image row 0 (north) maps to v=1.
-// Projection can be 'equirectangular' (default) or 'mollweide'.
+// Projection can be 'equirectangular' or 'mollweide'. For Mollweide every
+// vertex is still a real sphere direction; only its UV comes from the forward
+// projection, so the ellipse corners are never sampled as fake sky.
 function createSphereGeometry(radius, lonSegments = 96, latSegments = 48, projection = 'equirectangular') {
-  const positions = [];
-  const uvs = [];
-  const indices = [];
-  const planeX = MOLLWEIDE_X_MAX - MOLLWEIDE_X_MIN; // 4√2
-  const planeY = MOLLWEIDE_Y_MAX - MOLLWEIDE_Y_MIN; // 2√2
-  for (let j = 0; j <= latSegments; j++) {
-    const v = j / latSegments; // 0 = south, 1 = north
-    const dec = -90 + v * 180;
-    for (let i = 0; i <= lonSegments; i++) {
-      const u = i / lonSegments; // 0 = lon -180 (or RA 0), 1 = lon +180 (or RA 360)
-      let dir;
-      if (projection === 'mollweide') {
-        const x = MOLLWEIDE_X_MIN + u * planeX;
-        const y = MOLLWEIDE_Y_MIN + v * planeY;
-        const sky = mollweidePlaneToRaDec(x, y, { centralMeridianRad: 0 });
-        dir = sky ? skyRenderDirection(sky.ra, sky.dec) : skyRenderDirection(0, dec);
-      } else {
-        const ra = u * 360;
-        dir = skyRenderDirection(ra, dec);
-      }
-      positions.push(dir[0] * radius, dir[1] * radius, dir[2] * radius);
-      uvs.push(u, v);
-    }
-  }
-  for (let j = 0; j < latSegments; j++) {
-    for (let i = 0; i < lonSegments; i++) {
-      const a = j * (lonSegments + 1) + i;
-      const b = a + 1;
-      const c = a + lonSegments + 1;
-      const d = c + 1;
-      indices.push(a, b, d, a, d, c);
-    }
-  }
+  const { positions, uvs, indices } = buildSkySphereGrid({
+    radius,
+    lonSegments,
+    latSegments,
+    projection,
+  });
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
@@ -381,6 +357,10 @@ export function createSky3DEngine({
 
   const epochs = meta.epochs;
   const regionalSurface = meta.surface?.kind === 'regional-tan' ? meta.surface : null;
+  // The all-sky base is a Mollweide image. Read the projection from the index
+  // so an older equirectangular product still renders, but never assume a
+  // rectangular image for the current one.
+  const baseProjection = meta.projection === 'equirectangular' ? 'equirectangular' : 'mollweide';
   const baseOrder = meta.tiles?.baseOrder ?? 1;
   const configuredMaxOrder = Math.min(meta.tiles?.maxOrder ?? 4, quality.maxOrder ?? 4);
   const tileTemplate = meta.tiles?.urlTemplate ?? null;
@@ -638,7 +618,7 @@ export function createSky3DEngine({
       group.add(patch);
       state.baseMesh = patch;
     } else {
-      const geometry = createSphereGeometry(BASE_RADIUS, 96, 48, 'mollweide');
+      const geometry = createSphereGeometry(BASE_RADIUS, 128, 64, baseProjection);
       const material = new THREE.MeshBasicMaterial({
         color: 0x0b1020,
         side: THREE.DoubleSide,
@@ -704,9 +684,10 @@ export function createSky3DEngine({
         texture.wrapS = THREE.ClampToEdgeWrapping;
         texture.wrapT = THREE.ClampToEdgeWrapping;
       } else {
-        // The Mollweide/equirectangular base has a real seam (Mollweide: ±180°
-        // meridian; equirectangular: RA=0/360); wrap it so mipmap filtering blends
-        // the two edges instead of clamping them.
+        // The all-sky base has a real seam at the ±180° meridian (Mollweide
+        // ellipse sides); wrap it so mipmap filtering blends the two edges
+        // instead of clamping them. The sphere geometry samples u=0 and u=1 on
+        // either side of that seam.
         texture.wrapS = THREE.RepeatWrapping;
       }
       baseTextures.set(epochId, texture);

@@ -73,7 +73,7 @@ without it using the simulated survey data.
 | **MISSION**      | Home / mission HUD with survey-pass progress, counts, field coords and class cards |
 | **SKY VIEWER**   | Immersive **3D free-flight space**, ported from the standalone [`3d/`](3d) project with its `world`/`controls` modules vendored as `client/src/lib/world3d.js` + `controls3d.js` and rendered by `Space3DCanvas`. A **procedural, effectively infinite** wireframe world generates deterministic 72-unit sectors around the camera (revisiting a sector regenerates the same geometry). Click to capture the pointer and fly: **WASD** translate, **mouse** look, **Space/Ctrl** vertical, **Q/E** roll, **Shift** boost, **Esc** release. The HUD shows live coordinates, FPS and active-sector count, plus a **FULL DISPLAY** mode that reproduces the standalone module's full-window view |
 | **SPHEREx FIELD** | Validated real SPHEREx NEP observations (two epochs, one shared grid) with side-by-side, single-epoch and blink inspection; no difference or variability control while the sidecar gate is off |
-| **SPHEREx 3D**    | Four-epoch full-sky WebGL2 explorer: HEALPix NEST tile pyramid, progressive worker-decoded textures, GPU-instanced prototype candidates, timeline and adaptive quality. The **global layer is explicitly illustrative**; the real NEP detail stays in **SPHEREx FIELD**. See [`docs/spherex-sky3d.md`](docs/spherex-sky3d.md) |
+| **SPHEREx 3D**    | Four-epoch all-sky WebGL2 explorer: Mollweide equal-area base, HEALPix NEST detail pyramid, progressive worker-decoded textures, GPU-instanced prototype candidates, timeline and adaptive quality. The **global layer is explicitly illustrative**; the real NEP detail stays in **SPHEREx FIELD**. See [`docs/spherex-sky3d.md`](docs/spherex-sky3d.md) |
 | **BLINK COMPARATOR** | Time-series blink across survey passes to spot movers; motion trails + readout (per-pass spectral band shown) |
 | **CATALOGUE**    | Filterable / sortable table of tracked objects with detail drawer |
 | **SPECTRA**      | Spectral-analysis workbench: 1-D log-flux-vs-wavelength plot with labeled atomic/molecular **line markers**, a **line-free continuum** overlay and a **residual strip** for line identification, an **SPHEREx bandpass guide**, clickable **HEALPix** map that loads spectra + **multi-target comparison overlay**, a **cross-correlation AUTO-z** estimator with a live template-match score, **spectral index (F_λ ∝ λ^α)** and strongest-line readouts, a rest→observed **line-identification table**, and **export** (CSV / JSON / FITS / self-contained SVG / PNG) |
@@ -185,7 +185,7 @@ GET /api/spherex/sky/archive             (two verified NEP epochs, shared stretc
 GET /api/spherex/sky/archive/:epoch.png  (294x294 RGBA TAN observation, north-up)
 GET /api/spherex/sky                     (four-epoch illustrative HEALPix NEST index)
 GET /api/spherex/sky/sources             (prototype candidate measurements)
-GET /api/spherex/sky/base/:epoch.png     (512x256 RGBA equirectangular base)
+GET /api/spherex/sky/base/:epoch.png     (512x256 RGBA Mollweide equal-area base)
 GET /api/spherex/sky/tile/:epoch/:order/:ipix.png   (128x128 RGBA NEST patch)
 
 # Layer 4 — Data Representation

@@ -40,7 +40,7 @@ the HUD, provenance card and API (`mode: "illustrative"`).
 | `GET /api/spherex/sky/archive/:epoch.png` | One real observation as a 294×294 RGBA TAN PNG |
 | `GET /api/spherex/sky` | Illustrative index: four epochs, coverage, HEALPix NEST levels, URL templates |
 | `GET /api/spherex/sky/sources` | GPU-instanced prototype candidate measurements for the four illustrative epochs |
-| `GET /api/spherex/sky/base/:epoch.png` | 512×256 equirectangular RGBA illustrative base |
+| `GET /api/spherex/sky/base/:epoch.png` | 512×256 Mollweide equal-area RGBA illustrative base |
 | `GET /api/spherex/sky/tile/:epoch/:order/:ipix.png` | 128×128 RGBA HEALPix NEST tangent-plane patch |
 
 Archive epoch IDs are `epoch-a` and `epoch-b`. Illustrative epoch IDs are
@@ -69,16 +69,31 @@ pixels).
 
 ### Illustrative raster conventions
 
-* Base: column 0 is RA 0, row 0 is Dec +90; the image is equirectangular.
-* Tile: the centre is the HEALPix NEST pixel centre; east is the local `+u` axis
-  and north is the local `+v` axis. The renderer reconstructs the same patch
-  with `normalize(center + east*u*half + north*v*half)` and the same
-  `tileHalfAngleRad(order)` as the server.
+* **Base projection:** the base is a Mollweide equal-area map, not an
+  equirectangular grid. The ellipse is centred on RA 0; its left and right
+  edges are the two sides of the ±180° meridian, and its top/bottom points are
+  Dec +90°/−90°. The map therefore covers the whole sphere with equal area per
+  pixel. The image is still row-0-north for the decode contract.
+* **Base transparency:** the 512×256 rectangle is larger than the ellipse.
+  Pixels outside the ellipse are RGBA 0 (transparent, no colour) and are never
+  interpreted as RA=0/Dec=0. The client builds a real sphere and derives each
+  vertex UV from the shared Mollweide forward projection, so the rectangle
+  corners are not sampled at all; the texture's left/right seam is mirrored
+  across the ellipse instead of being clamped.
+* **Tile:** the centre is the HEALPix NEST pixel centre; east is the local `+u`
+  axis and north is the local `+v` axis. The renderer reconstructs the same
+  patch with `normalize(center + east*u*half + north*v*half)` and the same
+  `tileHalfAngleRad(order)` as the server. Tiles are tangent-plane patches on
+  top of the Mollweide base; the two layers share the same RA/Dec → render
+  direction convention.
 * Alpha 0 marks no-coverage model sky. The client draws an opaque, flat dark
   no-data shell behind the sphere so a gap can never reveal decorative stars or
   the page background. A flat shell is used instead of a tiled hatch: at the
   archive field of view a low-resolution hatch texture magnifies into large
   nearest-neighbour squares that read as corrupted image data.
+* The index advertises `projection: "mollweide"` at both the top level and
+  `tiles.base.projection`, so the renderer never has to infer the base layout
+  from the image dimensions.
 
 The client decodes every PNG into an `ImageBitmap` that is **pre-flipped during
 decode** (`imageOrientation: "flipY"`), then uploads it with `texture.flipY =
@@ -116,6 +131,7 @@ durable storage.
 | `client/src/components/SpherexSky3D.jsx` | Mode switch, timeline, observation/candidate cards, performance HUD, FIELD bridge, error/WebGL2 states |
 | `client/src/lib/sky3d-engine.js` | Three.js scene, camera controls, archive TAN patch, illustrative base/tiles, no-data shell, instanced candidates, adaptive DPR/detail, prefetch, disposal |
 | `client/src/lib/sky3d-orientation.js` | Right-handed east-left render basis, yaw/RA conversion, tangent basis shared by the 3D scene |
+| `client/src/lib/sky3d-geometry.js` | Pure sphere/UV builders: Mollweide UVs from the shared forward projection, seam mirroring, ellipse test |
 | `client/src/lib/sky-tile-loader.js` | Deduplicating priority queue, worker pool, abort/cancel, main-thread fallback, stats |
 | `client/src/lib/sky-tile-worker.js` | Fetch + decode off the main thread |
 | `client/src/lib/sky-tile-decode.js` | North-up `ImageBitmap` decode (the flip contract) |
